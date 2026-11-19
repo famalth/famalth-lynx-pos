@@ -58,6 +58,74 @@ export const dbMiddleware = async (req: Request, res: Response, next: NextFuncti
           ALTER TABLE users ADD COLUMN IF NOT EXISTS show_in_quick_login BOOLEAN DEFAULT FALSE;
           ALTER TABLE users ALTER COLUMN show_in_quick_login SET DEFAULT FALSE;
 
+          -- HRMS Punches & Devices
+          ALTER TABLE hr_attendance_punches ADD COLUMN IF NOT EXISTS device_id VARCHAR(255);
+          ALTER TABLE hr_attendance_punches ADD COLUMN IF NOT EXISTS device_info TEXT;
+          ALTER TABLE hr_attendance_punches ADD COLUMN IF NOT EXISTS remarks TEXT;
+          ALTER TABLE hr_attendance_punches ADD COLUMN IF NOT EXISTS biometric_device_id INTEGER;
+
+          -- HRMS Employees & Security
+          ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS bound_device_id VARCHAR(255);
+          ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS bound_device_info TEXT;
+          ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS office_id INTEGER;
+          ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
+          ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS reset_otp VARCHAR(10);
+          ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS reset_otp_expires_at TIMESTAMPTZ;
+
+          -- Item Master & Costing
+          ALTER TABLE item_master ADD COLUMN IF NOT EXISTS average_rate DECIMAL(12, 2) DEFAULT 0.00;
+          ALTER TABLE item_master ADD COLUMN IF NOT EXISTS opening_rate DECIMAL(12, 2) DEFAULT NULL;
+
+          -- Purchase Orders
+          ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS approval_status VARCHAR(20) DEFAULT 'APPROVED';
+          ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS approved_by INTEGER;
+          ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
+          ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS rejected_by INTEGER;
+          ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ;
+          ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+
+          -- Returns, Stock Taking & Brand
+          ALTER TABLE return_items ADD COLUMN IF NOT EXISTS tax DECIMAL(5, 2) DEFAULT 0.00;
+          ALTER TABLE return_items ADD COLUMN IF NOT EXISTS tax_amount DECIMAL(12, 2) DEFAULT 0.00;
+          ALTER TABLE return_items ADD COLUMN IF NOT EXISTS amount DECIMAL(12, 2);
+          ALTER TABLE return_items ADD COLUMN IF NOT EXISTS total_after_tax DECIMAL(12, 2);
+          ALTER TABLE stock_taking ADD COLUMN IF NOT EXISTS brand VARCHAR(150);
+          ALTER TABLE supplier_return_items ADD COLUMN IF NOT EXISTS brand VARCHAR(150);
+          ALTER TABLE supplier_return_items ADD COLUMN IF NOT EXISTS tax DECIMAL(5, 2) DEFAULT 0.00;
+          ALTER TABLE supplier_return_items ADD COLUMN IF NOT EXISTS tax_amount DECIMAL(12, 2) DEFAULT 0.00;
+          ALTER TABLE supplier_return_items ADD COLUMN IF NOT EXISTS total_after_tax DECIMAL(12, 2);
+
+          -- System Settings Clinic Closure
+          ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS clinic_closed_today BOOLEAN DEFAULT FALSE;
+          ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS clinic_closed_date VARCHAR(20) DEFAULT '';
+          ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS clinic_closed_reason TEXT DEFAULT '';
+
+          -- Customers Email Verification
+          ALTER TABLE customers ADD COLUMN IF NOT EXISTS is_email_verified BOOLEAN DEFAULT FALSE;
+          ALTER TABLE customers ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
+
+          -- Restaurant & KOT Revisions
+          ALTER TABLE sales_items ADD COLUMN IF NOT EXISTS original_qty DECIMAL(12, 4);
+          ALTER TABLE kot_headers ADD COLUMN IF NOT EXISTS guest_count INTEGER;
+          ALTER TABLE kot_revisions ADD COLUMN IF NOT EXISTS reason VARCHAR(255);
+          ALTER TABLE kot_revisions ADD COLUMN IF NOT EXISTS snapshot JSONB;
+          ALTER TABLE property_info ADD COLUMN IF NOT EXISTS business_module VARCHAR(50) DEFAULT 'ALL';
+          ALTER TABLE property_info ADD COLUMN IF NOT EXISTS outlet_module VARCHAR(50) DEFAULT 'ALL';
+
+          -- Supplier & Issues
+          ALTER TABLE supplier_bills ADD COLUMN IF NOT EXISTS remarks TEXT;
+          ALTER TABLE milk_subscription_consumptions ADD COLUMN IF NOT EXISTS notes TEXT;
+          ALTER TABLE issue_items ADD COLUMN IF NOT EXISTS item_code VARCHAR(100);
+
+          -- HRMS Additional Tables & Columns
+          ALTER TABLE hr_salary_components ADD COLUMN IF NOT EXISTS created_by INTEGER;
+          ALTER TABLE hr_leave_types ADD COLUMN IF NOT EXISTS created_by INTEGER;
+          ALTER TABLE hr_leave_applications ADD COLUMN IF NOT EXISTS created_by INTEGER;
+          ALTER TABLE hr_payroll_runs ADD COLUMN IF NOT EXISTS created_by INTEGER;
+          ALTER TABLE hr_cashier_handovers ADD COLUMN IF NOT EXISTS created_by INTEGER;
+          ALTER TABLE hr_loan_transactions ADD COLUMN IF NOT EXISTS outlet_id INTEGER;
+          ALTER TABLE outlet_settings ADD COLUMN IF NOT EXISTS settings JSONB DEFAULT '{}';
+
           CREATE TABLE IF NOT EXISTS outlet_storage_quotas (
             id SERIAL PRIMARY KEY,
             outlet_id INTEGER NOT NULL,

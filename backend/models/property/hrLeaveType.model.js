@@ -8,7 +8,8 @@ module.exports = (sequelize, DataTypes) => {
         name: { type: DataTypes.STRING(100), allowNull: false },
         is_paid: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
         annual_quota: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 14 },
-        is_active: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }
+        is_active: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+        created_by: { type: DataTypes.INTEGER, allowNull: true }
     }, {
         tableName: 'hr_leave_types',
         timestamps: true,

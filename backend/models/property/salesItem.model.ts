@@ -24,6 +24,7 @@ module.exports = (sequelize, DataTypes) => {
         applied_scheme_id: DataTypes.INTEGER,
         applied_happy_hour_id: DataTypes.INTEGER,
         is_advance_free: DataTypes.BOOLEAN,
+        original_qty: DataTypes.DECIMAL(12, 4),
         original_rate: DataTypes.DECIMAL(12, 2),
         scheme_discount_per_unit: DataTypes.DECIMAL(12, 2),
         modifier_details: DataTypes.JSONB,

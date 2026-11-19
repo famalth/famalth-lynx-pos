@@ -107,6 +107,14 @@ module.exports = (sequelize, DataTypes) => {
         print_digital_signature: {
             type: DataTypes.BOOLEAN,
             defaultValue: false
+        },
+        business_module: {
+            type: DataTypes.STRING(50),
+            defaultValue: 'ALL'
+        },
+        outlet_module: {
+            type: DataTypes.STRING(50),
+            defaultValue: 'ALL'
         }
     }, {
         tableName: 'property_info',

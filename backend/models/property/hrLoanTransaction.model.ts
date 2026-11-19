@@ -1,6 +1,7 @@
 module.exports = (sequelize, DataTypes) => {
     const HrLoanTransaction = sequelize.define('hr_loan_transactions', {
         id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+        outlet_id: { type: DataTypes.INTEGER, allowNull: true },
         loan_id: { type: DataTypes.INTEGER, allowNull: false },
         transaction_type: { type: DataTypes.STRING(50), allowNull: false },
         amount: { type: DataTypes.DECIMAL(12, 2), allowNull: false },

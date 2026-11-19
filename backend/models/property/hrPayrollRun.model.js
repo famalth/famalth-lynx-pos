@@ -12,7 +12,8 @@ module.exports = (sequelize, DataTypes) => {
         expense_id: { type: DataTypes.UUID, allowNull: true },
         total_gross: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0.00 },
         total_deductions: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0.00 },
-        total_net: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0.00 }
+        total_net: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0.00 },
+        created_by: { type: DataTypes.INTEGER, allowNull: true }
     }, {
         tableName: 'hr_payroll_runs',
         timestamps: true,

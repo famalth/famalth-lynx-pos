@@ -47,6 +47,10 @@ module.exports = (sequelize, DataTypes) => {
             type: DataTypes.INTEGER,
             allowNull: true
         },
+        guest_count: {
+            type: DataTypes.INTEGER,
+            defaultValue: 1
+        },
         remarks: {
             type: DataTypes.TEXT,
             allowNull: true

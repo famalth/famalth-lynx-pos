@@ -4,6 +4,7 @@ module.exports = (sequelize, DataTypes) => {
         {
             issue_id: DataTypes.INTEGER,
             item_id: DataTypes.INTEGER,
+            item_code: DataTypes.STRING(50),
             qty: DataTypes.DECIMAL(12, 2),
             rate: DataTypes.DECIMAL(12, 2),
             tax: DataTypes.DECIMAL(12, 2)

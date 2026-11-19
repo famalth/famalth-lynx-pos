@@ -11,7 +11,8 @@ module.exports = (sequelize, DataTypes) => {
         formula: { type: DataTypes.STRING(255), allowNull: true },
         is_taxable: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
         frequency: { type: DataTypes.STRING(50), allowNull: false, defaultValue: 'Monthly' },
-        is_active: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }
+        is_active: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+        created_by: { type: DataTypes.INTEGER, allowNull: true }
     }, {
         tableName: 'hr_salary_components',
         timestamps: true,

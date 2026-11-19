@@ -59,6 +59,7 @@ module.exports = (sequelize, DataTypes) => {
             allowNull: false,
             defaultValue: 'PENDING'
         },
+        notes: DataTypes.TEXT,
         created_by: DataTypes.INTEGER
     }, {
         tableName: 'milk_subscription_consumptions',

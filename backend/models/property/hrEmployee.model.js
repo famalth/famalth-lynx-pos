@@ -37,6 +37,8 @@ module.exports = (sequelize, DataTypes) => {
         password_hash: { type: DataTypes.STRING(255), allowNull: true },
         reset_otp: { type: DataTypes.STRING(10), allowNull: true },
         reset_otp_expires_at: { type: DataTypes.DATE, allowNull: true },
+        bound_device_id: { type: DataTypes.STRING(255), allowNull: true },
+        bound_device_info: { type: DataTypes.TEXT, allowNull: true },
         created_by: { type: DataTypes.INTEGER, allowNull: true }
     }, {
         tableName: 'hr_employees',

@@ -23,7 +23,11 @@ module.exports = (sequelize, DataTypes) => {
         checkout_longitude: { type: DataTypes.DECIMAL(10, 7), allowNull: true },
         checkout_distance_meters: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
         is_geofence_compliant: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
-        early_departure_mins: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 }
+        early_departure_mins: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+        device_id: { type: DataTypes.STRING(255), allowNull: true },
+        device_info: { type: DataTypes.TEXT, allowNull: true },
+        remarks: { type: DataTypes.TEXT, allowNull: true },
+        biometric_device_id: { type: DataTypes.INTEGER, allowNull: true }
     }, {
         tableName: 'hr_attendance_punches',
         timestamps: true,

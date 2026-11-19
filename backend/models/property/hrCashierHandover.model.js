@@ -12,7 +12,8 @@ module.exports = (sequelize, DataTypes) => {
         variance: { type: DataTypes.DECIMAL(12, 2), allowNull: false },
         shortage_status: { type: DataTypes.STRING(50), allowNull: false, defaultValue: 'Logged' },
         penalty_amount: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0.00 },
-        payroll_run_id: { type: DataTypes.INTEGER, allowNull: true }
+        payroll_run_id: { type: DataTypes.INTEGER, allowNull: true },
+        created_by: { type: DataTypes.INTEGER, allowNull: true }
     }, {
         tableName: 'hr_cashier_handovers',
         timestamps: true,

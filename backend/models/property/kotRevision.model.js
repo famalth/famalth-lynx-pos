@@ -26,6 +26,14 @@ module.exports = (sequelize, DataTypes) => {
         modification_reason: {
             type: DataTypes.STRING(255),
             allowNull: true
+        },
+        reason: {
+            type: DataTypes.STRING(255),
+            allowNull: true
+        },
+        snapshot: {
+            type: DataTypes.JSONB,
+            allowNull: true
         }
     }, {
         tableName: 'kot_revisions',

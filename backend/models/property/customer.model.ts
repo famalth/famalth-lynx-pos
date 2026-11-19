@@ -23,6 +23,14 @@ module.exports = (sequelize, DataTypes) => {
         customer_gstin: {
             type: DataTypes.STRING(20),
             allowNull: true
+        },
+        is_email_verified: {
+            type: DataTypes.BOOLEAN,
+            defaultValue: false
+        },
+        email_verified_at: {
+            type: DataTypes.DATE,
+            allowNull: true
         }
     }, {
         tableName: 'customers',

@@ -11,7 +11,8 @@ module.exports = (sequelize, DataTypes) => {
         total_days: { type: DataTypes.DECIMAL(4, 1), allowNull: false },
         reason: { type: DataTypes.TEXT, allowNull: true },
         status: { type: DataTypes.STRING(50), allowNull: false, defaultValue: 'Pending' },
-        approved_by: { type: DataTypes.INTEGER, allowNull: true }
+        approved_by: { type: DataTypes.INTEGER, allowNull: true },
+        created_by: { type: DataTypes.INTEGER, allowNull: true }
     }, {
         tableName: 'hr_leave_applications',
         timestamps: true,

@@ -15,6 +15,7 @@ module.exports = (sequelize, DataTypes) => {
         bill_amount: DataTypes.DECIMAL(12, 2),
         paid_amount: DataTypes.DECIMAL(12, 2),
         round_off_amount: { type: DataTypes.DECIMAL(12, 2), defaultValue: 0.00 },
+        remarks: DataTypes.TEXT,
         status: DataTypes.STRING(20)
     }, {
         tableName: 'supplier_bills',

@@ -9,6 +9,10 @@ module.exports = (sequelize, DataTypes) => {
         meta_data: {
             type: DataTypes.JSONB,
             defaultValue: {}
+        },
+        settings: {
+            type: DataTypes.JSONB,
+            defaultValue: {}
         }
     }, {
         tableName: 'outlet_settings',
