@@ -295,6 +295,9 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
   }
 
   Future<void> _markPunch(String punchType) async {
+    if (_employeeData == null) {
+      await _loadProfileData();
+    }
     if (_currentPosition == null) {
       await _refreshCurrentGps();
       if (_currentPosition == null) {
@@ -316,6 +319,8 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
         'device_id': devId,
         'device_info': devInfo,
         'timestamp': DateTime.now().toIso8601String(),
+        if (_employeeData != null && _employeeData!['id'] != null && _employeeData!['id'] > 0)
+          'employee_id': _employeeData!['id'],
       };
 
       final res = await ApiClient.post(ApiEndpoints.hrmsEmployeePunch, payload);

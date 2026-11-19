@@ -33,6 +33,88 @@ function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
   return Math.round(R * c);
 }
 
+/**
+ * Resiliently resolve the employee record across user_id, employee_id, email, phone, or outlet
+ */
+async function resolveEmployee(req, models) {
+  const { hr_employees, hr_offices, hr_shifts, hr_designations, outlets } = models;
+  const outlet_id = req.user && req.user.outlet_id ? req.user.outlet_id : null;
+  let employee = null;
+
+  const includes = [
+    { model: hr_offices, as: 'office', required: false },
+    { model: hr_shifts, as: 'shift', required: false },
+    { model: hr_designations, as: 'designation', required: false },
+    { model: outlets, as: 'outlet', required: false }
+  ];
+
+  // 1. Explicit employee_id in request body or query
+  const explicitId = (req.body && req.body.employee_id) || (req.query && req.query.employee_id);
+  if (explicitId && parseInt(explicitId) > 0) {
+    const where = { id: parseInt(explicitId) };
+    if (outlet_id) where.outlet_id = outlet_id;
+    employee = await hr_employees.findOne({ where, include: includes });
+    if (!employee) {
+      employee = await hr_employees.findByPk(parseInt(explicitId), { include: includes });
+    }
+  }
+
+  // 2. Scoped to outlet by req.user.employee_id
+  if (!employee && req.user && req.user.employee_id) {
+    const where = { id: req.user.employee_id };
+    if (outlet_id) where.outlet_id = outlet_id;
+    employee = await hr_employees.findOne({ where, include: includes });
+  }
+
+  // 3. By user_id
+  if (!employee && req.user && req.user.id) {
+    const where = { user_id: req.user.id };
+    if (outlet_id) where.outlet_id = outlet_id;
+    employee = await hr_employees.findOne({ where, include: includes });
+  }
+
+  // 4. By email or mobile
+  if (!employee && outlet_id) {
+    const orConds = [];
+    if (req.user && req.user.email) orConds.push({ contact_email: req.user.email });
+    if (req.user && (req.user.phone || req.user.mobile)) orConds.push({ mobile: req.user.phone || req.user.mobile });
+    if (orConds.length > 0) {
+      employee = await hr_employees.findOne({
+        where: {
+          outlet_id,
+          [Op.or]: orConds
+        },
+        include: includes
+      });
+    }
+  }
+
+  // 5. Active employee in current outlet
+  if (!employee && outlet_id) {
+    employee = await hr_employees.findOne({
+      where: { outlet_id, status: 'Active' },
+      include: includes,
+      order: [['id', 'ASC']]
+    });
+  }
+
+  // 6. Any employee in current outlet
+  if (!employee && outlet_id) {
+    employee = await hr_employees.findOne({
+      where: { outlet_id },
+      include: includes,
+      order: [['id', 'ASC']]
+    });
+  }
+
+  // 7. Global fallback by employee_id PK
+  if (!employee && req.user && req.user.employee_id) {
+    employee = await hr_employees.findByPk(req.user.employee_id, { include: includes });
+  }
+
+  return employee;
+}
+
 // ==========================================
 // 1. OFFICES / BRANCHES MASTER CRUD
 // ==========================================
@@ -444,7 +526,6 @@ exports.employeeResetPassword = async (req, res) => {
 exports.employeeChangePassword = async (req, res) => {
   try {
     const { hr_employees } = req.propertyDb.models;
-    const employee_id = req.user.employee_id || req.user.id;
     const { current_password, new_password } = req.body;
 
     if (!current_password || !new_password) {
@@ -455,7 +536,7 @@ exports.employeeChangePassword = async (req, res) => {
       return res.status(400).json({ success: false, message: 'New password must be at least 6 characters long.' });
     }
 
-    const employee = await hr_employees.findByPk(employee_id);
+    const employee = await resolveEmployee(req, req.propertyDb.models);
     if (!employee) {
       return res.status(404).json({ success: false, message: 'Employee not found.' });
     }
@@ -483,7 +564,7 @@ exports.employeeChangePassword = async (req, res) => {
 
 exports.employeeGeotaggedPunch = async (req, res) => {
   try {
-    const { hr_attendance_punches, hr_employees, hr_offices, hr_shifts, hr_payroll_runs } = req.propertyDb.models;
+    const { hr_attendance_punches, hr_employees, hr_offices, hr_shifts, hr_payroll_runs, outlets } = req.propertyDb.models;
     const rawType = req.body.type || req.body.punch_type || req.body.punchType || '';
 
     if (!rawType || !['IN', 'OUT'].includes(String(rawType).trim().toUpperCase())) {
@@ -494,31 +575,11 @@ exports.employeeGeotaggedPunch = async (req, res) => {
     const lat = parseFloat(req.body.latitude || req.body.lat) || 0.0;
     const lon = parseFloat(req.body.longitude || req.body.lon || req.body.lng) || 0.0;
 
-    // Resolve employee
-    let employee_id = req.user.employee_id;
-    if (!employee_id) {
-      const emp = await hr_employees.findOne({
-        where: { user_id: req.user.id, outlet_id: req.user.outlet_id }
-      });
-      if (emp) employee_id = emp.id;
-    }
-    if (!employee_id && req.body.employee_id) {
-      employee_id = req.body.employee_id;
-    }
-
-    if (!employee_id) {
-      return res.status(400).json({ success: false, message: 'Employee record not found for your account.' });
-    }
-
-    const employee = await hr_employees.findByPk(employee_id, {
-      include: [
-        { model: hr_offices, as: 'office' },
-        { model: hr_shifts, as: 'shift' }
-      ]
-    });
+    // Resiliently resolve employee
+    const employee = await resolveEmployee(req, req.propertyDb.models);
 
     if (!employee) {
-      return res.status(404).json({ success: false, message: 'Employee not found.' });
+      return res.status(404).json({ success: false, message: 'Employee record not found for your account or outlet.' });
     }
 
     // ==========================================
@@ -589,11 +650,32 @@ exports.employeeGeotaggedPunch = async (req, res) => {
     if (!office && employee.office_id) {
       office = await hr_offices.findByPk(employee.office_id);
     }
-    if (!office) {
+    if (!office && employee.outlet_id) {
       // Fallback to outlet's default office
       office = await hr_offices.findOne({
         where: { outlet_id: employee.outlet_id, is_active: true },
         order: [['id', 'ASC']]
+      });
+    }
+    if (!office && employee.outlet_id) {
+      office = await hr_offices.findOne({
+        where: { outlet_id: employee.outlet_id },
+        order: [['id', 'ASC']]
+      });
+    }
+
+    // Auto-create default office for the outlet if none exists
+    if (!office && employee.outlet_id && outlets) {
+      const outletRow = await outlets.findByPk(employee.outlet_id);
+      office = await hr_offices.create({
+        outlet_id: employee.outlet_id,
+        office_code: outletRow?.outlet_code || 'HO-01',
+        office_name: outletRow?.outlet_name || 'Main Office',
+        address: outletRow?.address || 'Store Location',
+        latitude: lat || 0.0,
+        longitude: lon || 0.0,
+        radius_meters: 500,
+        is_active: true
       });
     }
 
@@ -812,81 +894,7 @@ exports.getMyEmployeeProfile = async (req, res) => {
       outlets
     } = req.propertyDb.models;
     const outlet_id = req.user.outlet_id;
-    let employee = null;
-
-    if (req.user.employee_id) {
-      const where = { id: req.user.employee_id };
-      if (outlet_id) where.outlet_id = outlet_id;
-      employee = await hr_employees.findOne({
-        where,
-        include: [
-          { model: hr_offices, as: 'office' },
-          { model: hr_shifts, as: 'shift' },
-          { model: hr_designations, as: 'designation' },
-          { model: outlets, as: 'outlet' }
-        ]
-      });
-    }
-
-    if (!employee && req.user.id) {
-      const where = { user_id: req.user.id };
-      if (outlet_id) where.outlet_id = outlet_id;
-      employee = await hr_employees.findOne({
-        where,
-        include: [
-          { model: hr_offices, as: 'office' },
-          { model: hr_shifts, as: 'shift' },
-          { model: hr_designations, as: 'designation' },
-          { model: outlets, as: 'outlet' }
-        ]
-      });
-    }
-
-    if (!employee && outlet_id) {
-      const orConds = [];
-      if (req.user.email) orConds.push({ contact_email: req.user.email });
-      if (req.user.phone || req.user.mobile) orConds.push({ mobile: req.user.phone || req.user.mobile });
-      if (orConds.length > 0) {
-        employee = await hr_employees.findOne({
-          where: {
-            outlet_id,
-            [Op.or]: orConds
-          },
-          include: [
-            { model: hr_offices, as: 'office' },
-            { model: hr_shifts, as: 'shift' },
-            { model: hr_designations, as: 'designation' },
-            { model: outlets, as: 'outlet' }
-          ]
-        });
-      }
-    }
-
-    if (!employee && outlet_id) {
-      employee = await hr_employees.findOne({
-        where: { outlet_id, status: 'Active' },
-        include: [
-          { model: hr_offices, as: 'office' },
-          { model: hr_shifts, as: 'shift' },
-          { model: hr_designations, as: 'designation' },
-          { model: outlets, as: 'outlet' }
-        ],
-        order: [['id', 'ASC']]
-      });
-    }
-
-    if (!employee && outlet_id) {
-      employee = await hr_employees.findOne({
-        where: { outlet_id },
-        include: [
-          { model: hr_offices, as: 'office' },
-          { model: hr_shifts, as: 'shift' },
-          { model: hr_designations, as: 'designation' },
-          { model: outlets, as: 'outlet' }
-        ],
-        order: [['id', 'ASC']]
-      });
-    }
+    let employee = await resolveEmployee(req, req.propertyDb.models);
 
     if (!employee) {
       const currentOutlet = outlet_id ? await outlets.findByPk(outlet_id) : null;
@@ -1065,9 +1073,8 @@ exports.getMyEmployeeProfile = async (req, res) => {
 // ==========================================
 exports.employeeRequestLoan = async (req, res) => {
   try {
-    const { hr_loans, hr_employees } = req.propertyDb.models;
-    const employee_id = req.user.employee_id || req.user.id;
-    const employee = await hr_employees.findByPk(employee_id);
+    const { hr_loans } = req.propertyDb.models;
+    const employee = await resolveEmployee(req, req.propertyDb.models);
     if (!employee) return res.status(404).json({ success: false, message: 'Employee not found.' });
 
     const amount = parseFloat(req.body.loan_amount || req.body.amount || 0);
@@ -1121,9 +1128,8 @@ exports.employeeRequestLoan = async (req, res) => {
 // ==========================================
 exports.employeeRequestSalaryRaise = async (req, res) => {
   try {
-    const { hr_salary_revisions, hr_employees } = req.propertyDb.models;
-    const employee_id = req.user.employee_id || req.user.id;
-    const employee = await hr_employees.findByPk(employee_id);
+    const { hr_salary_revisions } = req.propertyDb.models;
+    const employee = await resolveEmployee(req, req.propertyDb.models);
     if (!employee) return res.status(404).json({ success: false, message: 'Employee not found.' });
 
     const newSalary = parseFloat(req.body.requested_salary || req.body.new_salary || 0);
