@@ -612,7 +612,7 @@ class _MobileCashLedgerSheetState extends State<MobileCashLedgerSheet> with Sing
                                   'is_tax_inclusive': isTaxInclusive,
                                   'expense_note': noteCtrl.text.trim(),
                                   'note': noteCtrl.text.trim(),
-                                  'status': 'PAID',
+                                  'status': 'Paid',
                                   'taxes': taxPercent > 0
                                       ? [
                                           {'tax_name': 'GST', 'tax_rate': taxPercent}

@@ -783,22 +783,42 @@ exports.createExpense = async (req, res) => {
         const payment_date = dateKey(req.body.payment_date || new Date());
         const payment_method = String(req.body.payment_method || req.body.payment_mode || 'CASH').trim();
         const expense_note = req.body.expense_note || req.body.note || null;
-        const status = req.body.status || 'Paid';
-        if (!category_id)
-            throw new Error('Category is required');
+        const status = (req.body.status || 'Paid').toString().trim();
         if (amount <= 0)
             throw new Error('Amount must be greater than 0');
-        const categoryRow = await req.propertyDb.models.expense_categories.findOne({
-            where: { id: category_id, outlet_id: req.user.outlet_id },
-            transaction: t
-        });
-        if (!categoryRow)
-            throw new Error('Category not found');
+        let categoryRow = null;
+        if (category_id) {
+            categoryRow = await req.propertyDb.models.expense_categories.findOne({
+                where: { id: category_id, outlet_id: req.user.outlet_id },
+                transaction: t
+            });
+            if (!categoryRow) {
+                categoryRow = await req.propertyDb.models.expense_categories.findOne({
+                    where: { category_name: category_id, outlet_id: req.user.outlet_id },
+                    transaction: t
+                });
+            }
+        }
+        if (!categoryRow && req.body.category_name) {
+            categoryRow = await req.propertyDb.models.expense_categories.findOne({
+                where: { category_name: req.body.category_name, outlet_id: req.user.outlet_id },
+                transaction: t
+            });
+        }
+        if (!categoryRow) {
+            const catName = req.body.category_name || (typeof category_id === 'string' && category_id.trim().isNotEmpty ? category_id.trim() : 'General Expense');
+            categoryRow = await req.propertyDb.models.expense_categories.create({
+                outlet_id: req.user.outlet_id,
+                user_id: req.user.id,
+                category_name: catName,
+                is_active: true
+            }, { transaction: t });
+        }
         const { base_amount, total_tax_amount, total_deduction_amount, net_payable_amount, taxes: calculatedTaxes, deductions: calculatedDeductions } = calculateExpenseAmounts({ amount, isTaxInclusive: is_tax_inclusive, taxes, deductions });
         await ensureExpenseDuplicateFree({
             req,
             payment_date,
-            category_id,
+            category_id: categoryRow.id,
             net_payable_amount,
             invoice_ref_no,
             expense_note,
@@ -808,7 +828,7 @@ exports.createExpense = async (req, res) => {
         const expense = await req.propertyDb.models.expenses.create({
             outlet_id: req.user.outlet_id,
             vendor_id,
-            category_id,
+            category_id: categoryRow.id,
             invoice_ref_no,
             payment_date,
             payment_method,
@@ -837,7 +857,7 @@ exports.createExpense = async (req, res) => {
                 deduction_amount: ded.deduction_amount
             })), { transaction: t });
         }
-        if (status === 'Paid') {
+        if (status.toLowerCase() === 'paid') {
             try {
                 autoVoucher = await createAutoAccountingVoucher({
                     req,
@@ -969,7 +989,7 @@ exports.updateExpense = async (req, res) => {
             })), { transaction: t });
         }
         const ledgerEntry = await findLinkedLedgerEntry(req.propertyDb, req.user.outlet_id, 'EXPENSE', expense.id, t);
-        if (status === 'Paid') {
+        if (status.toLowerCase() === 'paid') {
             if (ledgerEntry) {
                 await updateLedgerEntry({
                     db: req.propertyDb,

@@ -63,6 +63,7 @@ class _ClinicDoctorManagementDialogState extends State<ClinicDoctorManagementDia
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 16),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       titlePadding: EdgeInsets.zero,
       title: Container(
@@ -488,7 +489,9 @@ class _DoctorProfileFormDialogState extends State<_DoctorProfileFormDialog> {
   @override
   Widget build(BuildContext context) {
     final isEdit = widget.doctor != null;
+    final screenWidth = MediaQuery.of(context).size.width;
     return AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 16),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: Row(
         children: [
@@ -504,7 +507,7 @@ class _DoctorProfileFormDialogState extends State<_DoctorProfileFormDialog> {
         ],
       ),
       content: SizedBox(
-        width: 640,
+        width: screenWidth < 700 ? double.maxFinite : 640,
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

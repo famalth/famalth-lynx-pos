@@ -16,6 +16,7 @@ const VALID_MODULES = [
     'INVENTORY',
     'CLINIC',
     'ACCOUNTING',
+    'FINANCE',
     'HRMS',
     'COMMUNITY',
     'ALL'
@@ -41,7 +42,8 @@ function parseModuleList(raw) {
     const tokens = str.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
     const validSet = new Set();
 
-    for (const t of tokens) {
+    for (let t of tokens) {
+        if (t === 'FINANCE') t = 'ACCOUNTING';
         if (VALID_MODULES.includes(t)) {
             validSet.add(t);
         }

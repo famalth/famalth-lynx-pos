@@ -784,6 +784,9 @@ class _KotBuilderScreenState extends State<KotBuilderScreen> {
         _hasMoreMenu = hasMore;
       });
       _applyFilter();
+      if (filteredItems.length < 12 && hasMore && !_isLoadingMoreMenu) {
+        Future.microtask(() => _loadMoreMenuItems());
+      }
     } catch (e) {
       debugPrint('Error loading items: $e');
     } finally {
@@ -1884,17 +1887,26 @@ class _KotBuilderScreenState extends State<KotBuilderScreen> {
                                           return Column(
                                             children: [
                                               Expanded(
-                                                child: GridView.builder(
-                                                  controller: _menuGridScrollController,
-                                                  padding: const EdgeInsets.all(12),
-                                                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                                    crossAxisCount: crossAxisCount,
-                                                    mainAxisSpacing: spacing,
-                                                    crossAxisSpacing: spacing,
-                                                    childAspectRatio: childAspectRatio,
-                                                  ),
-                                            itemCount: filteredItems.length,
-                                            itemBuilder: (context, idx) {
+                                                child: NotificationListener<ScrollNotification>(
+                                                  onNotification: (scrollInfo) {
+                                                    if (scrollInfo.metrics.pixels >= scrollInfo.metrics.maxScrollExtent - 250 &&
+                                                        !_isLoadingMoreMenu &&
+                                                        _hasMoreMenu) {
+                                                      _loadMoreMenuItems();
+                                                    }
+                                                    return false;
+                                                  },
+                                                  child: GridView.builder(
+                                                    controller: _menuGridScrollController,
+                                                    padding: const EdgeInsets.all(12),
+                                                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                                      crossAxisCount: crossAxisCount,
+                                                      mainAxisSpacing: spacing,
+                                                      crossAxisSpacing: spacing,
+                                                      childAspectRatio: childAspectRatio,
+                                                    ),
+                                              itemCount: filteredItems.length,
+                                              itemBuilder: (context, idx) {
                                               final item = filteredItems[idx];
                                               final bool isStockable = item['stockable'] == true ||
                                                   item['stockable'] == 1 ||
@@ -2175,7 +2187,8 @@ class _KotBuilderScreenState extends State<KotBuilderScreen> {
                                             },
                                           ),
                                         ),
-                                        if (_isLoadingMoreMenu)
+                                      ),
+                                      if (_isLoadingMoreMenu)
                                           Container(
                                             padding: const EdgeInsets.symmetric(vertical: 8),
                                             color: const Color(0xFFF1F5F9),

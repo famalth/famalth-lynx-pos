@@ -5739,12 +5739,15 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isMobile = screenWidth < 700;
     return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
-        width: 880,
+        width: isMobile ? double.maxFinite : 880,
         height: 690,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -6036,7 +6039,35 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                                 ),
                               );
 
-                              if (constraints.maxWidth < 600) {
+                              if (constraints.maxWidth < 460) {
+                                return Column(
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(child: bpField),
+                                        const SizedBox(width: 6),
+                                        Expanded(child: pulseField),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Row(
+                                      children: [
+                                        Expanded(child: tempField),
+                                        const SizedBox(width: 6),
+                                        Expanded(child: sugarField),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Row(
+                                      children: [
+                                        Expanded(child: weightField),
+                                        const SizedBox(width: 6),
+                                        Expanded(child: spo2Field),
+                                      ],
+                                    ),
+                                  ],
+                                );
+                              } else if (constraints.maxWidth < 650) {
                                 return Column(
                                   children: [
                                     Row(
@@ -6157,9 +6188,11 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                                 children: [
                                   Icon(Icons.info_outline, size: 16, color: Color(0xFF94A3B8)),
                                   SizedBox(width: 8),
-                                  Text(
-                                    'No diagnostic tests or imaging ordered yet. Click "Add Test" or "+ Custom Test" to record readings.',
-                                    style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B)),
+                                  Expanded(
+                                    child: Text(
+                                      'No diagnostic tests or imaging ordered yet. Click "Add Test" or "+ Custom Test" to record readings.',
+                                      style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B)),
+                                    ),
                                   ),
                                 ],
                               ),
@@ -7203,7 +7236,9 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
     return AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 16),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       title: const Row(
         children: [
@@ -7219,7 +7254,7 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
         ],
       ),
       content: SizedBox(
-        width: 520,
+        width: screenWidth < 600 ? double.maxFinite : 520,
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -7882,6 +7917,8 @@ class _SubscriptionLedgerDialogState extends State<_SubscriptionLedgerDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isMobile = screenWidth < 700;
     final inr = CurrencyService.currencyFormat;
     final sub = _ledgerData?['subscription'] ?? widget.subscription;
     final totalSessions = int.tryParse('${_ledgerData?['total_package_sessions'] ?? sub['total_package_sessions']}') ?? 6;
@@ -7894,11 +7931,11 @@ class _SubscriptionLedgerDialogState extends State<_SubscriptionLedgerDialog> {
     return Dialog(
       backgroundColor: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+      insetPadding: EdgeInsets.symmetric(horizontal: isMobile ? 10 : 40, vertical: isMobile ? 16 : 24),
       child: Container(
-        width: 820,
+        width: isMobile ? double.maxFinite : 820,
         constraints: const BoxConstraints(maxHeight: 700),
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(isMobile ? 14 : 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -8289,11 +8326,13 @@ class _CreateSubscriptionDialogState extends State<_CreateSubscriptionDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
     return Dialog(
       backgroundColor: Colors.white,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 16),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
-        width: 580,
+        width: screenWidth < 600 ? double.maxFinite : 580,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
         child: Form(
           key: _formKey,

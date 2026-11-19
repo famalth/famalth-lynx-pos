@@ -406,6 +406,9 @@ class _EmployeeScreenState extends State<EmployeeScreen> {
       builder: (_) => _AddEmployeeForm(
         employees: _employees,
         initialOffices: _offices,
+        initialPayStructures: _payStructures,
+        initialDesignations: _designations,
+        initialShifts: _shifts,
         onSaved: _loadAll,
       ),
     );
@@ -459,12 +462,18 @@ class _EmployeeScreenState extends State<EmployeeScreen> {
 class _AddEmployeeForm extends StatefulWidget {
   final List<Map<String, dynamic>> employees;
   final List<Map<String, dynamic>>? initialOffices;
+  final List<Map<String, dynamic>>? initialPayStructures;
+  final List<Map<String, dynamic>>? initialDesignations;
+  final List<Map<String, dynamic>>? initialShifts;
   final VoidCallback onSaved;
   final Map<String, dynamic>? employee;
 
   const _AddEmployeeForm({
     required this.employees,
     this.initialOffices,
+    this.initialPayStructures,
+    this.initialDesignations,
+    this.initialShifts,
     required this.onSaved,
     this.employee,
   });
@@ -534,6 +543,15 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialPayStructures != null && widget.initialPayStructures!.isNotEmpty) {
+      _payStructures = List.from(widget.initialPayStructures!);
+    }
+    if (widget.initialDesignations != null && widget.initialDesignations!.isNotEmpty) {
+      _designations = List.from(widget.initialDesignations!);
+    }
+    if (widget.initialShifts != null && widget.initialShifts!.isNotEmpty) {
+      _shifts = List.from(widget.initialShifts!);
+    }
     _baseSalaryCtrl.addListener(() {
       if (mounted) setState(() {});
     });
@@ -610,17 +628,42 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
     setState(() => _loadingMasters = true);
     try {
       final results = await Future.wait([
-        ApiClient.get(ApiEndpoints.hrmsDesignations),
-        ApiClient.get(ApiEndpoints.hrmsShifts),
-        ApiClient.get(ApiEndpoints.hrmsPayStructures),
-        ApiClient.get(ApiEndpoints.users),
-        ApiClient.get(ApiEndpoints.hrmsLeaveTypes),
-        ApiClient.get(ApiEndpoints.hrmsSalaryComponents),
-        ApiClient.get('/api/hrms/offices'),
+        ApiClient.get(ApiEndpoints.hrmsDesignations).catchError((e) {
+          debugPrint('Designations err: $e');
+          return {'success': false, 'data': <dynamic>[]};
+        }),
+        ApiClient.get(ApiEndpoints.hrmsShifts).catchError((e) {
+          debugPrint('Shifts err: $e');
+          return {'success': false, 'data': <dynamic>[]};
+        }),
+        ApiClient.get(ApiEndpoints.hrmsPayStructures).catchError((e) {
+          debugPrint('PayStructures err: $e');
+          return {'success': false, 'data': <dynamic>[]};
+        }),
+        ApiClient.get(ApiEndpoints.users).catchError((e) {
+          debugPrint('Users err: $e');
+          return {'success': false, 'data': <dynamic>[]};
+        }),
+        ApiClient.get(ApiEndpoints.hrmsLeaveTypes).catchError((e) {
+          debugPrint('LeaveTypes err: $e');
+          return {'success': false, 'data': <dynamic>[]};
+        }),
+        ApiClient.get(ApiEndpoints.hrmsSalaryComponents).catchError((e) {
+          debugPrint('SalaryComponents err: $e');
+          return {'success': false, 'data': <dynamic>[]};
+        }),
+        ApiClient.get('/api/hrms/offices').catchError((e) {
+          debugPrint('Offices err: $e');
+          return {'success': false, 'data': <dynamic>[]};
+        }),
       ]);
 
       final allComponents = List<Map<String, dynamic>>.from(results[5]['data'] ?? []);
-      if (allComponents.isEmpty && widget.employee == null) {
+      final loadedDesigs = List<Map<String, dynamic>>.from(results[0]['data'] ?? []);
+      final loadedShifts = List<Map<String, dynamic>>.from(results[1]['data'] ?? []);
+      final loadedStructures = List<Map<String, dynamic>>.from(results[2]['data'] ?? []);
+
+      if (allComponents.isEmpty && loadedStructures.isEmpty && _payStructures.isEmpty && widget.employee == null) {
         if (mounted) {
           showDialog(
             context: context,
@@ -634,7 +677,7 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
                   Text('Setup Components First'),
                 ],
               ),
-              content: const Text('You must first add salary components in master (HR Masters → Salary Components) before adding an employee.'),
+              content: const Text('You must first add salary components or pay structures in master (HR Masters -> Salary Components / Pay Structures) before adding an employee.'),
               actions: [
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFE03E2D)),
@@ -652,9 +695,9 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
       }
 
       setState(() {
-        _designations = List<Map<String, dynamic>>.from(results[0]['data'] ?? []);
-        _shifts       = List<Map<String, dynamic>>.from(results[1]['data'] ?? []);
-        _payStructures= List<Map<String, dynamic>>.from(results[2]['data'] ?? []);
+        if (loadedDesigs.isNotEmpty) _designations = loadedDesigs;
+        if (loadedShifts.isNotEmpty) _shifts = loadedShifts;
+        if (loadedStructures.isNotEmpty) _payStructures = loadedStructures;
         _users        = List<Map<String, dynamic>>.from(results[3]['data'] ?? []);
         _leaveTypes   = List<Map<String, dynamic>>.from(results[4]['data'] ?? []);
         _offices      = List<Map<String, dynamic>>.from(results[6]['data'] ?? (widget.initialOffices ?? []));
@@ -3329,6 +3372,9 @@ class _EmployeeDetailScreenState extends State<_EmployeeDetailScreen>
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) => _AddEmployeeForm(
         employees: widget.employees,
+        initialPayStructures: widget.payStructures,
+        initialDesignations: widget.designations,
+        initialShifts: widget.shifts,
         employee: emp,
         onSaved: () async {
           try {

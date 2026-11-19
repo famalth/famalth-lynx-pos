@@ -208,10 +208,14 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
       final isHrmsOnly = ModuleCapability.isHrmsOnly(mod);
 
       String view = 'RETAIL';
-      if (isClinicOnly || (isClinic && !isRest)) {
+      if (isClinicOnly) {
         view = 'CLINIC';
+      } else if (ModuleCapability.hasRetail(mod)) {
+        view = 'RETAIL';
       } else if (isRest) {
         view = 'RESTAURANT';
+      } else if (isClinic) {
+        view = 'CLINIC';
       } else {
         view = 'RETAIL';
       }
@@ -5286,32 +5290,6 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                     ),
                   ),
                 ],
-              ),
-              InkWell(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const AttendanceScreen()),
-                  ).then((_) => _loadHrmsData(silent: true));
-                },
-                borderRadius: BorderRadius.circular(8),
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'View Log',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF4F46E5),
-                        ),
-                      ),
-                      Icon(Icons.chevron_right_rounded, size: 14, color: Color(0xFF4F46E5)),
-                    ],
-                  ),
-                ),
               ),
             ],
           ),

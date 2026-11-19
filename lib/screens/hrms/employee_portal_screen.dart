@@ -1833,8 +1833,8 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
     final empName = _employeeData?['full_name'] ?? 'Employee';
     final empCode = _employeeData?['employee_code'] ?? '';
     final desig = _employeeData?['designation']?['name'] ?? _employeeData?['designation_name'] ?? 'Staff Member';
-    final officeName = _officeData?['office_name'] ?? 'Head Office';
-    final officeCode = _officeData?['office_code'] ?? 'HO-01';
+    final officeName = _officeData?['office_name'] ?? _employeeData?['outlet']?['outlet_name'] ?? _employeeData?['outlet_name'] ?? 'Main Office';
+    final officeCode = _officeData?['office_code'] ?? _employeeData?['outlet']?['outlet_code'] ?? _employeeData?['outlet_code'] ?? 'HO-01';
     final hasDeviceLock = (_boundDeviceId != null && _boundDeviceId!.isNotEmpty);
 
     return Container(
