@@ -670,13 +670,10 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
     bool isSubmitting = false;
 
     int calculateDays(DateTime s, DateTime e) {
-      int count = 0;
-      for (DateTime d = s; !d.isAfter(e); d = d.add(const Duration(days: 1))) {
-        if (d.weekday != DateTime.saturday && d.weekday != DateTime.sunday) {
-          count++;
-        }
-      }
-      return count == 0 ? 1 : count;
+      final startDay = DateTime(s.year, s.month, s.day);
+      final endDay = DateTime(e.year, e.month, e.day);
+      if (endDay.isBefore(startDay)) return 1;
+      return endDay.difference(startDay).inDays + 1;
     }
 
     await showDialog(
@@ -2345,7 +2342,7 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
                       chipBg = const Color(0xFFDCFCE7);
                       chipColor = const Color(0xFF16A34A);
                       chipIcon = Icons.check_circle_rounded;
-                      statusLabel = 'Approved (Auto-Logged)';
+                      statusLabel = 'Approved';
                     } else if (status.toLowerCase() == 'rejected') {
                       chipBg = const Color(0xFFFEE2E2);
                       chipColor = const Color(0xFFDC2626);

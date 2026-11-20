@@ -431,13 +431,28 @@ async function recalculateLeaveBalances(employeeId, outletId, propertyDb) {
     try {
         const { hr_leave_balances, hr_leave_applications, hr_attendance_punches, hr_leave_types } = propertyDb.models;
         const currentYear = new Date().getFullYear();
-        // Load all active leave types to ensure balances exist for each of them
         const leaveTypes = await hr_leave_types.findAll({
             where: { is_active: true, outlet_id: outletId }
         });
+
+        const startOfYear = `${currentYear}-01-01`;
+        const endOfYear = `${currentYear}-12-31`;
+        const allPunches = hr_attendance_punches ? await hr_attendance_punches.findAll({
+            where: {
+                employee_id: employeeId,
+                punch_date: { [Op.between]: [startOfYear, endOfYear] },
+                outlet_id: outletId
+            }
+        }) : [];
+
+        const punchByDate = {};
+        allPunches.forEach(p => {
+            const dateStr = p.punch_date ? moment(p.punch_date).format('YYYY-MM-DD') : null;
+            if (dateStr) punchByDate[dateStr] = p;
+        });
+
         for (const lt of leaveTypes) {
-            // Find or create the balance record for this leave type
-            const [bal, created] = await hr_leave_balances.findOrCreate({
+            const [bal] = await hr_leave_balances.findOrCreate({
                 where: {
                     employee_id: employeeId,
                     leave_type_id: lt.id,
@@ -450,7 +465,10 @@ async function recalculateLeaveBalances(employeeId, outletId, propertyDb) {
                     created_by: null
                 }
             });
-            let appDays = 0;
+
+            const fullLeaveDates = new Set();
+            const halfLeaveDates = new Set();
+
             if (hr_leave_applications) {
                 const apps = await hr_leave_applications.findAll({
                     where: {
@@ -460,28 +478,38 @@ async function recalculateLeaveBalances(employeeId, outletId, propertyDb) {
                         outlet_id: outletId
                     }
                 });
-                appDays = apps.reduce((sum, a) => sum + parseFloat(a.total_days || 0), 0);
-            }
-            let punchDays = 0;
-            if (hr_attendance_punches) {
-                const punches = await hr_attendance_punches.findAll({
-                    where: {
-                        employee_id: employeeId,
-                        status: 'Leave',
-                        leave_type_id: lt.id,
-                        outlet_id: outletId
+
+                for (const app of apps) {
+                    const start = moment(app.start_date);
+                    const end = moment(app.end_date);
+                    for (let m = start.clone(); m.isSameOrBefore(end); m.add(1, 'days')) {
+                        const dStr = m.format('YYYY-MM-DD');
+                        const p = punchByDate[dStr];
+                        if (p && (p.punch_in || ['Present', 'Late'].includes(p.status))) {
+                            continue; // Employee attended work -> leave reversed back to quota!
+                        }
+                        if (p && p.status === 'Half Day') {
+                            halfLeaveDates.add(dStr);
+                        } else {
+                            fullLeaveDates.add(dStr);
+                        }
                     }
-                });
-                punches.forEach(p => {
+                }
+            }
+
+            allPunches.forEach(p => {
+                if (p.leave_type_id === lt.id && p.status === 'Leave' && !p.punch_in) {
+                    const dStr = moment(p.punch_date).format('YYYY-MM-DD');
                     if (p.hours_worked > 0 && p.hours_worked <= 4) {
-                        punchDays += 0.5;
+                        halfLeaveDates.add(dStr);
+                    } else {
+                        fullLeaveDates.add(dStr);
                     }
-                    else {
-                        punchDays += 1.0;
-                    }
-                });
-            }
-            bal.used_quota = appDays + punchDays;
+                }
+            });
+
+            const totalUsed = fullLeaveDates.size + (halfLeaveDates.size * 0.5);
+            bal.used_quota = totalUsed;
             await bal.save();
         }
     }
@@ -489,6 +517,7 @@ async function recalculateLeaveBalances(employeeId, outletId, propertyDb) {
         console.error('Error recalculating leave balances:', err.message);
     }
 }
+exports.recalculateLeaveBalances = recalculateLeaveBalances;
 exports.getAttendance = async (req, res) => {
     try {
         const { hr_attendance_punches, hr_employees, hr_offices } = req.propertyDb.models;
@@ -559,7 +588,10 @@ exports.punchIn = async (req, res) => {
         if (!created) {
             if (!punch.punch_in) {
                 punch.punch_in = now;
+                punch.status = 'Present';
+                punch.leave_type_id = null;
                 await punch.save();
+                await recalculateLeaveBalances(employee_id, req.user.outlet_id, req.propertyDb);
             }
             else {
                 return res.status(400).json({ success: false, message: 'Already punched in today' });
@@ -701,6 +733,7 @@ exports.manualAttendance = async (req, res) => {
                 punch.office_id = resolvedOfficeId;
             }
             await punch.save();
+            await recalculateLeaveBalances(employee_id, req.user.outlet_id, req.propertyDb);
         }
         else {
             punch = await hr_attendance_punches.create({
@@ -729,10 +762,13 @@ exports.manualAttendance = async (req, res) => {
 };
 // ==================== LEAVES ====================
 exports.getLeaves = async (req, res) => {
-  try {
-    const { hr_leave_applications, hr_employees, hr_leave_types, hr_offices } = req.propertyDb.models;
-    const { employee_id, status, office_id } = req.query;
-        const where = { outlet_id: req.user.outlet_id };
+    try {
+        const { hr_leave_applications, hr_employees, hr_leave_types, hr_offices } = req.propertyDb.models;
+        const { employee_id, status, office_id } = req.query;
+        const where = {};
+        if (req.user && req.user.outlet_id) {
+            where.outlet_id = req.user.outlet_id;
+        }
         if (employee_id)
             where.employee_id = employee_id;
         if (status)
@@ -740,14 +776,16 @@ exports.getLeaves = async (req, res) => {
         const data = await hr_leave_applications.findAll({
             where,
             include: [
-        {
-          model: hr_employees,
-          as: 'employee',
-          where: (office_id && office_id !== 'all' && office_id !== '0') ? { office_id } : undefined,
-          include: hr_offices ? [{ model: hr_offices, as: 'office' }] : []
-        },
-                { model: hr_leave_types, as: 'leaveType' }
-            ]
+                {
+                    model: hr_employees,
+                    as: 'employee',
+                    required: false,
+                    where: (office_id && office_id !== 'all' && office_id !== '0') ? { office_id } : undefined,
+                    include: hr_offices ? [{ model: hr_offices, as: 'office', required: false }] : []
+                },
+                { model: hr_leave_types, as: 'leaveType', required: false }
+            ],
+            order: [['id', 'DESC']]
         });
         return res.json({ success: true, data });
     }
@@ -777,16 +815,12 @@ exports.applyLeave = async (req, res) => {
         if (latestLockedRun && (startMonth <= latestLockedRun.pay_period || endMonth <= latestLockedRun.pay_period)) {
             return res.status(400).json({ success: false, message: `Leave application is locked. Payroll for ${latestLockedRun.pay_period} (or a later month) has already been approved and paid!` });
         }
-        const start = moment(start_date);
-        const end = moment(end_date);
-        let total_days = 0;
-        for (let m = start.clone(); m.isSameOrBefore(end); m.add(1, 'days')) {
-            if (m.isoWeekday() !== 6 && m.isoWeekday() !== 7) {
-                total_days++;
-            }
+        const start = moment(start_date).startOf('day');
+        const end = moment(end_date).startOf('day');
+        if (end.isBefore(start)) {
+            return res.status(400).json({ success: false, message: 'End date cannot be before start date' });
         }
-        if (total_days === 0)
-            total_days = 1;
+        const total_days = Math.max(1, end.diff(start, 'days') + 1);
         const currentYear = start.year();
         const balance = await hr_leave_balances.findOne({
             where: { employee_id, leave_type_id, year: currentYear }
@@ -837,10 +871,7 @@ exports.approveLeave = async (req, res) => {
         const balance = await hr_leave_balances.findOne({
             where: { employee_id: app.employee_id, leave_type_id: app.leave_type_id, year: currentYear }
         });
-        if (balance) {
-            balance.used_quota = (parseFloat(balance.used_quota) || 0) + parseFloat(app.total_days || 0);
-            await balance.save();
-        }
+        // Balance handled accurately by recalculateLeaveBalances below
         const isPaid = app.leaveType ? app.leaveType.is_paid : true;
         const leaveStatus = isPaid ? 'Leave' : 'Unpaid Leave';
         const end = moment(app.end_date);
@@ -853,12 +884,14 @@ exports.approveLeave = async (req, res) => {
                 }
             });
             if (punch) {
-                punch.status = leaveStatus;
-                punch.punch_source = 'Leave';
-                punch.updated_by = req.user?.id || 1;
-                punch.leave_type_id = app.leave_type_id;
-                if (!punch.office_id && officeId) punch.office_id = officeId;
-                await punch.save();
+                if (!punch.punch_in) {
+                    punch.status = leaveStatus;
+                    punch.punch_source = 'Leave';
+                    punch.updated_by = req.user?.id || 1;
+                    punch.leave_type_id = app.leave_type_id;
+                    if (!punch.office_id && officeId) punch.office_id = officeId;
+                    await punch.save();
+                }
             }
             else {
                 await hr_attendance_punches.create({

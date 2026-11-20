@@ -757,6 +757,7 @@ exports.employeeGeotaggedPunch = async (req, res) => {
           updated_by: req.user.id
         });
       } else {
+        const wasOnLeave = punch.status === 'Leave' || punch.status === 'Unpaid Leave' || punch.leave_type_id != null;
         await punch.update({
           office_id: office.id,
           punch_in: now,
@@ -766,10 +767,20 @@ exports.employeeGeotaggedPunch = async (req, res) => {
           is_geofence_compliant: isCompliant,
           lateness_mins: lateMins,
           status,
+          leave_type_id: null,
           device_id: deviceId || punch.device_id,
           device_info: deviceInfo || punch.device_info,
           punch_source: 'Mobile_GPS'
         });
+
+        try {
+          const hrmsCtrl = require('./hrms.controller');
+          if (hrmsCtrl && hrmsCtrl.recalculateLeaveBalances) {
+            await hrmsCtrl.recalculateLeaveBalances(employee.id, employee.outlet_id, req.propertyDb);
+          }
+        } catch (eRecalc) {
+          console.error('Error auto-reversing leave balance on mobile punch in:', eRecalc.message);
+        }
       }
 
       const distText = distanceMeters > 1000

@@ -279,7 +279,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
     final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
     bool isMarkedToday(dynamic employeeId) {
-      return _attendancePunches.any((p) => p['employee_id']?.toString() == employeeId?.toString() && p['punch_date'].toString().startsWith(todayStr));
+      return _attendancePunches.any((p) {
+        if (p['employee_id']?.toString() != employeeId?.toString()) return false;
+        final pd = p['punch_date']?.toString() ?? '';
+        return pd == todayStr || pd.startsWith(todayStr);
+      });
     }
 
     final query = _searchCtrl.text.toLowerCase().trim();
@@ -471,14 +475,18 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
   Widget _buildHeatmapCell(int day, int employeeId) {
     final dateStr = '${_currentMonth.year}-${_currentMonth.month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}';
     final punch = _attendancePunches.firstWhere(
-      (p) => p['employee_id']?.toString() == employeeId.toString() && p['punch_date'].toString().startsWith(dateStr),
+      (p) {
+        if (p['employee_id']?.toString() != employeeId.toString()) return false;
+        final pd = p['punch_date']?.toString() ?? '';
+        return pd == dateStr || pd.startsWith(dateStr);
+      },
       orElse: () => {},
     );
     
     String status = '';
     if (punch.isNotEmpty) {
-      final s = punch['status']?.toString().toLowerCase() ?? '';
-      if (s == 'present') {
+      final s = punch['status']?.toString().toLowerCase().trim() ?? '';
+      if (punch['punch_in'] != null || s == 'present' || s == 'late') {
         status = 'P';
       } else if (s == 'absent') {
         status = 'A';
@@ -490,6 +498,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
         status = 'F';
       } else if (s == 'weekly off' || s == 'weekly-off') {
         status = 'W';
+      } else {
+        status = 'P';
       }
     } else {
       final emp = _employeesList.firstWhere((e) => e['id'] == employeeId, orElse: () => {});
@@ -829,6 +839,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
 
   Widget _buildApprovalsTab() {
     final pendingLeaves = _leaveRequests.where((l) => l['status'].toString().toLowerCase() == 'pending').toList();
+    final historyLeaves = _leaveRequests.where((l) => l['status'].toString().toLowerCase() != 'pending').toList();
     final pendingLoans = _loanRequests.where((l) => l['status'].toString().toLowerCase() == 'pending' || l['status'].toString().toLowerCase() == 'active').toList();
 
     return ListView(
@@ -905,6 +916,67 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
             );
           }),
         
+        if (historyLeaves.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          _sectionHeader('Leave Decisions & Approvals (${historyLeaves.length})'),
+          ...historyLeaves.map((l) {
+            final empName = _lookupEmployeeName(l['employee_id']);
+            final leaveTypeName = l['leaveType'] != null ? (l['leaveType']['name'] ?? 'Leave') : 'Leave';
+            final totalDays = l['total_days'] ?? 0;
+            final st = (l['status'] ?? 'Approved').toString();
+            final isApp = st.toLowerCase() == 'approved';
+            return Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(empName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(8)),
+                              child: Text(leaveTypeName, style: const TextStyle(color: Color(0xFF475569), fontSize: 10, fontWeight: FontWeight.w600)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text('${l['start_date']} to ${l['end_date']} • $totalDays day(s)', style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280))),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isApp ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: isApp ? const Color(0xFFA7F3D0) : const Color(0xFFFECACA)),
+                    ),
+                    child: Text(
+                      isApp ? 'Approved' : 'Rejected',
+                      style: TextStyle(
+                        color: isApp ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+
         const SizedBox(height: 16),
         _sectionHeader('Loan & Advance Requests needing Approval (${pendingLoans.length})'),
         if (pendingLoans.isEmpty)
@@ -1453,7 +1525,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
     else status = 'Present';
 
     final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
-    final isToday = (dateStr == todayStr);
     final bool hasPunchIn = (existingPunch['punch_in'] != null);
     final bool hasPunchOut = (existingPunch['punch_out'] != null);
     final bool isBothAdded = hasPunchIn && hasPunchOut;
@@ -1612,7 +1683,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
     }
 
     // Call calculations immediately on open
-    runCalculations(punchInTime!, punchOutTime!, (fn) => fn(), isInit: true);
+    runCalculations(punchInTime, punchOutTime, (fn) => fn(), isInit: true);
 
     // Initial Lateness calculation if only punch_in exists
     if (hasPunchIn && existingPunch['punch_out'] == null) {
