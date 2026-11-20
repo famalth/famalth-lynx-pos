@@ -1583,8 +1583,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
     final defaultInTime = parseTimeStr(shiftStartTimeStr, const TimeOfDay(hour: 9, minute: 0));
     final defaultOutTime = parseTimeStr(shiftEndTimeStr, const TimeOfDay(hour: 17, minute: 0));
 
-    TimeOfDay? punchInTime;
-    TimeOfDay? punchOutTime;
+    TimeOfDay punchInTime = defaultInTime;
+    TimeOfDay punchOutTime = defaultOutTime;
 
     if (existingPunch['punch_in'] != null) {
       final dt = DateTime.tryParse(existingPunch['punch_in'].toString())?.toLocal();
@@ -1594,9 +1594,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
       final dt = DateTime.tryParse(existingPunch['punch_out'].toString())?.toLocal();
       if (dt != null) punchOutTime = TimeOfDay.fromDateTime(dt);
     }
-
-    punchInTime ??= defaultInTime;
-    punchOutTime ??= defaultOutTime;
 
     final hoursWorkedCtrl = TextEditingController(text: (existingPunch['hours_worked'] ?? '8.0').toString());
     final overtimeCtrl = TextEditingController(text: (existingPunch['overtime_hours'] ?? '0.0').toString());
