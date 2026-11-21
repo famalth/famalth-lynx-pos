@@ -1289,6 +1289,106 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
       final daysAbsent = slip['days_absent'] ?? 0;
       final daysLeave = slip['days_on_leave'] ?? 0;
 
+      final Map<String, dynamic> breakdown = Map<String, dynamic>.from(slip['components_breakdown'] ?? {});
+      
+      final List<Map<String, dynamic>> earningsList = [];
+      earningsList.add({'name': 'Earned Base Salary', 'amount': prorated});
+      breakdown.forEach((key, val) {
+        if (key == 'attendance_analytics' || key == 'payment_status' || key == 'payment_method') return;
+        final kLower = key.toLowerCase();
+        final amt = double.tryParse(val.toString()) ?? 0.0;
+        if (amt > 0 && !(kLower.contains('deduct') || kLower.contains('pf') || kLower.contains('esi') || 
+            kLower.contains('tds') || kLower.contains('tcs') || kLower.contains('tax') || 
+            kLower.contains('shortage') || kLower.contains('penalty') || kLower.contains('loan') || 
+            kLower.contains('fine') || kLower.contains('loss') || kLower.contains('basic'))) {
+          earningsList.add({'name': key, 'amount': amt});
+        }
+      });
+      if (bonuses > 0 && !earningsList.any((e) => e['name'].toString().toLowerCase().contains('bonus'))) {
+        earningsList.add({'name': 'Bonuses / Incentives', 'amount': bonuses});
+      }
+      if (otPay > 0) earningsList.add({'name': 'Overtime Pay', 'amount': otPay});
+      if (commission > 0) earningsList.add({'name': 'Sales Commission', 'amount': commission});
+
+      final List<Map<String, dynamic>> deductionsList = [];
+      double accountedDeductions = 0.0;
+      breakdown.forEach((key, val) {
+        if (key == 'attendance_analytics' || key == 'payment_status' || key == 'payment_method') return;
+        final kLower = key.toLowerCase();
+        final amt = double.tryParse(val.toString()) ?? 0.0;
+        if (amt > 0 && (kLower.contains('deduct') || kLower.contains('pf') || kLower.contains('esi') || 
+            kLower.contains('tds') || kLower.contains('tcs') || kLower.contains('tax') || 
+            kLower.contains('shortage') || kLower.contains('penalty') || kLower.contains('loan') || 
+            kLower.contains('fine') || kLower.contains('loss'))) {
+          deductionsList.add({'name': key, 'amount': amt});
+          accountedDeductions += amt;
+        }
+      });
+
+      if (loanEmi > 0 && !deductionsList.any((d) => d['name'].toString().toLowerCase().contains('loan'))) {
+        deductionsList.add({'name': 'Loan / Advance EMI', 'amount': loanEmi});
+        accountedDeductions += loanEmi;
+      }
+      if (shortage > 0 && !deductionsList.any((d) => d['name'].toString().toLowerCase().contains('shortage') || d['name'].toString().toLowerCase().contains('penalty'))) {
+        deductionsList.add({'name': 'Shortage / Penalties', 'amount': shortage});
+        accountedDeductions += shortage;
+      }
+      if (statDeduct > 0 && !deductionsList.any((d) => d['name'].toString().toLowerCase().contains('statutory') || d['name'].toString().toLowerCase().contains('pf') || d['name'].toString().toLowerCase().contains('tax'))) {
+        deductionsList.add({'name': 'Statutory (PF/ESI/TDS)', 'amount': statDeduct});
+        accountedDeductions += statDeduct;
+      }
+      final remainingUnaccounted = totalDeduct - accountedDeductions;
+      if (remainingUnaccounted > 0.5) {
+        deductionsList.add({'name': 'Hours Shortage / Unpaid Adjustment', 'amount': remainingUnaccounted});
+      }
+      if (deductionsList.isEmpty) {
+        deductionsList.add({'name': 'No Deductions', 'amount': 0.0});
+      }
+
+      final maxRows = earningsList.length > deductionsList.length ? earningsList.length : deductionsList.length;
+      final List<pw.TableRow> tableRows = [];
+      tableRows.add(
+        pw.TableRow(
+          decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+          children: [
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('EARNINGS', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('AMOUNT (INR)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('DEDUCTIONS & ADJUSTMENTS', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('AMOUNT (INR)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+          ],
+        ),
+      );
+
+      for (int i = 0; i < maxRows; i++) {
+        final eName = i < earningsList.length ? earningsList[i]['name'].toString() : '';
+        final eAmt = i < earningsList.length ? (earningsList[i]['amount'] as double).toStringAsFixed(2) : '';
+        final dName = i < deductionsList.length ? deductionsList[i]['name'].toString() : '';
+        final dAmt = i < deductionsList.length ? (deductionsList[i]['amount'] as double).toStringAsFixed(2) : '';
+
+        tableRows.add(
+          pw.TableRow(
+            children: [
+              pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(eName, style: const pw.TextStyle(fontSize: 9))),
+              pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(eAmt, textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 9))),
+              pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(dName, style: const pw.TextStyle(fontSize: 9))),
+              pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(dAmt, textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 9))),
+            ],
+          ),
+        );
+      }
+
+      tableRows.add(
+        pw.TableRow(
+          decoration: const pw.BoxDecoration(color: PdfColors.grey100),
+          children: [
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Gross Earnings', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(grossPay.toStringAsFixed(2), textAlign: pw.TextAlign.right, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Total Deductions', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(totalDeduct.toStringAsFixed(2), textAlign: pw.TextAlign.right, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+          ],
+        ),
+      );
+
       pdfDoc.addPage(
         pw.Page(
           pageFormat: PdfPageFormat.a4,
@@ -1334,50 +1434,7 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
                   pw.SizedBox(height: 14),
                   pw.Table(
                     border: pw.TableBorder.all(color: PdfColors.grey400),
-                    children: [
-                      pw.TableRow(
-                        decoration: const pw.BoxDecoration(color: PdfColors.grey200),
-                        children: [
-                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('EARNINGS', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
-                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('AMOUNT (INR)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
-                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('DEDUCTIONS', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
-                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('AMOUNT (INR)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
-                        ],
-                      ),
-                      pw.TableRow(
-                        children: [
-                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Earned Base Salary', style: const pw.TextStyle(fontSize: 9))),
-                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(prorated.toStringAsFixed(2), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 9))),
-                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Statutory (PF/ESI/TDS)', style: const pw.TextStyle(fontSize: 9))),
-                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(statDeduct.toStringAsFixed(2), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 9))),
-                        ],
-                      ),
-                      pw.TableRow(
-                        children: [
-                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Bonuses / Incentives', style: const pw.TextStyle(fontSize: 9))),
-                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(bonuses.toStringAsFixed(2), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 9))),
-                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Loan / Advance EMI', style: const pw.TextStyle(fontSize: 9))),
-                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(loanEmi.toStringAsFixed(2), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 9))),
-                        ],
-                      ),
-                      pw.TableRow(
-                        children: [
-                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Overtime / Commission', style: const pw.TextStyle(fontSize: 9))),
-                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text((otPay + commission).toStringAsFixed(2), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 9))),
-                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Shortage / Penalties', style: const pw.TextStyle(fontSize: 9))),
-                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(shortage.toStringAsFixed(2), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 9))),
-                        ],
-                      ),
-                      pw.TableRow(
-                        decoration: const pw.BoxDecoration(color: PdfColors.grey100),
-                        children: [
-                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Gross Earnings', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
-                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(grossPay.toStringAsFixed(2), textAlign: pw.TextAlign.right, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
-                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Total Deductions', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
-                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(totalDeduct.toStringAsFixed(2), textAlign: pw.TextAlign.right, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
-                        ],
-                      ),
-                    ],
+                    children: tableRows,
                   ),
                   pw.SizedBox(height: 16),
                   pw.Container(
@@ -1422,6 +1479,41 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
     final daysPresent = slip['days_present'] ?? 0;
     final daysAbsent = slip['days_absent'] ?? 0;
     final daysLeave = slip['days_on_leave'] ?? 0;
+
+    final statDeduct = double.tryParse(slip['statutory_deductions']?.toString() ?? '0') ?? 0.0;
+    final loanEmi = double.tryParse(slip['loan_emi']?.toString() ?? '0') ?? 0.0;
+    final shortage = double.tryParse(slip['shortage_penalties']?.toString() ?? '0') ?? 0.0;
+    final Map<String, dynamic> breakdown = Map<String, dynamic>.from(slip['components_breakdown'] ?? {});
+    final List<Map<String, dynamic>> deductionsList = [];
+    double accounted = 0.0;
+    breakdown.forEach((key, val) {
+      if (key == 'attendance_analytics' || key == 'payment_status' || key == 'payment_method') return;
+      final kLower = key.toLowerCase();
+      final amt = double.tryParse(val.toString()) ?? 0.0;
+      if (amt > 0 && (kLower.contains('deduct') || kLower.contains('pf') || kLower.contains('esi') || 
+          kLower.contains('tds') || kLower.contains('tcs') || kLower.contains('tax') || 
+          kLower.contains('shortage') || kLower.contains('penalty') || kLower.contains('loan') || 
+          kLower.contains('fine') || kLower.contains('loss'))) {
+        deductionsList.add({'name': key, 'amount': amt});
+        accounted += amt;
+      }
+    });
+    if (loanEmi > 0 && !deductionsList.any((d) => d['name'].toString().toLowerCase().contains('loan'))) {
+      deductionsList.add({'name': 'Loan / Advance EMI', 'amount': loanEmi});
+      accounted += loanEmi;
+    }
+    if (shortage > 0 && !deductionsList.any((d) => d['name'].toString().toLowerCase().contains('shortage') || d['name'].toString().toLowerCase().contains('penalty'))) {
+      deductionsList.add({'name': 'Shortage / Penalties', 'amount': shortage});
+      accounted += shortage;
+    }
+    if (statDeduct > 0 && !deductionsList.any((d) => d['name'].toString().toLowerCase().contains('statutory') || d['name'].toString().toLowerCase().contains('pf') || d['name'].toString().toLowerCase().contains('tax'))) {
+      deductionsList.add({'name': 'Statutory (PF/ESI/TDS)', 'amount': statDeduct});
+      accounted += statDeduct;
+    }
+    final remainingUnacc = deductions - accounted;
+    if (remainingUnacc > 0.5) {
+      deductionsList.add({'name': 'Hours Shortage / Unpaid Adjustment', 'amount': remainingUnacc});
+    }
 
     showModalBottomSheet(
       context: context,
@@ -1517,6 +1609,30 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
                         _infoRow('Gross Earnings:', '₹${gross.toStringAsFixed(2)}', valColor: primaryNavy),
                         const Divider(height: 16),
                         _infoRow('Total Deductions:', '₹${deductions.toStringAsFixed(2)}', valColor: dangerRed),
+                        if (deductionsList.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            decoration: BoxDecoration(color: const Color(0xFFFEF2F2), borderRadius: BorderRadius.circular(8)),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Deduction Breakdown:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF991B1B))),
+                                const SizedBox(height: 4),
+                                ...deductionsList.map((d) => Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 2),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text('• ${d['name']}', style: const TextStyle(fontSize: 11, color: Color(0xFF7F1D1D))),
+                                      Text('₹${(d['amount'] as double).toStringAsFixed(2)}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF7F1D1D))),
+                                    ],
+                                  ),
+                                )),
+                              ],
+                            ),
+                          ),
+                        ],
                         const Divider(height: 16),
                         _infoRow('Net Payable Amount:', '₹${net.toStringAsFixed(2)}', valColor: successGreen),
                       ],
@@ -2740,8 +2856,8 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
                   )
                 else
                   ..._salaryRevisions.map((rev) {
-                    final oldSal = double.tryParse((rev['previous_salary'] ?? rev['current_salary'] ?? 0).toString()) ?? 0;
-                    final newSal = double.tryParse((rev['revised_salary'] ?? rev['requested_salary'] ?? 0).toString()) ?? 0;
+                    final oldSal = double.tryParse((rev['previous_salary'] ?? rev['old_salary'] ?? rev['current_salary'] ?? 0).toString()) ?? 0;
+                    final newSal = double.tryParse((rev['new_salary'] ?? rev['revised_salary'] ?? rev['requested_salary'] ?? 0).toString()) ?? 0;
                     final effDate = rev['effective_date'] ?? '';
                     final status = (rev['status'] ?? 'Pending').toString();
                     final reason = rev['notes'] ?? rev['reason'] ?? '';

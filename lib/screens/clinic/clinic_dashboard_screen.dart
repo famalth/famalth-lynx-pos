@@ -224,64 +224,45 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
   List<ClinicTab> _computeAllowedTabs(String role, [List<String>? permissions]) {
     final r = role.trim().toUpperCase();
     final p = (permissions ?? _userPermissions).map((e) => e.trim().toUpperCase()).toSet();
-    final isAdmin = r == 'ADMIN' || r == 'SUPERADMIN' || r == 'OWNER' || r == 'CLINIC_ADMIN' || r == 'DOCTOR_ADMIN';
+    final isAdmin = r == 'ADMIN' || r == 'SUPERADMIN' || r == 'OWNER' || r == 'CLINIC_ADMIN' || r == 'DOCTOR_ADMIN' || p.contains('ALL') || p.contains('*');
 
-    // If explicit clinic sub-permissions are assigned to the user, strictly respect them individually
-    final hasSpecificClinicSubPerms = p.contains('CLINIC_APPOINTMENTS') ||
-        p.contains('DOCTOR_CONSULTATION') ||
-        p.contains('PRESCRIPTIONS') ||
-        p.contains('CLINIC_PHARMACY') ||
-        p.contains('CLINIC_THERAPY') ||
-        p.contains('CLINIC_ANALYTICS');
-
-    // If role is DOCTOR, clinician, or physician without admin rights and no custom sub-perms, show Doctor Consultation tab immediately
-    if (!isAdmin && !hasSpecificClinicSubPerms && (r.contains('DOCTOR') || r.contains('CLINICIAN') || r.contains('PHYSICIAN'))) {
-      return [ClinicTab.doctor];
+    // IF ADMIN: Always get ALL tabs (OPD, Doctor, Therapy, Pharmacy Billing, Analysis of Report)
+    if (isAdmin) {
+      return [
+        ClinicTab.reception,
+        ClinicTab.doctor,
+        ClinicTab.therapy,
+        ClinicTab.pharmacy,
+        ClinicTab.analytics,
+      ];
     }
 
+    // Permission-wise tabs
     final List<ClinicTab> allowed = [];
 
     // 1. Reception Desk (OPD Queue)
-    if (p.contains('CLINIC_APPOINTMENTS') ||
-        (!hasSpecificClinicSubPerms && (p.contains('CLINIC_MODULE') || isAdmin || r.contains('RECEPTION') || r.contains('FRONTDESK')))) {
+    if (p.contains('CLINIC_APPOINTMENTS') || p.contains('CLINIC_RECEPTION') || p.contains('CLINIC_MODULE') || r.contains('RECEPTION') || r.contains('FRONTDESK')) {
       allowed.add(ClinicTab.reception);
     }
 
-    // 2. Doctor Consultation
-    if (p.contains('DOCTOR_CONSULTATION') ||
-        p.contains('PRESCRIPTIONS') ||
-        (!hasSpecificClinicSubPerms && (p.contains('CLINIC_MODULE') || isAdmin || r.contains('DOCTOR') || r.contains('CLINICIAN') || r.contains('PHYSICIAN')))) {
+    // 2. Doctor Consultation Desk
+    if (p.contains('DOCTOR_CONSULTATION') || p.contains('PRESCRIPTIONS') || p.contains('CLINIC_MODULE') || r.contains('DOCTOR') || r.contains('CLINICIAN') || r.contains('PHYSICIAN')) {
       allowed.add(ClinicTab.doctor);
     }
 
-    // 4. Therapy & Packages
-    if (p.contains('CLINIC_THERAPY') ||
-        (!hasSpecificClinicSubPerms && (p.contains('CLINIC_MODULE') || isAdmin || r.contains('THERAP')))) {
+    // 3. Therapy & Packages Desk
+    if (p.contains('CLINIC_THERAPY') || p.contains('THERAPY') || p.contains('CLINIC_MODULE') || r.contains('THERAP')) {
       allowed.add(ClinicTab.therapy);
     }
 
-    // 5. Store & Clinic Analytics
-    if (p.contains('CLINIC_ANALYTICS') ||
-        (!hasSpecificClinicSubPerms && (p.contains('CLINIC_MODULE') || isAdmin || r == 'MANAGER')) ||
-        (isAdmin && !hasSpecificClinicSubPerms)) {
-      allowed.add(ClinicTab.analytics);
+    // 4. Pharmacy Billing & Dispensing Desk
+    if (p.contains('CLINIC_PHARMACY') || p.contains('PHARMACY') || p.contains('CLINIC_MODULE') || r.contains('PHARMAC')) {
+      allowed.add(ClinicTab.pharmacy);
     }
 
-    if (allowed.isNotEmpty) return allowed;
-
-    // Default fallback based on role if no matching tab found and no specific permissions restricted them
-    if (!hasSpecificClinicSubPerms) {
-      if (r.contains('DOCTOR')) return [ClinicTab.doctor];
-      if (r.contains('THERAP')) return [ClinicTab.therapy];
-      if (p.contains('CLINIC_MODULE') || isAdmin) {
-        return [
-          ClinicTab.reception,
-          ClinicTab.doctor,
-          ClinicTab.therapy,
-          ClinicTab.analytics,
-        ];
-      }
-      return [ClinicTab.reception];
+    // 5. Analysis of Report / Clinic Operational Intelligence
+    if (p.contains('CLINIC_ANALYTICS') || p.contains('CLINIC_REPORTS') || p.contains('CLINIC_MODULE') || r == 'MANAGER') {
+      allowed.add(ClinicTab.analytics);
     }
 
     if (widget.standaloneTab != null && !allowed.contains(widget.standaloneTab!)) {
@@ -290,7 +271,19 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
 
     if (allowed.isNotEmpty) return allowed;
 
-    return [];
+    // Default fallback based on role
+    if (r.contains('DOCTOR') || r.contains('CLINICIAN')) return [ClinicTab.doctor];
+    if (r.contains('PHARMAC')) return [ClinicTab.pharmacy];
+    if (r.contains('THERAP')) return [ClinicTab.therapy];
+    if (r.contains('RECEPTION') || r.contains('FRONTDESK')) return [ClinicTab.reception];
+
+    return [
+      ClinicTab.reception,
+      ClinicTab.doctor,
+      ClinicTab.therapy,
+      ClinicTab.pharmacy,
+      ClinicTab.analytics,
+    ];
   }
 
   Future<void> _fetchOperatingStatus() async {

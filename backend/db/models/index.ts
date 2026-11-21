@@ -279,6 +279,8 @@ models.hr_payroll_runs =
     require('../../models/property/hrPayrollRun.model')(propertyDb, DataTypes);
 models.hr_payroll_details =
     require('../../models/property/hrPayrollDetail.model')(propertyDb, DataTypes);
+models.hr_penalties =
+    require('../../models/property/hrPenalty.model')(propertyDb, DataTypes);
 
 // RESTAURANT & CORE ADDONS
 models.floors =

@@ -840,7 +840,14 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
   Widget _buildApprovalsTab() {
     final pendingLeaves = _leaveRequests.where((l) => l['status'].toString().toLowerCase() == 'pending').toList();
     final historyLeaves = _leaveRequests.where((l) => l['status'].toString().toLowerCase() != 'pending').toList();
-    final pendingLoans = _loanRequests.where((l) => l['status'].toString().toLowerCase() == 'pending' || l['status'].toString().toLowerCase() == 'active').toList();
+    final pendingLoans = _loanRequests.where((l) {
+      final st = (l['status'] ?? '').toString().toLowerCase();
+      return st == 'pending' || st == 'pending approval' || st == 'pending_approval';
+    }).toList();
+    final historyLoans = _loanRequests.where((l) {
+      final st = (l['status'] ?? '').toString().toLowerCase();
+      return st != 'pending' && st != 'pending approval' && st != 'pending_approval';
+    }).toList();
 
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 16),
@@ -1049,6 +1056,57 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
               ),
             );
           }),
+
+        if (historyLoans.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          _sectionHeader('Loan Decisions & History (${historyLoans.length})'),
+          ...historyLoans.map((loan) {
+            final empName = loan['employee']?['full_name']?.toString() ?? _lookupEmployeeName(loan['employee_id']);
+            final amount = double.tryParse(loan['loan_amount']?.toString() ?? '0') ?? 0;
+            final remaining = double.tryParse(loan['remaining_balance']?.toString() ?? '0') ?? 0;
+            final st = (loan['status'] ?? 'Approved').toString();
+            final isApp = st.toLowerCase() == 'approved' || st.toLowerCase() == 'active' || st.toLowerCase() == 'closed';
+            return Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(empName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        const SizedBox(height: 4),
+                        Text('Loan: ${CurrencyService.format(amount)} • Balance: ${CurrencyService.format(remaining)}', style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280))),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isApp ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: isApp ? const Color(0xFFA7F3D0) : const Color(0xFFFECACA)),
+                    ),
+                    child: Text(
+                      st,
+                      style: TextStyle(
+                        color: isApp ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
       ],
     );
   }

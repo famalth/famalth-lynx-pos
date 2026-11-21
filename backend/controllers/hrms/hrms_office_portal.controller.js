@@ -728,13 +728,21 @@ exports.employeeGeotaggedPunch = async (req, res) => {
       let lateMins = 0;
       let status = 'Present';
       if (employee.shift && employee.shift.start_time) {
-        const shiftStart = moment(`${today} ${employee.shift.start_time}`, 'YYYY-MM-DD HH:mm:ss');
-        const graceLimit = shiftStart.clone().add(employee.shift.grace_period_mins || 0, 'minutes');
+        let shiftStart = moment(`${today} ${employee.shift.start_time}`, 'YYYY-MM-DD HH:mm:ss');
+        const shiftEndStr = employee.shift.end_time || '18:00:00';
+        const isOvernight = employee.shift.start_time > shiftEndStr;
         const punchMoment = moment(now);
 
+        if (isOvernight && punchMoment.hour() < 12) {
+          shiftStart = moment(`${today} ${employee.shift.start_time}`, 'YYYY-MM-DD HH:mm:ss').subtract(1, 'day');
+        }
+
+        const graceLimit = shiftStart.clone().add(employee.shift.grace_period_mins || 15, 'minutes');
         if (punchMoment.isAfter(graceLimit)) {
           lateMins = Math.max(0, punchMoment.diff(shiftStart, 'minutes'));
-          status = 'Late';
+          const maxShiftMins = 8 * 60;
+          if (lateMins > maxShiftMins) lateMins = 0;
+          if (lateMins > 0) status = 'Late';
         }
       }
 
@@ -1028,8 +1036,11 @@ exports.getMyEmployeeProfile = async (req, res) => {
       totalWorkedHours += parseFloat(p.hours_worked || 0);
       totalOvertimeHours += parseFloat(p.overtime_hours || 0);
       totalLateMins += parseInt(p.lateness_mins || 0);
-      if (p.status === 'Present' || p.status === 'Late') {
+      const s = (p.status || '').toLowerCase();
+      if (p.punch_in || s === 'present' || s === 'late' || s.includes('present')) {
         presentDays++;
+      } else if (s === 'half day' || s === 'half-day') {
+        presentDays += 0.5;
       }
     }
 
@@ -1113,14 +1124,14 @@ exports.employeeRequestLoan = async (req, res) => {
     }
 
     const loan = await hr_loans.create({
-      outlet_id: employee.outlet_id,
+      outlet_id: employee.outlet_id || req.user?.outlet_id || 1,
       employee_id: employee.id,
       loan_amount: amount,
       monthly_emi: emi,
       remaining_balance: amount,
       status: 'Pending',
       notes: notes || 'Employee app advance request',
-      created_by: req.user.id || employee.id
+      created_by: req.user?.id || employee.user_id || employee.id
     });
 
     return res.json({

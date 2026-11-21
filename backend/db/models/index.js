@@ -241,6 +241,8 @@ models.hr_payroll_runs =
     require('../../models/property/hrPayrollRun.model')(propertyDb_1.default, sequelize_1.DataTypes);
 models.hr_payroll_details =
     require('../../models/property/hrPayrollDetail.model')(propertyDb_1.default, sequelize_1.DataTypes);
+models.hr_penalties =
+    require('../../models/property/hrPenalty.model')(propertyDb_1.default, sequelize_1.DataTypes);
 // RESTAURANT & CORE ADDONS
 models.floors =
     require('../../models/property/floor.model')(propertyDb_1.default, sequelize_1.DataTypes);

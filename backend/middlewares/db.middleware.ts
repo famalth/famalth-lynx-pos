@@ -110,6 +110,23 @@ export const dbMiddleware = async (req: Request, res: Response, next: NextFuncti
           ALTER TABLE kot_revisions ADD COLUMN IF NOT EXISTS reason VARCHAR(255);
           ALTER TABLE kot_revisions ADD COLUMN IF NOT EXISTS snapshot JSONB;
           ALTER TABLE property_info ADD COLUMN IF NOT EXISTS business_module VARCHAR(50) DEFAULT 'ALL';
+
+          -- HRMS Penalties
+          CREATE TABLE IF NOT EXISTS hr_penalties (
+            id SERIAL PRIMARY KEY,
+            outlet_id INTEGER NOT NULL,
+            employee_id INTEGER NOT NULL,
+            amount DECIMAL(12, 2) NOT NULL,
+            reason VARCHAR(255),
+            category VARCHAR(100) DEFAULT 'Disciplinary',
+            penalty_date DATE DEFAULT CURRENT_DATE,
+            pay_period VARCHAR(20),
+            status VARCHAR(50) DEFAULT 'Pending',
+            created_by INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          );
+          CREATE INDEX IF NOT EXISTS idx_hr_penalties_emp ON hr_penalties (outlet_id, employee_id, status);
           ALTER TABLE property_info ADD COLUMN IF NOT EXISTS outlet_module VARCHAR(50) DEFAULT 'ALL';
 
           -- Supplier & Issues

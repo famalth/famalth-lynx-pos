@@ -43,6 +43,19 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
   List<Map<String, dynamic>> _chartData = [];
   Map<String, dynamic> _dashboardKpis = {};
   bool _loadingTab = false;
+
+  // Penalties State
+  List<Map<String, dynamic>> _penaltiesList = [];
+  List<Map<String, dynamic>> _employeesList = [];
+
+  // Reports Tab State
+  int _selectedReportIndex = 0; // 0: Salary Revision, 1: Advances & Loans, 2: Salary Payroll, 3: Leaves, 4: Bonuses & Arrears
+  DateTime _reportFromDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
+  DateTime _reportToDate = DateTime.now();
+  String _reportStatusFilter = 'All'; // All, Pending, Approved, Rejected, Paid
+  String _reportSearchQuery = '';
+  List<Map<String, dynamic>> _reportData = [];
+  bool _loadingReport = false;
   final _tableScrollController = ScrollController();
   List<int> _selectedRowIds = [];
   Map<int, String> _rowPayModes = {};
@@ -62,7 +75,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 6, vsync: this);
+    _tabController = TabController(length: 7, vsync: this);
     _tabController.addListener(_handleTabSelection);
     _generateMonthsList();
     _loadTabContent();
@@ -378,6 +391,14 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
           _revisionApprovals = List<Map<String, dynamic>>.from(res['data']?['revisions'] ?? []);
           _bonusApprovals = List<Map<String, dynamic>>.from(res['data']?['bonuses'] ?? []);
         });
+        final pRes = await ApiClient.get('/api/hrms/penalties');
+        if (pRes['success'] == true) {
+          setState(() {
+            _penaltiesList = List<Map<String, dynamic>>.from(pRes['data'] ?? []);
+          });
+        }
+      } else if (_tabController.index == 6) {
+        await _fetchReportData();
       }
     } catch (_) {}
     finally {
@@ -509,6 +530,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
             Tab(text: 'Grades (Pay Structures)'),
             Tab(text: 'Pay Schedule'),
             Tab(text: 'Approvals'),
+            Tab(text: 'Reports'),
           ],
         ),
       ),
@@ -521,6 +543,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
           _buildGradesTab(),
           _buildPayScheduleTab(),
           _buildApprovalsTab(),
+          _buildReportsTab(),
         ],
       ),
     );
@@ -659,6 +682,15 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
             spacing: 8,
             runSpacing: 8,
             children: [
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF991B1B),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+                icon: const Icon(Icons.gavel_rounded, color: Colors.white, size: 14),
+                label: const Text('Apply Penalty / Fine', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                onPressed: _showApplyPenaltyDialog,
+              ),
               if (_runStatus == 'Draft') ...[
                 OutlinedButton.icon(
                   icon: const Icon(Icons.analytics_outlined, size: 14),
@@ -1088,6 +1120,32 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
               controller: _tableScrollController,
               scrollDirection: Axis.horizontal,
               child: Builder(builder: (context) {
+                // Dynamically extract earning & deduction component columns from components_breakdown
+                final Set<String> dynamicEarningNames = {};
+                final Set<String> dynamicDeductionNames = {};
+                for (final r in filteredData) {
+                  final bd = r['components_breakdown'] as Map<String, dynamic>?;
+                  if (bd != null) {
+                    bd.forEach((k, v) {
+                      if (k == 'attendance_analytics' || k == 'payment_status' || k == 'payment_method') return;
+                      final kLower = k.toLowerCase();
+                      final isDeduct = kLower.contains('deduct') || kLower.contains('pf') || kLower.contains('esi') || 
+                          kLower.contains('tds') || kLower.contains('tcs') || kLower.contains('tax') || 
+                          kLower.contains('shortage') || kLower.contains('penalty') || kLower.contains('loan') || 
+                          kLower.contains('fine') || kLower.contains('loss');
+                      if (isDeduct) {
+                        dynamicDeductionNames.add(k);
+                      } else if (!kLower.contains('basic')) {
+                        dynamicEarningNames.add(k);
+                      }
+                    });
+                  }
+                }
+                if (dynamicEarningNames.isEmpty) dynamicEarningNames.addAll(['HRA', 'DA']);
+                if (dynamicDeductionNames.isEmpty) dynamicDeductionNames.addAll(['TDS', 'EPF', 'ESI']);
+                final sortedEarnings = dynamicEarningNames.toList()..sort();
+                final sortedDeductions = dynamicDeductionNames.toList()..sort();
+
                 final tableCols = [
                   if (_activeRunId != null)
                     DataColumn(
@@ -1106,17 +1164,14 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                     ),
                   const DataColumn(label: Text('Employee', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F)))),
                   const DataColumn(label: Text('Basic Earning', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F)))),
-                  const DataColumn(label: Text('HRA', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F)))),
-                  const DataColumn(label: Text('DA', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F)))),
+                  ...sortedEarnings.map((c) => DataColumn(label: Text(c, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F))))),
                   const DataColumn(label: Text('Arrears', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F)))),
                   const DataColumn(label: Text('Commission', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F)))),
-                  const DataColumn(label: Text('EMI/Penalties', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F)))),
                   const DataColumn(label: Text('Bonus', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F)))),
-                  const DataColumn(label: Text('TCS', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F)))),
-                  const DataColumn(label: Text('TDS', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F)))),
-                  const DataColumn(label: Text('EPF', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F)))),
-                  const DataColumn(label: Text('ESI', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F)))),
-                  const DataColumn(label: Text('Deductions', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F)))),
+                  const DataColumn(label: Text('Loan EMI', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F)))),
+                  const DataColumn(label: Text('Penalties/Shortage', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F)))),
+                  ...sortedDeductions.map((c) => DataColumn(label: Text(c, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F))))),
+                  const DataColumn(label: Text('Total Deductions', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F)))),
                   const DataColumn(label: Text('Paid Days', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F)))),
                   const DataColumn(label: Text('Work Hours', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F)))),
                   const DataColumn(label: Text('Overtime Hours', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F)))),
@@ -1228,16 +1283,19 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                       ),
                     ),
                     DataCell(Text(CurrencyService.format(basicVal))),
-                    DataCell(Text(CurrencyService.format(hra))),
-                    DataCell(Text(CurrencyService.format(da))),
+                    ...sortedEarnings.map((c) {
+                      final val = double.tryParse(breakdown?[c]?.toString() ?? '0') ?? 0.0;
+                      return DataCell(Text(CurrencyService.format(val)));
+                    }),
                     DataCell(Text(CurrencyService.format(arrears), style: const TextStyle(color: Color(0xFF059669)))),
                     DataCell(Text(CurrencyService.format(commission), style: const TextStyle(color: Color(0xFF059669)))),
-                    DataCell(Text(CurrencyService.format(emiPenalties), style: const TextStyle(color: Color(0xFFDC2626)))),
                     DataCell(Text(CurrencyService.format(bonus), style: const TextStyle(color: Color(0xFF059669)))),
-                    DataCell(Text(CurrencyService.format(tcs), style: const TextStyle(color: Color(0xFFDC2626)))),
-                    DataCell(Text(CurrencyService.format(tds), style: const TextStyle(color: Color(0xFFDC2626)))),
-                    DataCell(Text(CurrencyService.format(epf), style: const TextStyle(color: Color(0xFFDC2626)))),
-                    DataCell(Text(CurrencyService.format(esi), style: const TextStyle(color: Color(0xFFDC2626)))),
+                    DataCell(Text(CurrencyService.format(loan), style: const TextStyle(color: Color(0xFFDC2626)))),
+                    DataCell(Text(CurrencyService.format(penalties), style: const TextStyle(color: Color(0xFFDC2626)))),
+                    ...sortedDeductions.map((c) {
+                      final val = double.tryParse(breakdown?[c]?.toString() ?? '0') ?? 0.0;
+                      return DataCell(Text(CurrencyService.format(val), style: const TextStyle(color: Color(0xFFDC2626))));
+                    }),
                     DataCell(Text(CurrencyService.format(deductions), style: const TextStyle(color: Color(0xFFDC2626)))),
                     DataCell(Text(paidDays.toStringAsFixed(1))),
                     DataCell(Text('${workHours.toStringAsFixed(1)} hrs')),
@@ -2054,64 +2112,139 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
         ),
         _card(
           padding: EdgeInsets.zero,
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              headingRowColor: WidgetStateProperty.all(const Color(0xFFF9FAFB)),
-              columns: const [
-                DataColumn(label: Text('Employee', style: TextStyle(fontWeight: FontWeight.bold))),
-                DataColumn(label: Text('Amount', style: TextStyle(fontWeight: FontWeight.bold))),
-                DataColumn(label: Text('Remaining Balance', style: TextStyle(fontWeight: FontWeight.bold))),
-                DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
-                DataColumn(label: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold))),
-              ],
-              rows: filteredLoans.map((loan) {
-                final emp = loan['employee'] ?? {};
-                final name = emp['full_name']?.toString() ?? '—';
-                final amt = double.tryParse(loan['loan_amount']?.toString() ?? '0') ?? 0;
-                final bal = double.tryParse(loan['remaining_balance']?.toString() ?? '0') ?? 0;
-                final rawStatus = loan['status']?.toString() ?? 'Pending';
-                final isPending = rawStatus.toLowerCase() == 'pending' || rawStatus.toLowerCase() == 'pending approval' || rawStatus.toLowerCase() == 'pending_approval';
+          child: filteredLoans.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('No advance or loan requests found.', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)),
+                )
+              : SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: DataTable(
+                    headingRowColor: WidgetStateProperty.all(const Color(0xFFF9FAFB)),
+                    columns: const [
+                      DataColumn(label: Text('Employee', style: TextStyle(fontWeight: FontWeight.bold))),
+                      DataColumn(label: Text('Amount', style: TextStyle(fontWeight: FontWeight.bold))),
+                      DataColumn(label: Text('Remaining Balance', style: TextStyle(fontWeight: FontWeight.bold))),
+                      DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
+                      DataColumn(label: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold))),
+                    ],
+                    rows: filteredLoans.map((loan) {
+                      final emp = loan['employee'] ?? {};
+                      final name = emp['full_name']?.toString() ?? 'Employee #${loan['employee_id']}';
+                      final amt = double.tryParse(loan['loan_amount']?.toString() ?? '0') ?? 0;
+                      final bal = double.tryParse(loan['remaining_balance']?.toString() ?? '0') ?? 0;
+                      final rawStatus = loan['status']?.toString() ?? 'Pending';
+                      final isPending = rawStatus.toLowerCase() == 'pending' || rawStatus.toLowerCase() == 'pending approval' || rawStatus.toLowerCase() == 'pending_approval';
 
-                return DataRow(cells: [
-                  DataCell(Text(name, style: const TextStyle(fontWeight: FontWeight.w600))),
-                  DataCell(Text(CurrencyService.format(amt))),
-                  DataCell(Text(CurrencyService.format(bal))),
-                  DataCell(_buildStatusChip(rawStatus)),
-                  DataCell(
-                    isPending
-                        ? Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.check_circle_outline, color: Color(0xFF059669), size: 20),
-                                onPressed: () => _approveLoan(loan['id'] as int),
-                                tooltip: 'Approve & Mark Paid',
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.highlight_off, color: Color(0xFFDC2626), size: 20),
-                                onPressed: () => _rejectLoan(loan['id'] as int),
-                                tooltip: 'Reject Loan',
-                              ),
-                            ],
-                          )
-                        : Text(
-                            rawStatus.toLowerCase() == 'approved' || rawStatus.toLowerCase() == 'paid' || rawStatus.toLowerCase() == 'active'
-                                ? 'Approved'
-                                : '—',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: rawStatus.toLowerCase() == 'approved' || rawStatus.toLowerCase() == 'paid' || rawStatus.toLowerCase() == 'active'
-                                  ? const Color(0xFF059669)
-                                  : Colors.grey,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
+                      return DataRow(cells: [
+                        DataCell(Text(name, style: const TextStyle(fontWeight: FontWeight.w600))),
+                        DataCell(Text(CurrencyService.format(amt))),
+                        DataCell(Text(CurrencyService.format(bal))),
+                        DataCell(_buildStatusChip(rawStatus)),
+                        DataCell(
+                          isPending
+                              ? Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.check_circle_outline, color: Color(0xFF059669), size: 20),
+                                      onPressed: () => _approveLoan(loan['id'] as int),
+                                      tooltip: 'Approve & Mark Paid',
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.highlight_off, color: Color(0xFFDC2626), size: 20),
+                                      onPressed: () => _rejectLoan(loan['id'] as int),
+                                      tooltip: 'Reject Loan',
+                                    ),
+                                  ],
+                                )
+                              : Text(
+                                  rawStatus.toLowerCase() == 'approved' || rawStatus.toLowerCase() == 'paid' || rawStatus.toLowerCase() == 'active'
+                                      ? 'Approved'
+                                      : '—',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: rawStatus.toLowerCase() == 'approved' || rawStatus.toLowerCase() == 'paid' || rawStatus.toLowerCase() == 'active'
+                                        ? const Color(0xFF059669)
+                                        : Colors.grey,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                        ),
+                      ]);
+                    }).toList(),
                   ),
-                ]);
-              }).toList(),
-            ),
+                ),
+        ),
+        const SizedBox(height: 16),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Penalties & Fines Log (${_penaltiesList.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E3A5F))),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFDC2626),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                ),
+                icon: const Icon(Icons.add, color: Colors.white, size: 14),
+                label: const Text('Add Penalty', style: TextStyle(color: Colors.white, fontSize: 11)),
+                onPressed: _showApplyPenaltyDialog,
+              ),
+            ],
           ),
+        ),
+        _card(
+          padding: EdgeInsets.zero,
+          child: _penaltiesList.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('No disciplinary penalties recorded.', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)),
+                )
+              : SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: DataTable(
+                    headingRowColor: WidgetStateProperty.all(const Color(0xFFF9FAFB)),
+                    columns: const [
+                      DataColumn(label: Text('Employee', style: TextStyle(fontWeight: FontWeight.bold))),
+                      DataColumn(label: Text('Category', style: TextStyle(fontWeight: FontWeight.bold))),
+                      DataColumn(label: Text('Amount', style: TextStyle(fontWeight: FontWeight.bold))),
+                      DataColumn(label: Text('Reason', style: TextStyle(fontWeight: FontWeight.bold))),
+                      DataColumn(label: Text('Date / Period', style: TextStyle(fontWeight: FontWeight.bold))),
+                      DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
+                      DataColumn(label: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold))),
+                    ],
+                    rows: _penaltiesList.map((p) {
+                      final emp = p['employee'] ?? {};
+                      final name = emp['full_name']?.toString() ?? 'Employee #${p['employee_id']}';
+                      final amt = double.tryParse(p['amount']?.toString() ?? '0') ?? 0;
+                      final cat = p['category']?.toString() ?? 'Disciplinary';
+                      final reason = p['reason']?.toString() ?? '—';
+                      final date = p['penalty_date']?.toString() ?? p['pay_period']?.toString() ?? '—';
+                      final pStatus = p['status']?.toString() ?? 'Pending';
+                      final isPending = pStatus.toLowerCase() == 'pending';
+
+                      return DataRow(cells: [
+                        DataCell(Text(name, style: const TextStyle(fontWeight: FontWeight.w600))),
+                        DataCell(Text(cat)),
+                        DataCell(Text(CurrencyService.format(amt), style: const TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.bold))),
+                        DataCell(Text(reason)),
+                        DataCell(Text(date)),
+                        DataCell(_buildStatusChip(pStatus)),
+                        DataCell(
+                          isPending
+                              ? IconButton(
+                                  icon: const Icon(Icons.delete_outline, color: Color(0xFFDC2626), size: 18),
+                                  onPressed: () => _deletePenalty(p['id'] as int),
+                                  tooltip: 'Delete Penalty',
+                                )
+                              : const Text('Deducted', style: TextStyle(color: Color(0xFF059669), fontSize: 12)),
+                        ),
+                      ]);
+                    }).toList(),
+                  ),
+                ),
         ),
         const SizedBox(height: 16),
         const Padding(
@@ -2303,6 +2436,664 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error rejecting leave: $e')));
     }
+  }
+
+  Future<void> _deletePenalty(int id) async {
+    try {
+      await ApiClient.delete('/api/hrms/penalties/$id');
+      _loadTabContent();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Penalty removed successfully!'), backgroundColor: Color(0xFF059669)));
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
+  void _showApplyPenaltyDialog() async {
+    if (_employeesList.isEmpty) {
+      try {
+        final res = await ApiClient.get(ApiEndpoints.hrmsEmployees);
+        if (res['success'] == true && res['data'] != null) {
+          _employeesList = List<Map<String, dynamic>>.from(res['data'] ?? []);
+        }
+      } catch (_) {}
+    }
+
+    int? selectedEmpId;
+    if (_previewData.isNotEmpty) {
+      selectedEmpId = _previewData.first['employee_id'] as int?;
+    } else if (_employeesList.isNotEmpty) {
+      selectedEmpId = _employeesList.first['id'] as int?;
+    }
+
+    final amountCtrl = TextEditingController();
+    final reasonCtrl = TextEditingController();
+    String category = 'Disciplinary';
+    final period = DateFormat('yyyy-MM').format(_currentMonth);
+
+    showDialog(
+      context: context,
+      builder: (dctx) => StatefulBuilder(
+        builder: (ctx, setDState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: const [
+              Icon(Icons.gavel_rounded, color: Color(0xFFDC2626)),
+              SizedBox(width: 8),
+              Text('Apply Disciplinary Penalty / Fine', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: SizedBox(
+              width: 440,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Select Employee *', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                  const SizedBox(height: 4),
+                  DropdownButtonFormField<int>(
+                    value: selectedEmpId,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    items: (_employeesList.isNotEmpty ? _employeesList : _previewData).map((e) {
+                      final id = (e['id'] ?? e['employee_id']) as int;
+                      final name = e['full_name'] ?? e['employee_name'] ?? 'Employee';
+                      final code = e['employee_code'] ?? '';
+                      return DropdownMenuItem<int>(
+                        value: id,
+                        child: Text('$name ($code)', overflow: TextOverflow.ellipsis),
+                      );
+                    }).toList(),
+                    onChanged: (val) => setDState(() => selectedEmpId = val),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Penalty / Fine Amount (₹) *', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                  const SizedBox(height: 4),
+                  TextField(
+                    controller: amountCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      prefixText: '₹ ',
+                      hintText: 'e.g. 500',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Category', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                  const SizedBox(height: 4),
+                  DropdownButtonFormField<String>(
+                    value: category,
+                    decoration: InputDecoration(
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'Disciplinary', child: Text('Disciplinary / Misconduct')),
+                      DropdownMenuItem(value: 'Cash Shortage', child: Text('Cash Counter Shortage')),
+                      DropdownMenuItem(value: 'Damage / Loss', child: Text('Inventory Damage / Loss')),
+                      DropdownMenuItem(value: 'Late Violation', child: Text('Habitual Late Arrival')),
+                      DropdownMenuItem(value: 'Other', child: Text('Other Disciplinary Deduction')),
+                    ],
+                    onChanged: (v) => setDState(() => category = v ?? 'Disciplinary'),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Reason / Remarks', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                  const SizedBox(height: 4),
+                  TextField(
+                    controller: reasonCtrl,
+                    maxLines: 2,
+                    decoration: InputDecoration(
+                      hintText: 'Enter reason for deduction...',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      contentPadding: const EdgeInsets.all(10),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: const Color(0xFFFEF2F2), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFFECACA))),
+                    child: Text(
+                      'Note: This penalty will be queued for Pay Period $period and will automatically be deducted from the employee\'s salary slip and net take-home pay.',
+                      style: const TextStyle(fontSize: 11, color: Color(0xFF991B1B)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('Cancel')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFDC2626)),
+              onPressed: () async {
+                final amt = double.tryParse(amountCtrl.text.trim()) ?? 0;
+                if (selectedEmpId == null || amt <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select employee and enter valid amount.')));
+                  return;
+                }
+                Navigator.pop(dctx);
+                try {
+                  final body = {
+                    'employee_id': selectedEmpId,
+                    'amount': amt,
+                    'category': category,
+                    'reason': reasonCtrl.text.trim().isEmpty ? 'Disciplinary fine' : reasonCtrl.text.trim(),
+                    'penalty_date': DateFormat('yyyy-MM-dd').format(DateTime.now()),
+                    'pay_period': period,
+                  };
+                  final res = await ApiClient.post('/api/hrms/penalties', body);
+                  if (res['success'] == true) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text(res['message'] ?? 'Penalty queued and adjusted into salary payroll.'),
+                      backgroundColor: const Color(0xFF059669),
+                    ));
+                    _loadTabContent();
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text(res['message'] ?? 'Failed to apply penalty.'),
+                      backgroundColor: const Color(0xFFDC2626),
+                    ));
+                  }
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+                }
+              },
+              child: const Text('Apply & Queue for Salary', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ================= TAB 7: REPORTS =================
+  Future<void> _fetchReportData() async {
+    setState(() => _loadingReport = true);
+    try {
+      List<Map<String, dynamic>> raw = [];
+      if (_selectedReportIndex == 0) {
+        // Salary Revision Report
+        final res = await ApiClient.get('/api/hrms/payroll/approvals');
+        raw = List<Map<String, dynamic>>.from(res['data']?['revisions'] ?? []);
+      } else if (_selectedReportIndex == 1) {
+        // Advance / Loan Report
+        final res = await ApiClient.get('/api/hrms/loans');
+        raw = List<Map<String, dynamic>>.from(res['data'] ?? []);
+      } else if (_selectedReportIndex == 2) {
+        // Salary Payroll Report
+        final res = await ApiClient.get('/api/hrms/payroll/history');
+        raw = List<Map<String, dynamic>>.from(res['data'] ?? []);
+      } else if (_selectedReportIndex == 3) {
+        // Leave Report
+        final res = await ApiClient.get('/api/hrms/payroll/approvals');
+        raw = List<Map<String, dynamic>>.from(res['data']?['leaves'] ?? []);
+      } else if (_selectedReportIndex == 4) {
+        // Bonus & Arrears Report
+        final res = await ApiClient.get('/api/hrms/payroll/approvals');
+        raw = List<Map<String, dynamic>>.from(res['data']?['bonuses'] ?? []);
+      }
+      setState(() {
+        _reportData = raw;
+      });
+    } catch (_) {}
+    finally {
+      setState(() => _loadingReport = false);
+    }
+  }
+
+  Widget _buildReportsTab() {
+    if (_loadingTab || _loadingReport) {
+      return const Center(child: CircularProgressIndicator(color: Color(0xFFE03E2D)));
+    }
+
+    final filtered = _reportData.where((item) {
+      // Status filter
+      if (_reportStatusFilter != 'All') {
+        final st = (item['status'] ?? item['payrollRun']?['status'] ?? '').toString().toLowerCase();
+        if (_reportStatusFilter == 'Approved' && (st != 'approved' && st != 'active')) return false;
+        if (_reportStatusFilter == 'Pending' && (st != 'pending' && st != 'pending approval' && st != 'draft')) return false;
+        if (_reportStatusFilter == 'Rejected' && st != 'rejected') return false;
+        if (_reportStatusFilter == 'Paid' && (st != 'paid' && st != 'closed')) return false;
+      }
+      // Search filter
+      if (_reportSearchQuery.trim().isNotEmpty) {
+        final q = _reportSearchQuery.trim().toLowerCase();
+        final emp = item['employee'] ?? {};
+        final name = (emp['full_name'] ?? item['employee_name'] ?? '').toString().toLowerCase();
+        final code = (emp['employee_code'] ?? item['employee_code'] ?? '').toString().toLowerCase();
+        if (!name.contains(q) && !code.contains(q)) return false;
+      }
+      // Date filter
+      final dateStr = (item['effective_date'] ?? item['start_date'] ?? item['penalty_date'] ?? item['run_date'] ?? item['created_at'] ?? item['payment_month'] ?? '').toString();
+      if (dateStr.isNotEmpty && dateStr.length >= 7) {
+        DateTime? dt;
+        if (dateStr.length == 7) {
+          dt = DateTime.tryParse('$dateStr-01');
+        } else {
+          dt = DateTime.tryParse(dateStr.substring(0, 10));
+        }
+        if (dt != null) {
+          if (dt.isBefore(DateTime(_reportFromDate.year, _reportFromDate.month, _reportFromDate.day))) return false;
+          if (dt.isAfter(DateTime(_reportToDate.year, _reportToDate.month, _reportToDate.day, 23, 59, 59))) return false;
+        }
+      }
+      return true;
+    }).toList();
+
+    final reportTitles = [
+      'Salary Revision Report',
+      'Advance & Loan Report',
+      'Salary Payroll Report',
+      'Employee Leave Report',
+      'Bonus & Arrears Report'
+    ];
+
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      children: [
+        // Sub-reports Selector
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: List.generate(reportTitles.length, (idx) {
+                final isSelected = _selectedReportIndex == idx;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    label: Text(reportTitles[idx], style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: isSelected ? Colors.white : const Color(0xFF374151))),
+                    selected: isSelected,
+                    selectedColor: const Color(0xFFE03E2D),
+                    backgroundColor: const Color(0xFFF3F4F6),
+                    onSelected: (val) {
+                      if (val) {
+                        setState(() => _selectedReportIndex = idx);
+                        _fetchReportData();
+                      }
+                    },
+                  ),
+                );
+              }),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Filter Bar (Dates, Status, Search)
+        _card(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            alignment: WrapAlignment.spaceBetween,
+            children: [
+              Wrap(
+                spacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6)),
+                    icon: const Icon(Icons.date_range, size: 14),
+                    label: Text('From: ${DateFormat('yyyy-MM-dd').format(_reportFromDate)}', style: const TextStyle(fontSize: 11)),
+                    onPressed: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: _reportFromDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2035),
+                      );
+                      if (picked != null) setState(() => _reportFromDate = picked);
+                    },
+                  ),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6)),
+                    icon: const Icon(Icons.date_range, size: 14),
+                    label: Text('To: ${DateFormat('yyyy-MM-dd').format(_reportToDate)}', style: const TextStyle(fontSize: 11)),
+                    onPressed: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: _reportToDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2035),
+                      );
+                      if (picked != null) setState(() => _reportToDate = picked);
+                    },
+                  ),
+                  Container(
+                    height: 32,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    decoration: BoxDecoration(border: Border.all(color: const Color(0xFFD1D5DB)), borderRadius: BorderRadius.circular(6)),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _reportStatusFilter,
+                        style: const TextStyle(fontSize: 12, color: Color(0xFF374151), fontWeight: FontWeight.bold),
+                        items: const [
+                          DropdownMenuItem(value: 'All', child: Text('Status: All')),
+                          DropdownMenuItem(value: 'Pending', child: Text('Pending')),
+                          DropdownMenuItem(value: 'Approved', child: Text('Approved / Active')),
+                          DropdownMenuItem(value: 'Paid', child: Text('Paid / Closed')),
+                          DropdownMenuItem(value: 'Rejected', child: Text('Rejected')),
+                        ],
+                        onChanged: (v) => setState(() => _reportStatusFilter = v ?? 'All'),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              Wrap(
+                spacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 180,
+                    height: 32,
+                    child: TextField(
+                      style: const TextStyle(fontSize: 12),
+                      decoration: InputDecoration(
+                        hintText: 'Search employee...',
+                        prefixIcon: const Icon(Icons.search, size: 14),
+                        contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 8),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                      ),
+                      onChanged: (v) => setState(() => _reportSearchQuery = v),
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF059669),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    ),
+                    icon: const Icon(Icons.download, size: 14, color: Colors.white),
+                    label: const Text('Export CSV', style: TextStyle(color: Colors.white, fontSize: 11)),
+                    onPressed: () => _exportReportCsv(filtered, reportTitles[_selectedReportIndex]),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.refresh, size: 18),
+                    onPressed: _fetchReportData,
+                    tooltip: 'Refresh Report',
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Report Title & Count
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('${reportTitles[_selectedReportIndex]} (${filtered.length} records)', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E3A5F))),
+              Text('Filtered Date: ${DateFormat('yyyy-MM-dd').format(_reportFromDate)} to ${DateFormat('yyyy-MM-dd').format(_reportToDate)}', style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280))),
+            ],
+          ),
+        ),
+
+        // Report DataTable
+        _card(
+          padding: EdgeInsets.zero,
+          child: filtered.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Center(child: Text('No records match the selected date range and filters.', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic))),
+                )
+              : SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: _buildSpecificReportTable(filtered),
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSpecificReportTable(List<Map<String, dynamic>> data) {
+    if (_selectedReportIndex == 0) {
+      // Salary Revision Report
+      return DataTable(
+        headingRowColor: WidgetStateProperty.all(const Color(0xFFF9FAFB)),
+        columns: const [
+          DataColumn(label: Text('Employee', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Previous Salary', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('New / Requested Salary', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Increment (₹)', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Effective Date', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Reason', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
+        ],
+        rows: data.map((rev) {
+          final emp = rev['employee'] ?? {};
+          final name = emp['full_name']?.toString() ?? 'Employee #${rev['employee_id']}';
+          final oldSal = double.tryParse((rev['previous_salary'] ?? rev['old_salary'] ?? rev['current_salary'] ?? 0).toString()) ?? 0;
+          final newSal = double.tryParse((rev['new_salary'] ?? rev['revised_salary'] ?? rev['requested_salary'] ?? 0).toString()) ?? 0;
+          final inc = newSal - oldSal;
+          final eff = rev['effective_date']?.toString() ?? '—';
+          final reason = rev['reason']?.toString() ?? '—';
+          final st = rev['status']?.toString() ?? 'Pending';
+
+          return DataRow(cells: [
+            DataCell(Text(name, style: const TextStyle(fontWeight: FontWeight.w600))),
+            DataCell(Text(CurrencyService.format(oldSal))),
+            DataCell(Text(CurrencyService.format(newSal), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF059669)))),
+            DataCell(Text(inc >= 0 ? '+ ${CurrencyService.format(inc)}' : CurrencyService.format(inc), style: const TextStyle(color: Color(0xFF059669)))),
+            DataCell(Text(eff)),
+            DataCell(Text(reason)),
+            DataCell(_buildStatusChip(st)),
+          ]);
+        }).toList(),
+      );
+    } else if (_selectedReportIndex == 1) {
+      // Advance & Loan Report
+      return DataTable(
+        headingRowColor: WidgetStateProperty.all(const Color(0xFFF9FAFB)),
+        columns: const [
+          DataColumn(label: Text('Employee', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Loan Amount', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Monthly EMI', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Remaining Balance', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Payment Method', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Notes', style: TextStyle(fontWeight: FontWeight.bold))),
+        ],
+        rows: data.map((loan) {
+          final emp = loan['employee'] ?? {};
+          final name = emp['full_name']?.toString() ?? 'Employee #${loan['employee_id']}';
+          final amt = double.tryParse(loan['loan_amount']?.toString() ?? '0') ?? 0;
+          final emi = double.tryParse(loan['monthly_emi']?.toString() ?? '0') ?? 0;
+          final bal = double.tryParse(loan['remaining_balance']?.toString() ?? '0') ?? 0;
+          final method = loan['payment_method']?.toString() ?? 'Cash';
+          final st = loan['status']?.toString() ?? 'Pending';
+          final notes = loan['notes']?.toString() ?? '—';
+
+          return DataRow(cells: [
+            DataCell(Text(name, style: const TextStyle(fontWeight: FontWeight.w600))),
+            DataCell(Text(CurrencyService.format(amt), style: const TextStyle(fontWeight: FontWeight.bold))),
+            DataCell(Text(CurrencyService.format(emi))),
+            DataCell(Text(CurrencyService.format(bal))),
+            DataCell(Text(method)),
+            DataCell(_buildStatusChip(st)),
+            DataCell(Text(notes)),
+          ]);
+        }).toList(),
+      );
+    } else if (_selectedReportIndex == 2) {
+      // Salary Payroll Report
+      return DataTable(
+        headingRowColor: WidgetStateProperty.all(const Color(0xFFF9FAFB)),
+        columns: const [
+          DataColumn(label: Text('Employee', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Pay Period', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Base Salary', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Paid Days', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Gross Pay', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Loan EMI', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Penalties/Shortage', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Statutory Deductions', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Total Deductions', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Net Salary', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
+        ],
+        rows: data.map((row) {
+          final emp = row['employee'] ?? {};
+          final name = emp['full_name']?.toString() ?? row['employee_name']?.toString() ?? 'Employee #${row['employee_id']}';
+          final period = row['payrollRun']?['pay_period'] ?? row['pay_period'] ?? '—';
+          final base = double.tryParse(row['base_salary']?.toString() ?? '0') ?? 0;
+          final days = double.tryParse((row['days_present'] ?? row['salary_days'] ?? 0).toString()) ?? 0;
+          final gross = double.tryParse(row['gross_pay']?.toString() ?? '0') ?? 0;
+          final loan = double.tryParse((row['loan_emi'] ?? row['loan_deduction'] ?? 0).toString()) ?? 0;
+          final pen = double.tryParse((row['shortage_penalties'] ?? row['penalty_deduction'] ?? 0).toString()) ?? 0;
+          final stat = double.tryParse((row['statutory_deductions'] ?? 0).toString()) ?? 0;
+          final totalDed = double.tryParse(row['total_deductions']?.toString() ?? '0') ?? 0;
+          final net = double.tryParse(row['net_pay']?.toString() ?? '0') ?? 0;
+          final st = row['payrollRun']?['status'] ?? 'Paid';
+
+          return DataRow(cells: [
+            DataCell(Text(name, style: const TextStyle(fontWeight: FontWeight.w600))),
+            DataCell(Text(period)),
+            DataCell(Text(CurrencyService.format(base))),
+            DataCell(Text(days.toStringAsFixed(1))),
+            DataCell(Text(CurrencyService.format(gross))),
+            DataCell(Text(CurrencyService.format(loan), style: const TextStyle(color: Color(0xFFDC2626)))),
+            DataCell(Text(CurrencyService.format(pen), style: const TextStyle(color: Color(0xFFDC2626)))),
+            DataCell(Text(CurrencyService.format(stat), style: const TextStyle(color: Color(0xFFDC2626)))),
+            DataCell(Text(CurrencyService.format(totalDed), style: const TextStyle(color: Color(0xFFDC2626)))),
+            DataCell(Text(CurrencyService.format(net), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF059669)))),
+            DataCell(_buildStatusChip(st)),
+          ]);
+        }).toList(),
+      );
+    } else if (_selectedReportIndex == 3) {
+      // Leave Report
+      return DataTable(
+        headingRowColor: WidgetStateProperty.all(const Color(0xFFF9FAFB)),
+        columns: const [
+          DataColumn(label: Text('Employee', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Leave Type', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Start Date', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('End Date', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Total Days', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Reason', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
+        ],
+        rows: data.map((l) {
+          final emp = l['employee'] ?? {};
+          final name = emp['full_name']?.toString() ?? 'Employee #${l['employee_id']}';
+          final lType = l['leaveType'] != null ? (l['leaveType']['name'] ?? 'Leave') : 'Leave';
+          final start = l['start_date']?.toString() ?? '—';
+          final end = l['end_date']?.toString() ?? '—';
+          final days = l['total_days'] ?? 0;
+          final reason = l['reason']?.toString() ?? '—';
+          final st = l['status']?.toString() ?? 'Pending';
+
+          return DataRow(cells: [
+            DataCell(Text(name, style: const TextStyle(fontWeight: FontWeight.w600))),
+            DataCell(Text(lType)),
+            DataCell(Text(start)),
+            DataCell(Text(end)),
+            DataCell(Text('$days')),
+            DataCell(Text(reason)),
+            DataCell(_buildStatusChip(st)),
+          ]);
+        }).toList(),
+      );
+    } else {
+      // Bonus & Arrears Report
+      return DataTable(
+        headingRowColor: WidgetStateProperty.all(const Color(0xFFF9FAFB)),
+        columns: const [
+          DataColumn(label: Text('Employee', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Category', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Amount', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Payment Month', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Reason / Remarks', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
+        ],
+        rows: data.map((b) {
+          final emp = b['employee'] ?? {};
+          final name = emp['full_name']?.toString() ?? 'Employee #${b['employee_id']}';
+          final cat = b['type'] ?? b['category'] ?? 'Bonus';
+          final amt = double.tryParse(b['amount']?.toString() ?? '0') ?? 0;
+          final month = b['payment_month']?.toString() ?? '—';
+          final reason = b['reason'] ?? b['notes'] ?? '—';
+          final st = b['status']?.toString() ?? 'Pending';
+
+          return DataRow(cells: [
+            DataCell(Text(name, style: const TextStyle(fontWeight: FontWeight.w600))),
+            DataCell(Text(cat)),
+            DataCell(Text(CurrencyService.format(amt), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF059669)))),
+            DataCell(Text(month)),
+            DataCell(Text(reason)),
+            DataCell(_buildStatusChip(st)),
+          ]);
+        }).toList(),
+      );
+    }
+  }
+
+  void _exportReportCsv(List<Map<String, dynamic>> data, String title) {
+    if (data.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No data to export.')));
+      return;
+    }
+    final buffer = StringBuffer();
+    buffer.writeln('Report: $title');
+    buffer.writeln('Generated: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}');
+    buffer.writeln('Date Filter: ${DateFormat('yyyy-MM-dd').format(_reportFromDate)} to ${DateFormat('yyyy-MM-dd').format(_reportToDate)}');
+    buffer.writeln('');
+
+    if (_selectedReportIndex == 0) {
+      buffer.writeln('Employee,Previous Salary,New Salary,Increment,Effective Date,Reason,Status');
+      for (final r in data) {
+        final emp = r['employee'] ?? {};
+        final name = '"${emp['full_name'] ?? 'Employee'}"';
+        final oldSal = r['previous_salary'] ?? 0;
+        final newSal = r['new_salary'] ?? 0;
+        final inc = (double.tryParse('$newSal') ?? 0) - (double.tryParse('$oldSal') ?? 0);
+        buffer.writeln('$name,$oldSal,$newSal,$inc,${r['effective_date']},"${r['reason'] ?? ''}",${r['status']}');
+      }
+    } else if (_selectedReportIndex == 1) {
+      buffer.writeln('Employee,Loan Amount,Monthly EMI,Remaining Balance,Method,Status,Notes');
+      for (final r in data) {
+        final emp = r['employee'] ?? {};
+        final name = '"${emp['full_name'] ?? 'Employee'}"';
+        buffer.writeln('$name,${r['loan_amount']},${r['monthly_emi']},${r['remaining_balance']},${r['payment_method']},${r['status']},"${r['notes'] ?? ''}"');
+      }
+    } else if (_selectedReportIndex == 2) {
+      buffer.writeln('Employee,Pay Period,Base Salary,Paid Days,Gross Pay,Loan EMI,Penalties,Statutory,Total Deductions,Net Salary,Status');
+      for (final r in data) {
+        final emp = r['employee'] ?? {};
+        final name = '"${emp['full_name'] ?? r['employee_name'] ?? 'Employee'}"';
+        final period = r['payrollRun']?['pay_period'] ?? r['pay_period'] ?? '';
+        buffer.writeln('$name,$period,${r['base_salary']},${r['days_present'] ?? r['salary_days']},${r['gross_pay']},${r['loan_emi'] ?? r['loan_deduction'] ?? 0},${r['shortage_penalties'] ?? 0},${r['statutory_deductions'] ?? 0},${r['total_deductions']},${r['net_pay']},${r['payrollRun']?['status'] ?? 'Paid'}');
+      }
+    } else if (_selectedReportIndex == 3) {
+      buffer.writeln('Employee,Leave Type,Start Date,End Date,Total Days,Reason,Status');
+      for (final r in data) {
+        final emp = r['employee'] ?? {};
+        final name = '"${emp['full_name'] ?? 'Employee'}"';
+        final lt = r['leaveType'] != null ? (r['leaveType']['name'] ?? 'Leave') : 'Leave';
+        buffer.writeln('$name,$lt,${r['start_date']},${r['end_date']},${r['total_days']},"${r['reason'] ?? ''}",${r['status']}');
+      }
+    } else {
+      buffer.writeln('Employee,Category,Amount,Payment Month,Reason,Status');
+      for (final r in data) {
+        final emp = r['employee'] ?? {};
+        final name = '"${emp['full_name'] ?? 'Employee'}"';
+        buffer.writeln('$name,${r['type'] ?? r['category'] ?? 'Bonus'},${r['amount']},${r['payment_month']},"${r['reason'] ?? ''}",${r['status']}');
+      }
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Exported ${data.length} records for $title successfully!'),
+      backgroundColor: const Color(0xFF059669),
+    ));
   }
 
   // ================= UTILS & HELPERS =================

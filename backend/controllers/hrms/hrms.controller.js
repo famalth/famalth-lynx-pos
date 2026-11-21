@@ -931,14 +931,25 @@ exports.rejectLeave = async (req, res) => {
 // ==================== LOANS ====================
 exports.getLoans = async (req, res) => {
     try {
-        const { hr_loans, hr_loan_transactions } = req.propertyDb.models;
-        const { employee_id } = req.query;
-        const where = { outlet_id: req.user.outlet_id };
+        const { hr_loans, hr_loan_transactions, hr_employees } = req.propertyDb.models;
+        const { employee_id, status } = req.query;
+        const where = {};
+        if (req.user && req.user.outlet_id && req.user.role !== 'Admin' && req.user.role !== 'Superadmin') {
+            where[Op.or] = [{ outlet_id: req.user.outlet_id }, { outlet_id: null }, { outlet_id: 0 }];
+        } else if (req.query.outlet_id) {
+            where.outlet_id = req.query.outlet_id;
+        }
         if (employee_id)
             where.employee_id = employee_id;
+        if (status)
+            where.status = status;
         const data = await hr_loans.findAll({
             where,
-            include: [{ model: hr_loan_transactions, as: 'transactions' }]
+            include: [
+                { model: hr_employees, as: 'employee', required: false, attributes: ['id', 'full_name', 'employee_code', 'office_id'] },
+                { model: hr_loan_transactions, as: 'transactions', required: false }
+            ],
+            order: [['id', 'DESC']]
         });
         return res.json({ success: true, data });
     }
@@ -1205,13 +1216,18 @@ exports.previewPayroll = async (req, res) => {
             // Paid days = present + (0.5 × half_day) + on_leave (approved paid leave).
             // Absent deduction = absent_days × per_day_rate (no pay for missed working days).
             const absentDays = absent + (0.5 * half_day);
-            const divisor = (calculationMethod === 'Fixed Days')
-                ? fixedWorkingDays
-                : Math.max(1, activeDaysInPeriod - weekly_offs_count - holidays_count);
+            const totalDaysInMonth = monthEnd.diff(monthStart, 'days') + 1;
+            let divisor = totalDaysInMonth;
+            if (calculationMethod === 'Fixed Days') {
+                divisor = fixedWorkingDays || 26;
+            } else if (calculationMethod === 'Working Days') {
+                divisor = Math.max(1, totalDaysInMonth - weekly_offs_count - holidays_count);
+            }
+            // Verified present days + half days + approved paid leaves:
             const salary_days = present + (0.5 * half_day) + on_leave;
             const prorated_salary_days = Math.min(divisor, salary_days);
             const base = parseFloat(emp.base_salary) || 0;
-            // Per-day salary rate
+            // Per-day salary rate based on full month divisor
             const perDayRate = base / divisor;
             // Salary = (paid_days / divisor) × monthly_base
             let prorated_salary = parseFloat((perDayRate * prorated_salary_days).toFixed(2));
@@ -1248,6 +1264,17 @@ exports.previewPayroll = async (req, res) => {
                     where: { cashier_id: emp.id, shortage_status: 'Pending', variance: { [Op.lt]: 0 }, outlet_id: req.user.outlet_id }
                 });
                 penalties = hnds.reduce((sum, h) => sum + Math.abs(parseFloat(h.variance)), 0);
+            }
+            const { hr_penalties } = req.propertyDb.models;
+            if (hr_penalties && !salaryOverrideZero) {
+                const pendingPenalties = await hr_penalties.findAll({
+                    where: {
+                        employee_id: emp.id,
+                        status: 'Pending',
+                        pay_period: { [Op.lte]: pay_period }
+                    }
+                });
+                penalties += pendingPenalties.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
             }
             let empBonuses = 0;
             if (hr_arrears && !salaryOverrideZero) {
@@ -1342,6 +1369,15 @@ exports.previewPayroll = async (req, res) => {
             }
             for (const comp of fixedDeductionsComps) {
                 breakdown[comp.name] = 0.00;
+            }
+            if (less_hours_debit > 0) {
+                breakdown['Shortage Hours Deduction'] = less_hours_debit;
+            }
+            if (loan_deduction > 0) {
+                breakdown['Loan Repayment'] = loan_deduction;
+            }
+            if (penalties > 0) {
+                breakdown['Disciplinary Penalties & Shortages'] = penalties;
             }
             const absent_deduction_amount = salaryOverrideZero ? 0 : ((base / divisor) * absentDays);
             breakdown.attendance_analytics = {
@@ -1459,7 +1495,7 @@ exports.runPayroll = async (req, res) => {
             sales_commission: d.commissions || 0.0,
             bonuses: d.bonuses || 0.0,
             arrears: d.arrears || 0.0,
-            shortage_penalties: d.penalty_deduction || 0.0,
+            shortage_penalties: (d.penalty_deduction || 0.0) + (d.less_hours_debit_amount || 0.0),
             loan_emi: d.loan_deduction || 0.0,
             statutory_deductions: d.statutory_deductions || 0.0,
             total_deductions: d.total_deductions,
@@ -1522,6 +1558,13 @@ exports.runPayroll = async (req, res) => {
             }
             if (d.penalty_deduction > 0 && hr_cashier_handovers) {
                 await hr_cashier_handovers.update({ shortage_status: 'PenaltyDeduction' }, { where: { cashier_id: d.employee_id, shortage_status: 'Pending', variance: { [Op.lt]: 0 }, outlet_id: req.user.outlet_id } });
+            }
+            const { hr_penalties } = req.propertyDb.models;
+            if (hr_penalties && d.penalty_deduction > 0) {
+                await hr_penalties.update(
+                    { status: 'Deducted', payroll_run_id: run.id },
+                    { where: { employee_id: d.employee_id, status: 'Pending', pay_period: { [Op.lte]: pay_period } } }
+                );
             }
             // Credit Earned Comp-Offs to employee leave balance
             if (d.earned_comp_offs > 0) {
@@ -2429,27 +2472,30 @@ exports.getBonuses = async (req, res) => {
 exports.getApprovals = async (req, res) => {
     try {
         const { hr_leave_applications, hr_loans, hr_employees, hr_leave_types, hr_salary_revisions, hr_arrears } = req.propertyDb.models;
+        const outletWhere = (req.user && req.user.outlet_id && req.user.role !== 'Admin' && req.user.role !== 'Superadmin')
+            ? { [Op.or]: [{ outlet_id: req.user.outlet_id }, { outlet_id: null }, { outlet_id: 0 }] }
+            : {};
         const leaves = await hr_leave_applications.findAll({
-            where: { outlet_id: req.user.outlet_id },
+            where: outletWhere,
             include: [
-                { model: hr_employees, as: 'employee', attributes: ['id', 'full_name', 'employee_code', 'office_id'] },
-                { model: hr_leave_types, as: 'leaveType', attributes: ['id', 'name'] }
+                { model: hr_employees, as: 'employee', required: false, attributes: ['id', 'full_name', 'employee_code', 'office_id'] },
+                { model: hr_leave_types, as: 'leaveType', required: false, attributes: ['id', 'name'] }
             ],
             order: [['id', 'DESC']]
         });
         const loans = await hr_loans.findAll({
-            where: { outlet_id: req.user.outlet_id },
-            include: [{ model: hr_employees, as: 'employee', attributes: ['id', 'full_name', 'employee_code', 'office_id'] }],
+            where: outletWhere,
+            include: [{ model: hr_employees, as: 'employee', required: false, attributes: ['id', 'full_name', 'employee_code', 'office_id'] }],
             order: [['id', 'DESC']]
         });
         const revisions = await hr_salary_revisions.findAll({
-            where: { outlet_id: req.user.outlet_id, status: 'Pending' },
-            include: [{ model: hr_employees, as: 'employee', attributes: ['id', 'full_name', 'employee_code', 'office_id'] }],
+            where: { ...outletWhere, status: 'Pending' },
+            include: [{ model: hr_employees, as: 'employee', required: false, attributes: ['id', 'full_name', 'employee_code', 'office_id'] }],
             order: [['id', 'DESC']]
         });
         const bonuses = await hr_arrears.findAll({
-            where: { outlet_id: req.user.outlet_id, status: 'Pending Approval' },
-            include: [{ model: hr_employees, as: 'employee', attributes: ['id', 'full_name', 'employee_code', 'office_id'] }],
+            where: { ...outletWhere, status: 'Pending Approval' },
+            include: [{ model: hr_employees, as: 'employee', required: false, attributes: ['id', 'full_name', 'employee_code', 'office_id'] }],
             order: [['id', 'DESC']]
         });
         return res.json({
@@ -3264,6 +3310,78 @@ exports.receiveBiometricPushWebhook = async (req, res) => {
         return res.status(500).json({ ret: 0, success: false, message: err.message });
     }
 };
+
+// ==================== PENALTIES & SHORTAGES ====================
+exports.getPenalties = async (req, res) => {
+    try {
+        const { hr_penalties, hr_employees } = req.propertyDb.models;
+        const { employee_id, status, pay_period } = req.query;
+        const where = {};
+        if (req.user && req.user.outlet_id && req.user.role !== 'Admin' && req.user.role !== 'Superadmin') {
+            where[Op.or] = [{ outlet_id: req.user.outlet_id }, { outlet_id: null }, { outlet_id: 0 }];
+        }
+        if (employee_id) where.employee_id = employee_id;
+        if (status) where.status = status;
+        if (pay_period) where.pay_period = pay_period;
+
+        if (!hr_penalties) return res.json({ success: true, data: [] });
+
+        const data = await hr_penalties.findAll({
+            where,
+            include: [{ model: hr_employees, as: 'employee', required: false, attributes: ['id', 'full_name', 'employee_code', 'office_id'] }],
+            order: [['penalty_date', 'DESC'], ['id', 'DESC']]
+        });
+        return res.json({ success: true, data });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+exports.createPenalty = async (req, res) => {
+    try {
+        const { hr_penalties, hr_employees } = req.propertyDb.models;
+        const { employee_id, amount, reason, category, penalty_date, pay_period } = req.body;
+
+        if (!employee_id) return res.status(400).json({ success: false, message: 'Employee is required' });
+        const amt = parseFloat(amount || 0);
+        if (isNaN(amt) || amt <= 0) return res.status(400).json({ success: false, message: 'Valid penalty amount is required' });
+
+        const emp = await hr_employees.findByPk(employee_id);
+        const outletId = req.user?.outlet_id || emp?.outlet_id || 1;
+        const pDate = penalty_date || moment().format('YYYY-MM-DD');
+        const period = pay_period || moment(pDate).format('YYYY-MM');
+
+        const penalty = await hr_penalties.create({
+            outlet_id: outletId,
+            employee_id: parseInt(employee_id),
+            amount: amt,
+            reason: reason || 'Disciplinary / Shortage Penalty',
+            category: category || 'Disciplinary',
+            penalty_date: pDate,
+            pay_period: period,
+            status: 'Pending',
+            created_by: req.user?.id || 1
+        });
+
+        return res.json({ success: true, data: penalty, message: `Penalty of ₹${amt.toFixed(2)} recorded successfully and queued for salary deduction.` });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+exports.deletePenalty = async (req, res) => {
+    try {
+        const { hr_penalties } = req.propertyDb.models;
+        const { id } = req.params;
+        const penalty = await hr_penalties.findByPk(id);
+        if (!penalty) return res.status(404).json({ success: false, message: 'Penalty not found' });
+        await penalty.destroy();
+        return res.json({ success: true, message: 'Penalty removed successfully' });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
 // Export new Office Master, Employee Portal Auth, Geotagged Punch, and Dashboard Overview functions
 const portalCtrl = require('./hrms_office_portal.controller');
 Object.assign(exports, portalCtrl);

@@ -94,6 +94,10 @@ router.put('/leaves/:id/reject', ctrl.rejectLeave);
 router.get('/loans', ctrl.getLoans);
 router.post('/loans', ctrl.createLoan);
 router.put('/loans/:id/status', ctrl.updateLoanStatus);
+// Penalties
+router.get('/penalties', ctrl.getPenalties);
+router.post('/penalties', ctrl.createPenalty);
+router.delete('/penalties/:id', ctrl.deletePenalty);
 // Payroll
 router.get('/payroll/settings', ctrl.getPayrollSettings);
 router.post('/payroll/settings', ctrl.savePayrollSettings);
