@@ -863,36 +863,53 @@ async function syncMigratedOutletLicenseToExpired(db, outletCode, bundle) {
       await masterOutlet.save();
     }
 
+    const { isCloudEnvironment } = require('../../utils/backupTracker');
+    const isCloud = isCloudEnvironment();
+
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const oneYearFromNow = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
     let license = await MasterLicense.findOne({ where: { tenant_id: tenantId } });
     if (!license) {
       license = await MasterLicense.create({
         tenant_id: tenantId,
-        license_key: `LIC-CLOUD-${clientCode}-${Date.now().toString(36).toUpperCase()}`,
-        tier_name: "CLOUD_PENDING_ACTIVATION",
-        max_outlets: 1,
-        max_terminals: 3,
-        valid_from: yesterday,
-        valid_till: yesterday,
-        warning_zone_days: 0,
-        grace_period_days: 0,
+        license_key: isCloud 
+            ? `LIC-CLOUD-${clientCode}-${Date.now().toString(36).toUpperCase()}`
+            : `LIC-OFFLINE-${clientCode}-${Date.now().toString(36).toUpperCase()}`,
+        tier_name: isCloud ? "CLOUD_PENDING_ACTIVATION" : "ENTERPRISE_UNLIMITED",
+        max_outlets: isCloud ? 1 : 10,
+        max_terminals: isCloud ? 3 : 20,
+        valid_from: isCloud ? yesterday : new Date(),
+        valid_till: isCloud ? yesterday : oneYearFromNow,
+        warning_zone_days: isCloud ? 0 : 15,
+        grace_period_days: isCloud ? 0 : 15,
         subscription_amount: 4999,
         tax_percentage: 18,
-        payment_status: "UNPAID",
+        payment_status: isCloud ? "UNPAID" : "PAID",
         is_perpetual: false,
-        status: "EXPIRED"
+        status: isCloud ? "EXPIRED" : "ACTIVE"
       });
-    } else {
+    } else if (isCloud) {
       license.valid_till = yesterday;
       license.status = "EXPIRED";
       license.payment_status = "UNPAID";
       license.warning_zone_days = 0;
       license.grace_period_days = 0;
       await license.save();
+    } else {
+      license.valid_till = oneYearFromNow;
+      license.status = "ACTIVE";
+      license.payment_status = "PAID";
+      license.warning_zone_days = 15;
+      license.grace_period_days = 15;
+      await license.save();
     }
 
     invalidateLicenseCache(clientCode);
-    console.log(`🔒 [MIGRATION] Outlet ${clientCode} migrated to Cloud. License set to EXPIRED pending Console activation.`);
+    if (isCloud) {
+      console.log(`🔒 [MIGRATION] Outlet ${clientCode} migrated to Cloud. License set to EXPIRED pending Console activation.`);
+    } else {
+      console.log(`✅ [MIGRATION] Outlet ${clientCode} restored offline. Local license set to ACTIVE.`);
+    }
   } catch (licSyncErr) {
     console.warn(`[MIGRATION] Master license sync notice: ${licSyncErr.message}`);
   }

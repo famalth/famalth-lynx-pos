@@ -243,8 +243,13 @@ class CloudMigrationService {
       }
     }
 
+    // Keep existing baseUrl in server_config.json untouched across migration
+    final existingBaseUrl = AppConfig.baseUrl.trim().isNotEmpty
+        ? AppConfig.baseUrl
+        : cleanUrl;
+
     await AppConfig.saveConfig(
-      cleanUrl,
+      existingBaseUrl,
       currentOutlets.isNotEmpty ? currentOutlets : (outletCode.isNotEmpty ? [outletCode] : []),
     );
 

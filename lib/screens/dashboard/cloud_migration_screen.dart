@@ -233,7 +233,7 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
 
         setState(() {
           _currentStep = MigrationStep.switching;
-          _statusMessage = "Switching terminal configuration to Cloud Mode...";
+          _statusMessage = "Finalizing outlet cloud synchronization...";
         });
 
         final finalOutlet = importRes['outlet_code'] ?? outletCode;
@@ -279,7 +279,7 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
 
         setState(() {
           _currentStep = MigrationStep.switching;
-          _statusMessage = "Configuring local station offline mode...";
+          _statusMessage = "Finalizing local offline outlet restore...";
         });
 
         await CloudMigrationService.completeCloudMigrationSwitch(
