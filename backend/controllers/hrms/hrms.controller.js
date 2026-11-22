@@ -101,9 +101,7 @@ exports.getPayStructures = async (req, res) => {
       ],
       order: [['id', 'ASC']]
     });
-      order: [['id', 'ASC']]
-    });
-        return res.json({ success: true, data });
+    return res.json({ success: true, data });
     }
     catch (err) {
         return res.status(500).json({ success: false, message: err.message });
