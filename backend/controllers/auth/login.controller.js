@@ -62,7 +62,9 @@ exports.login = async (req, res, next) => {
                 [Op.or]: [
                     { username: { [Op.iLike]: cleanUser } },
                     { username: { [Op.iLike]: `admin_${outletCode}` } },
-                    { username: { [Op.iLike]: `admin_${outletCode.toLowerCase()}` } }
+                    { username: { [Op.iLike]: `admin_${outletCode.toLowerCase()}` } },
+                    { username: { [Op.iLike]: `${cleanUser}_${outletCode.toLowerCase()}` } },
+                    { username: { [Op.iLike]: `${cleanUser}_${outletCode}` } }
                 ],
                 outlet_id: currentOutlet.id,
                 is_active: true
@@ -88,7 +90,9 @@ exports.login = async (req, res, next) => {
                     [Op.or]: [
                         { username: { [Op.iLike]: cleanUser } },
                         { username: { [Op.iLike]: cleanUser.replace(/1$/, '') } },
-                        { username: { [Op.iLike]: `${cleanUser}1` } }
+                        { username: { [Op.iLike]: `${cleanUser}1` } },
+                        { username: { [Op.iLike]: `${cleanUser}_${outletCode.toLowerCase()}` } },
+                        { username: { [Op.iLike]: `${cleanUser}_${outletCode}` } }
                     ],
                     outlet_id: currentOutlet.id,
                     role: { [Op.in]: ['ADMIN', 'SUPER_ADMIN'] },
@@ -105,6 +109,23 @@ exports.login = async (req, res, next) => {
                     is_active: true
                 }
             });
+        }
+
+        // Global master admin fallback: If famalth or a SUPER_ADMIN exists globally in the system, allow authentication across all registered outlets
+        if (!user && (cleanUser.toLowerCase() === 'famalth' || cleanUser.toLowerCase() === 'superadmin' || cleanUser.toLowerCase() === 'admin')) {
+            const masterUser = await db.models.users.findOne({
+                where: {
+                    [Op.or]: [
+                        { username: { [Op.iLike]: cleanUser } },
+                        { username: { [Op.iLike]: 'famalth' } }
+                    ],
+                    role: { [Op.in]: ['ADMIN', 'SUPER_ADMIN', 'ENTERPRISE_ADMIN'] },
+                    is_active: true
+                }
+            });
+            if (masterUser) {
+                user = masterUser;
+            }
         }
 
         if (!user || !user.is_active) {

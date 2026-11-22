@@ -4,6 +4,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TenantBackupService = void 0;
+exports.encryptFambakBuffer = encryptFambakBuffer;
+exports.decryptFambakBuffer = decryptFambakBuffer;
 const fs_1 = __importDefault(require("fs"));
 const promises_1 = __importDefault(require("fs/promises"));
 const path_1 = __importDefault(require("path"));
@@ -15,6 +17,53 @@ const archiver = require('archiver');
 const rootDir = process.pkg ? path_1.default.dirname(process.execPath) : process.cwd();
 const canonicalRootDir = path_1.default.basename(rootDir) === 'backend' ? path_1.default.dirname(rootDir) : rootDir;
 const BACKUP_BASE_DIR = path_1.default.join(canonicalRootDir, 'backups');
+const FAMBAK_MAGIC = Buffer.from('FAMBAK_SECURED_V3\n', 'utf8');
+const FAMBAK_SECRET = process.env.BACKUP_SECRET || 'my_super_secret_key';
+function getFambakKey() {
+    return crypto_1.default.createHash('sha256').update(FAMBAK_SECRET).digest();
+}
+/**
+ * Encrypt a gzipped JSON buffer into a secured proprietary .fambak archive
+ */
+function encryptFambakBuffer(gzBuffer) {
+    const key = getFambakKey();
+    const iv = crypto_1.default.randomBytes(16);
+    const cipher = crypto_1.default.createCipheriv('aes-256-cbc', key, iv);
+    const encrypted = Buffer.concat([cipher.update(gzBuffer), cipher.final()]);
+    return Buffer.concat([FAMBAK_MAGIC, iv, encrypted]);
+}
+/**
+ * Decrypt a secured proprietary .fambak buffer or backward-compatible unencrypted archive
+ */
+function decryptFambakBuffer(inputBuffer) {
+    if (!inputBuffer || inputBuffer.length === 0) {
+        throw new Error('Empty backup archive payload.');
+    }
+    // 1. Check for proprietary secured FAMBAK_SECURED_V3 header
+    if (inputBuffer.length > FAMBAK_MAGIC.length + 16 && inputBuffer.subarray(0, FAMBAK_MAGIC.length).equals(FAMBAK_MAGIC)) {
+        try {
+            const iv = inputBuffer.subarray(FAMBAK_MAGIC.length, FAMBAK_MAGIC.length + 16);
+            const ciphertext = inputBuffer.subarray(FAMBAK_MAGIC.length + 16);
+            const key = getFambakKey();
+            const decipher = crypto_1.default.createDecipheriv('aes-256-cbc', key, iv);
+            const decryptedGz = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+            return zlib_1.default.gunzipSync(decryptedGz).toString('utf8');
+        }
+        catch (secErr) {
+            throw new Error(`Failed to decrypt secured .fambak archive: ${secErr.message}. Ensure this backup was produced by Famalth Lynx.`);
+        }
+    }
+    // 2. Check for standard gzip (magic bytes 0x1f, 0x8b) for seamless backward compatibility
+    if (inputBuffer.length >= 2 && inputBuffer[0] === 0x1f && inputBuffer[1] === 0x8b) {
+        return zlib_1.default.gunzipSync(inputBuffer).toString('utf8');
+    }
+    // 3. Plain UTF-8 JSON text fallback
+    const str = inputBuffer.toString('utf8');
+    if (str.trim().startsWith('{')) {
+        return str;
+    }
+    throw new Error('Invalid or unreadable backup archive. Proprietary .fambak archives are secured and can only be read by Famalth Lynx.');
+}
 function getBackupSearchRoots() {
     const current = process.cwd();
     const roots = [
@@ -1106,17 +1155,24 @@ class TenantBackupService {
                 'customers', 'customer_advances', 'customer_repayments', 'sales_headers', 'restaurant_tables',
                 'table_reservations', 'kot_headers', 'purchase_orders', 'goods_receipts', 'supplier_master',
                 'supplier_bills', 'supplier_payments', 'clinic_appointments',
-                // Complete HR Master & Scoped Tables
-                'hr_designations', 'hr_shifts', 'hr_holidays', 'hr_leave_types', 'hr_salary_components',
+                // Complete HR Master & Scoped Tables (including Offices)
+                'hr_offices', 'hr_designations', 'hr_shifts', 'hr_holidays', 'hr_leave_types', 'hr_salary_components',
                 'hr_pay_structures', 'hr_employees', 'hr_biometric_devices', 'hr_attendance_punches',
                 'hr_leave_applications', 'hr_leave_balances', 'hr_salary_revisions', 'hr_arrears',
                 'hr_loans', 'hr_sales_commissions', 'hr_cashier_handovers', 'hr_payroll_runs',
                 'expenses', 'accounting_vouchers', 'bank_accounts', 'cash_ledger',
                 'milk_subscriptions', 'milk_subscription_consumptions', 'user_notes', 'numbering_settings'
             ];
+            const hrSharedMasterSet = new Set([
+                'hr_offices', 'hr_designations', 'hr_shifts', 'hr_holidays', 'hr_leave_types',
+                'hr_salary_components', 'hr_pay_structures'
+            ]);
             for (const tbl of outletScopedTables) {
                 try {
-                    const rows = await activeDb.query(`SELECT * FROM "${tbl}" WHERE outlet_id = :targetOutletId;`, { replacements: { targetOutletId: outletId }, type: sequelize_1.QueryTypes.SELECT }).catch(() => []);
+                    const sql = hrSharedMasterSet.has(tbl)
+                        ? `SELECT * FROM "${tbl}" WHERE outlet_id = :targetOutletId OR outlet_id = 1 OR outlet_id IS NULL;`
+                        : `SELECT * FROM "${tbl}" WHERE outlet_id = :targetOutletId;`;
+                    const rows = await activeDb.query(sql, { replacements: { targetOutletId: outletId }, type: sequelize_1.QueryTypes.SELECT }).catch(() => []);
                     const rowList = Array.isArray(rows) ? rows : (rows?.[0] || []);
                     backupData[tbl] = rowList;
                     totalRecords += rowList.length;
@@ -1203,8 +1259,9 @@ class TenantBackupService {
         };
         const jsonString = JSON.stringify(payload);
         const compressedBuffer = zlib_1.default.gzipSync(Buffer.from(jsonString, 'utf8'), { level: 9 });
+        const securedBuffer = encryptFambakBuffer(compressedBuffer);
         const filePath = path_1.default.join(targetDirectory, filename);
-        await promises_1.default.writeFile(filePath, compressedBuffer);
+        await promises_1.default.writeFile(filePath, securedBuffer);
         // Also place in root BACKUP_BASE_DIR for quick access
         const rootPath = path_1.default.join(BACKUP_BASE_DIR, filename);
         try {
@@ -1239,21 +1296,23 @@ class TenantBackupService {
      */
     static async inspectBackupManifest(fileBuffer) {
         let jsonText = '';
-        if (fileBuffer.length >= 2 && fileBuffer[0] === 0x1f && fileBuffer[1] === 0x8b) {
-            jsonText = zlib_1.default.gunzipSync(fileBuffer).toString('utf8');
+        try {
+            jsonText = decryptFambakBuffer(fileBuffer);
         }
-        else if (fileBuffer.length >= 4 && fileBuffer[0] === 0x50 && fileBuffer[1] === 0x4B) {
-            const unzipper = require('unzipper');
-            const directory = await unzipper.Open.buffer(fileBuffer);
-            for (const f of directory.files) {
-                if (f.path === 'database.json' || f.path === 'manifest.json') {
-                    jsonText = (await f.buffer()).toString('utf8');
-                    break;
+        catch (dErr) {
+            if (fileBuffer.length >= 4 && fileBuffer[0] === 0x50 && fileBuffer[1] === 0x4B) {
+                const unzipper = require('unzipper');
+                const directory = await unzipper.Open.buffer(fileBuffer);
+                for (const f of directory.files) {
+                    if (f.path === 'database.json' || f.path === 'manifest.json') {
+                        jsonText = (await f.buffer()).toString('utf8');
+                        break;
+                    }
                 }
             }
-        }
-        else {
-            jsonText = fileBuffer.toString('utf8');
+            else {
+                throw new Error(`Secured backup inspection failed: ${dErr.message}`);
+            }
         }
         let payload;
         try {
@@ -1312,21 +1371,23 @@ class TenantBackupService {
     static async restoreFambakBackup(activeDb, fileBuffer, options = {}) {
         const manifest = await this.inspectBackupManifest(fileBuffer);
         let jsonText = '';
-        if (fileBuffer.length >= 2 && fileBuffer[0] === 0x1f && fileBuffer[1] === 0x8b) {
-            jsonText = zlib_1.default.gunzipSync(fileBuffer).toString('utf8');
+        try {
+            jsonText = decryptFambakBuffer(fileBuffer);
         }
-        else if (fileBuffer.length >= 4 && fileBuffer[0] === 0x50 && fileBuffer[1] === 0x4B) {
-            const unzipper = require('unzipper');
-            const directory = await unzipper.Open.buffer(fileBuffer);
-            for (const f of directory.files) {
-                if (f.path === 'database.json') {
-                    jsonText = (await f.buffer()).toString('utf8');
-                    break;
+        catch (dErr) {
+            if (fileBuffer.length >= 4 && fileBuffer[0] === 0x50 && fileBuffer[1] === 0x4B) {
+                const unzipper = require('unzipper');
+                const directory = await unzipper.Open.buffer(fileBuffer);
+                for (const f of directory.files) {
+                    if (f.path === 'database.json') {
+                        jsonText = (await f.buffer()).toString('utf8');
+                        break;
+                    }
                 }
             }
-        }
-        else {
-            jsonText = fileBuffer.toString('utf8');
+            else {
+                throw new Error(`Secured backup restore failed: ${dErr.message}`);
+            }
         }
         const payload = JSON.parse(jsonText);
         const tables = payload.tables || {};
@@ -1382,7 +1443,7 @@ class TenantBackupService {
             'system_settings', 'app_branding', 'paymentMethod', 'saleSource', 'numbering_settings',
             'stock_locations', 'item_master', 'item_modifiers', 'item_boms',
             'customers', 'supplier_master', 'restaurant_tables', 'table_reservations',
-            'hr_designations', 'hr_shifts', 'hr_holidays', 'hr_leave_types', 'hr_salary_components', 'hr_pay_structures', 'hr_employees', 'hr_biometric_devices', 'bank_accounts'
+            'hr_offices', 'hr_designations', 'hr_shifts', 'hr_holidays', 'hr_leave_types', 'hr_salary_components', 'hr_pay_structures', 'hr_employees', 'hr_biometric_devices', 'bank_accounts'
         ]);
         // Topological dependency order: Independent Masters -> Purchases -> Sales -> Sales-Dependents -> Ledgers
         const restoreOrder = [
@@ -1391,7 +1452,7 @@ class TenantBackupService {
             'system_settings', 'app_branding', 'paymentMethod', 'saleSource', 'numbering_settings',
             'stock_locations', 'item_master', 'item_modifiers', 'item_boms',
             'customers', 'supplier_master', 'bank_accounts', 'restaurant_tables', 'table_reservations',
-            'hr_designations', 'hr_shifts', 'hr_holidays', 'hr_leave_types', 'hr_salary_components',
+            'hr_offices', 'hr_designations', 'hr_shifts', 'hr_holidays', 'hr_leave_types', 'hr_salary_components',
             'hr_pay_structures', 'hr_pay_structure_components', 'hr_employees', 'hr_biometric_devices',
             // 2. Purchases & GRN
             'purchase_orders', 'purchase_order_items',
@@ -1509,6 +1570,7 @@ class TenantBackupService {
                         { tbl: 'hr_designations', q: `DELETE FROM "hr_designations" WHERE outlet_id = :destOutletId` },
                         { tbl: 'hr_biometric_devices', q: `DELETE FROM "hr_biometric_devices" WHERE outlet_id = :destOutletId` },
                         { tbl: 'hr_employees', q: `DELETE FROM "hr_employees" WHERE outlet_id = :destOutletId` },
+                        { tbl: 'hr_offices', q: `DELETE FROM "hr_offices" WHERE outlet_id = :destOutletId` },
                         { tbl: 'user_notes', q: `DELETE FROM "user_notes" WHERE outlet_id = :destOutletId` }
                     ];
                     for (const item of safeChildDeletes) {
@@ -1530,10 +1592,17 @@ class TenantBackupService {
                     if (colMap.size > 0 && !validColMap)
                         continue;
                     const pks = pkMap.get(tbl) || [];
+                    const hrSharedMasterSet = new Set([
+                        'hr_offices', 'hr_designations', 'hr_shifts', 'hr_holidays', 'hr_leave_types',
+                        'hr_salary_components', 'hr_pay_structures', 'hr_pay_structure_components'
+                    ]);
                     // Filter rows for this specific outlet
                     const scopedRows = rawRows.filter(row => {
                         if (!row || typeof row !== 'object')
                             return false;
+                        if (hrSharedMasterSet.has(tbl)) {
+                            return Number(row.outlet_id) === sourceOutletId || row.outlet_id === null || Number(row.outlet_id) === 1;
+                        }
                         if ('outlet_id' in row)
                             return Number(row.outlet_id) === sourceOutletId;
                         if ('outlet_code' in row)
@@ -1544,10 +1613,19 @@ class TenantBackupService {
                         continue;
                     for (const row of scopedRows) {
                         const rowCopy = { ...row };
-                        if ('outlet_id' in rowCopy)
-                            rowCopy.outlet_id = destOutletId;
+                        if ('outlet_id' in rowCopy) {
+                            if (hrSharedMasterSet.has(tbl) && (rowCopy.outlet_id === 1 || rowCopy.outlet_id === null)) {
+                                // keep global master intact
+                            } else {
+                                rowCopy.outlet_id = destOutletId;
+                            }
+                        }
                         if ('outlet_code' in rowCopy)
                             rowCopy.outlet_code = destOutletCode;
+                        if (tbl === 'hr_employees') {
+                            if (rowCopy.level1_approver_id) rowCopy.level1_approver_id = null;
+                            if (rowCopy.level2_approver_id) rowCopy.level2_approver_id = null;
+                        }
                         const cols = Object.keys(rowCopy).filter(c => !validColMap || validColMap.has(c));
                         if (cols.length === 0)
                             continue;

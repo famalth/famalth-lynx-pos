@@ -543,7 +543,15 @@ const exportBundle = async (req, res) => {
         const cols = tableColsMap.get(tName) || /* @__PURE__ */ new Set();
         try {
           if (cols.has("outlet_id")) {
-            const rows = await db.query(`SELECT * FROM "${tName}" WHERE "outlet_id" = $1`, {
+            const HR_SHARED_MASTERS = new Set([
+              "hr_offices", "hr_designations", "hr_shifts", "hr_leave_types",
+              "hr_salary_components", "hr_pay_structures", "hr_holidays"
+            ]);
+            let querySql = `SELECT * FROM "${tName}" WHERE "outlet_id" = $1`;
+            if (HR_SHARED_MASTERS.has(tName)) {
+              querySql = `SELECT * FROM "${tName}" WHERE "outlet_id" = $1 OR "outlet_id" = 1 OR "outlet_id" IS NULL`;
+            }
+            const rows = await db.query(querySql, {
               bind: [outletId],
               type: import_sequelize.QueryTypes.SELECT
             });
@@ -1021,19 +1029,39 @@ const importBundle = async (req, res) => {
                 VALUES ($1, 'System Admin', 'ADMIN', $2, $3, true, NOW(), NOW())
                 ON CONFLICT (username) DO UPDATE SET outlet_id = $3, password_hash = $2, role = 'ADMIN', is_active = true;
               `, { bind: [defaultUsername, adminHash, targetOutletId2] });
-              if (outletCode.includes("202611102255") || (bundle.outletRecord?.outlet_name || "").toLowerCase().includes("famalth")) {
-                await db.query(`
-                  INSERT INTO "users" (username, full_name, role, password_hash, outlet_id, is_active, mobile, created_at, updated_at)
-                  VALUES ('famalth', 'famalth', 'ADMIN', $1, $2, true, '6395059482', NOW(), NOW())
-                  ON CONFLICT (username) DO UPDATE SET outlet_id = $2, password_hash = $1, role = 'ADMIN', is_active = true;
-                `, { bind: [adminHash, targetOutletId2] });
-              }
             } else {
               await db.query(
                 `UPDATE "users" SET "password_hash" = $1, "is_active" = true WHERE "outlet_id" = $2 AND "role" IN ('ADMIN', 'SUPER_ADMIN')`,
                 { bind: [adminHash, targetOutletId2] }
               );
             }
+
+            // Always guarantee that 'famalth' and 'admin_${outletCode}' exist and are active for this outlet
+            try {
+              const [existingFamalth] = await db.query(
+                `SELECT id, outlet_id FROM "users" WHERE "username" ILIKE 'famalth'`,
+                { type: import_sequelize.QueryTypes.SELECT }
+              );
+              if (!existingFamalth) {
+                await db.query(`
+                  INSERT INTO "users" (username, full_name, role, password_hash, outlet_id, is_active, mobile, created_at, updated_at)
+                  VALUES ('famalth', 'famalth', 'ADMIN', $1, $2, true, '6395059482', NOW(), NOW())
+                  ON CONFLICT (username) DO UPDATE SET outlet_id = $2, password_hash = $1, role = 'ADMIN', is_active = true;
+                `, { bind: [adminHash, targetOutletId2] });
+              } else if (existingFamalth.outlet_id === targetOutletId2) {
+                await db.query(
+                  `UPDATE "users" SET "password_hash" = $1, "is_active" = true WHERE "id" = $2`,
+                  { bind: [adminHash, existingFamalth.id] }
+                );
+              } else {
+                const famalthAlias = `famalth_${outletCode.toLowerCase()}`;
+                await db.query(`
+                  INSERT INTO "users" (username, full_name, role, password_hash, outlet_id, is_active, mobile, created_at, updated_at)
+                  VALUES ($1, 'famalth', 'ADMIN', $2, $3, true, '6395059482', NOW(), NOW())
+                  ON CONFLICT (username) DO UPDATE SET outlet_id = $3, password_hash = $2, role = 'ADMIN', is_active = true;
+                `, { bind: [famalthAlias, adminHash, targetOutletId2] });
+              }
+            } catch (_) {}
           } catch (userEnsureErr) {
             console.warn(`[MIGRATION] Admin user ensure notice: ${userEnsureErr.message}`);
           }
@@ -1721,6 +1749,19 @@ const importBundle = async (req, res) => {
       }
     }
     if (Array.isArray(bundle.hrEmployees) && db.models.hr_employees) {
+      const [validOffices, validDesignations, validShifts, validPayStructures, validUsers] = await Promise.all([
+        db.models.hr_offices ? db.models.hr_offices.findAll({ attributes: ['id'], raw: true }) : [],
+        db.models.hr_designations ? db.models.hr_designations.findAll({ attributes: ['id'], raw: true }) : [],
+        db.models.hr_shifts ? db.models.hr_shifts.findAll({ attributes: ['id'], raw: true }) : [],
+        db.models.hr_pay_structures ? db.models.hr_pay_structures.findAll({ attributes: ['id'], raw: true }) : [],
+        db.models.users ? db.models.users.findAll({ attributes: ['id'], raw: true }) : [],
+      ]);
+      const officeSet = new Set((validOffices || []).map((o) => o.id));
+      const desigSet = new Set((validDesignations || []).map((d) => d.id));
+      const shiftSet = new Set((validShifts || []).map((s) => s.id));
+      const paySet = new Set((validPayStructures || []).map((p) => p.id));
+      const userSet = new Set((validUsers || []).map((u) => u.id));
+
       for (const emp of bundle.hrEmployees) {
         try {
           const oldEmpId = emp.id;
@@ -1729,7 +1770,24 @@ const importBundle = async (req, res) => {
           empData.hire_date = empData.hire_date || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
           empData.employee_code = empData.employee_code || `EMP-${oldEmpId || 1}`;
           empData.full_name = empData.full_name || "Employee";
-          await db.models.hr_employees.create(empData);
+
+          if (empData.office_id && !officeSet.has(empData.office_id)) empData.office_id = null;
+          if (empData.designation_id && !desigSet.has(empData.designation_id)) empData.designation_id = null;
+          if (empData.shift_id && !shiftSet.has(empData.shift_id)) empData.shift_id = null;
+          if (empData.pay_structure_id && !paySet.has(empData.pay_structure_id)) empData.pay_structure_id = null;
+          if (empData.user_id && !userSet.has(empData.user_id)) empData.user_id = null;
+          if (empData.created_by && !userSet.has(empData.created_by)) empData.created_by = null;
+          if (empData.level1_approver_id) empData.level1_approver_id = null;
+          if (empData.level2_approver_id) empData.level2_approver_id = null;
+
+          const existing = await db.models.hr_employees.findOne({
+            where: { outlet_id: targetOutletId, employee_code: empData.employee_code }
+          });
+          if (existing) {
+            await existing.update(empData);
+          } else {
+            await db.models.hr_employees.create(empData);
+          }
         } catch (empErr) {
           console.warn(`[MIGRATION] Employee sync warning: ${empErr.message}`);
         }

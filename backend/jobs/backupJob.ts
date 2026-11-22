@@ -117,51 +117,37 @@ export async function startBackupJob(client: any, config: any): Promise<void> {
                     logMessage(`Created backup directory at: ${BACKUP_DIR}`);
                 }
 
-                logMessage("Hourly backup job started.");
+                logMessage(`Hourly backup job started for outlet [${outletCode}]. Securing into proprietary .fambak archive...`);
 
-                const tempFile = await retry(() => processBackup(config.db_database));
+                const { TenantBackupService } = require('../services/tenantBackup.service');
+                const activeDb = propertyDb.sequelize || propertyDb;
+                const status = getBackupStatus(outletCode);
 
-            if (!tempFile || !fs.existsSync(tempFile)) {
-                throw new Error(`Backup file missing at temporary path: ${tempFile}`);
-            }
+                const fambakResult = await retry(() => TenantBackupService.createFambakBackup(activeDb, {
+                    scope: 'OUTLET',
+                    outletCode: outletCode,
+                    saveToDrive: status.isCloudEnabled
+                }));
 
-            const stats = fs.statSync(tempFile);
-            const fileSizeMB = (stats.size / 1024 / 1024).toFixed(2);
-            logMessage(`Backup created. File size: ${fileSizeMB} MB`);
+                const finalFilePath = fambakResult.filePath;
+                const fileName = fambakResult.filename;
 
-            if (stats.size === 0) throw new Error("Backup file size is 0 bytes.");
-            if (Number(fileSizeMB) > 35) logMessage("Warning: Backup file size exceeds 35 MB threshold.", true);
+                logMessage(`Secured .fambak archive created: ${fileName} (${fambakResult.sizePretty}, ${fambakResult.totalRecords} records).`);
 
-            logMessage("Verifying backup integrity before local retention and upload.");
-            try {
-                await verifyLocalBackup(tempFile);
-            } catch (verifyErr: any) {
-                if (fs.existsSync(tempFile)) {
-                    try { fs.unlinkSync(tempFile); } catch (e) {}
+                // Verify archive integrity
+                const fileBuf = fs.readFileSync(finalFilePath);
+                const manifest = await TenantBackupService.inspectBackupManifest(fileBuf);
+                if (!manifest || manifest.totalRecords === undefined) {
+                    throw new Error("Backup integrity verification failed: empty manifest.");
                 }
-                throw new Error(`Backup integrity verification failed: ${verifyErr.message}`);
-            }
+                logMessage(`Archive verified: format=${manifest.format}, scope=${manifest.scope}, tables=${manifest.tables.length}, total_records=${manifest.totalRecords}.`);
 
-            const fileName = `backup_${getReadableTimestamp()}.enc`;
-            const finalFilePath = path.join(BACKUP_DIR, fileName);
+                if (status.isCloudEnabled) {
+                    updateSyncSuccess(outletCode);
+                    logMessage("Cloud sync recorded successfully.");
+                }
 
-            fs.renameSync(tempFile, finalFilePath);
-            const currentOutlet = outletCode;
-
-            const status = getBackupStatus(currentOutlet);
-
-            if (status.isCloudEnabled) {
-                logMessage(`Cloud Sync enabled for outlet [${currentOutlet}]. Initiating upload.`);
-                await uploadBackupViaScript(finalFilePath, fileName, client.folderId);
-                await cleanOldBackups(client.folderId);
-
-                updateSyncSuccess(currentOutlet);
-                logMessage("Cloud upload sequence completed successfully.");
-            } else {
-                logMessage(`Cloud Sync disabled for outlet [${currentOutlet}]. Bypassing upload.`);
-            }
-
-            cleanOldLocalBackups(BACKUP_DIR, 500);
+                cleanOldLocalBackups(BACKUP_DIR, 500);
 
             logMessage("Hourly backup job execution finished.");
 

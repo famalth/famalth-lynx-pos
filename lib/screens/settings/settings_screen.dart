@@ -1813,9 +1813,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                         ),
                       _settingRow(
                         title: 'Create Manual Backup',
-                        description: (kIsWeb || AppConfig.isCloudServer)
-                            ? 'Export an isolated backup archive (.fambak) for your outlet.'
-                            : 'Export an isolated outlet archive (.fambak) or full encrypted system snapshot (.enc) to your Downloads folder.',
+                        description: 'Export an isolated, secured backup archive (.fambak) for your outlet to your Downloads folder.',
                         control: Wrap(
                           spacing: 10,
                           runSpacing: 8,
@@ -1825,7 +1823,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                                 backgroundColor: const Color(0xFFEF4444),
                                 foregroundColor: Colors.white,
                               ),
-                              onPressed: (_isCreatingFambakBackup || _isCreatingEncBackup)
+                              onPressed: _isCreatingFambakBackup
                                   ? null
                                   : () async {
                                       setState(() => _isCreatingFambakBackup = true);
@@ -1856,39 +1854,6 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                                   : const Icon(Icons.archive_outlined, size: 18),
                               label: Text(_isCreatingFambakBackup ? 'Exporting...' : 'Create .fambak Backup'),
                             ),
-                            if (AppConfig.isLocalServer)
-                              FilledButton.icon(
-                                onPressed: (_isCreatingEncBackup || _isCreatingFambakBackup)
-                                    ? null
-                                    : () async {
-                                        setState(() => _isCreatingEncBackup = true);
-                                        try {
-                                          final savedPath = await BackupService.createAndSaveLocalEncBackup();
-                                          if (!mounted) return;
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            SnackBar(
-                                              content: Text('.enc backup saved: ' + savedPath),
-                                              backgroundColor: Colors.green,
-                                            ),
-                                          );
-                                        } catch (e) {
-                                          if (!mounted) return;
-                                          showErrorSnackbar('Failed to create backup: ' + e.toString());
-                                        } finally {
-                                          if (mounted) {
-                                            setState(() => _isCreatingEncBackup = false);
-                                          }
-                                        }
-                                      },
-                                icon: _isCreatingEncBackup
-                                    ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                      )
-                                    : const Icon(Icons.enhanced_encryption_outlined, size: 18),
-                                label: Text(_isCreatingEncBackup ? 'Backing up...' : 'Create .enc Backup'),
-                              ),
                           ],
                         ),
                       ),

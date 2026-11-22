@@ -1944,7 +1944,7 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _restoreEncName ?? "Click to browse .fambak or .enc file",
+                        _restoreEncName ?? "Click to browse secured .fambak archive",
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
@@ -1954,8 +1954,8 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
                       const SizedBox(height: 2),
                       Text(
                         _restoreEncName != null
-                            ? "${(_restoreEncBytes?.length ?? 0) ~/ 1024} KB · ${_restoreEncName!.toLowerCase().endsWith('.fambak') ? 'Outlet Archive (.fambak)' : 'System Snapshot (.enc)'} ready to restore"
-                            : "Supports Famalth outlet archives (.fambak) and encrypted snapshots (.enc)",
+                            ? "${(_restoreEncBytes?.length ?? 0) ~/ 1024} KB · ${_restoreEncName!.toLowerCase().endsWith('.fambak') ? 'Secured Outlet Archive (.fambak)' : 'Backup Archive'} ready to restore"
+                            : "Supports Famalth proprietary secured outlet archives (.fambak)",
                         style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
                       ),
                     ],
@@ -1978,8 +1978,8 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
               : (!_isEmailVerified
                   ? "Verify Email OTP to Unlock Restore"
                   : (_restoreEncName != null
-                      ? "Restore Selected Backup (${_restoreEncName!.toLowerCase().endsWith('.fambak') ? '.fambak' : '.enc'})"
-                      : "Restore Backup (.fambak / .enc)")),
+                      ? "Restore Selected Backup (${_restoreEncName!.toLowerCase().endsWith('.fambak') ? '.fambak' : 'Archive'})"
+                      : "Restore Backup (.fambak)")),
           _isEmailVerified ? Icons.restore_page_rounded : Icons.lock_outline_rounded,
           scheme,
           _isRestoringLocalEnc ? () {} : _restoreFromLocalEnc,
