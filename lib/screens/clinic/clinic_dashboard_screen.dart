@@ -2063,6 +2063,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
             const DropdownMenuItem<int?>(
               value: null,
               child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(Icons.people_outline_rounded, size: 16, color: Color(0xFF0284C7)),
                   SizedBox(width: 6),
@@ -2077,15 +2078,13 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
               return DropdownMenuItem<int?>(
                 value: docId,
                 child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     const Icon(Icons.medical_services_outlined, size: 16, color: Color(0xFF0284C7)),
                     const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        spec.isNotEmpty ? '${_formatDoctorTitle(dName)} ($spec)' : _formatDoctorTitle(dName),
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 1,
-                      ),
+                    Text(
+                      spec.isNotEmpty ? '${_formatDoctorTitle(dName)} ($spec)' : _formatDoctorTitle(dName),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),

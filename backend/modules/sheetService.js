@@ -43,7 +43,7 @@ async function touchClient(outletCode) {
 }
 async function syncDatabaseOnly(req, res) {
     try {
-        const outletCode = req.user?.outlet_code;
+        const outletCode = req.user?.outlet_code || req.query?.outlet_code || req.body?.outlet_code;
         if (!outletCode) {
             return res.status(400).json({
                 success: false,
@@ -63,7 +63,37 @@ async function syncDatabaseOnly(req, res) {
             });
         }
         console.log(`[SYNC] Executing on-demand database sync from folder: ${targetClient.folderId}`);
-        await (0, restore_1.autoRestoreLatest)(targetClient.folderId);
+        // Prefer proprietary .fambak archive restoration
+        try {
+            const propertyDb = require("../db/models");
+            const activeDb = req.propertyDb || propertyDb.sequelize || propertyDb;
+            const { TenantBackupService } = require("../services/tenantBackup.service");
+            const backups = await TenantBackupService.listBackups(activeDb, outletCode, true);
+            const fambakBackup = backups.find((b) => b && b.filename && (b.filename.endsWith('.fambak') || b.filename.endsWith('.posbak')));
+            if (fambakBackup && fambakBackup.filename) {
+                const filePath = TenantBackupService.resolveBackupFilePath(fambakBackup.filename, outletCode, true);
+                if (filePath && fs_1.default.existsSync(filePath)) {
+                    console.log(`[SYNC] Restoring via proprietary .fambak snapshot: ${fambakBackup.filename}`);
+                    const fileBuffer = fs_1.default.readFileSync(filePath);
+                    const restoreRes = await TenantBackupService.restoreFambakBackup(activeDb, fileBuffer, {
+                        scope: 'OUTLET',
+                        selectedOutletCode: outletCode,
+                        targetOutletCode: outletCode,
+                        overwriteExisting: false
+                    });
+                    console.log(`[SYNC] .fambak restoration complete: ${restoreRes.totalRecordsRestored} records restored.`);
+                    return res.json({
+                        success: true,
+                        message: `Database cleanly synced via .fambak archive (${restoreRes.totalRecordsRestored} records restored). No duplicates created.`,
+                        details: restoreRes
+                    });
+                }
+            }
+        }
+        catch (fambakErr) {
+            console.warn(`[SYNC] .fambak pre-check skipped (${fambakErr.message}). Continuing...`);
+        }
+        await (0, restore_1.autoRestoreLatest)(targetClient.folderId, outletCode);
         console.log("[SYNC] Database sync sequence complete. Local data is up to date.");
         res.json({
             success: true,

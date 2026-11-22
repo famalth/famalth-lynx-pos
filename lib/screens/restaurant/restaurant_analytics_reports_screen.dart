@@ -112,7 +112,9 @@ class _RestaurantAnalyticsReportsScreenState
               child: DropdownButtonHideUnderline(
                 child: DropdownButton<int?>(
                   isExpanded: true,
-                  value: _selectedOutletId,
+                  value: (_selectedOutletId == -1 || outlets.any((o) => o['id'] == _selectedOutletId))
+                      ? _selectedOutletId
+                      : -1,
                   items: [
                     const DropdownMenuItem<int?>(
                       value: -1,

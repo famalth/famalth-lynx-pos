@@ -150,7 +150,9 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen> {
                           child: DropdownButtonHideUnderline(
                             child: DropdownButton<int?>(
                               isExpanded: true,
-                              value: _selectedOutletId,
+                              value: (_selectedOutletId == null || _allOutlets.any((o) => o['id'] == _selectedOutletId))
+                                  ? _selectedOutletId
+                                  : null,
                               hint: const Text('All Linked Outlets (Combined Accounting)'),
                               items: [
                                 const DropdownMenuItem<int?>(

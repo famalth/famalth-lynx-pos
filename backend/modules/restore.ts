@@ -119,6 +119,10 @@ export async function executeDatabaseRestore(sqlFilePath: string, db_name: any, 
     if (!fs.existsSync(sqlFilePath) || fs.statSync(sqlFilePath).size === 0) {
         throw new Error("Restore SQL file is missing or empty.");
     }
+
+    // 1. Clean existing database schema before full database restore to prevent doubling tables and duplicate outlet rows
+    await cleanDatabaseSchema(targetDb, targetUser, targetPass, targetHost, targetPort);
+
     const hasPsql = psqlPath && fs.existsSync(psqlPath);
     if (!hasPsql) {
         console.warn("⚠️ psql.exe was not found (" + psqlPath + "). Restoring directly via pure Node.js PG client...");
@@ -182,7 +186,7 @@ export async function executeDatabaseRestore(sqlFilePath: string, db_name: any, 
     }
 }
 
-export async function autoRestoreLatest(folderId: string): Promise<void> {
+export async function autoRestoreLatest(folderId: string, outletCode?: string): Promise<void> {
     const config = loadConfig();
 
     const restoreDir = path.join(baseDir, "backups", `restore-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
@@ -205,7 +209,32 @@ export async function autoRestoreLatest(folderId: string): Promise<void> {
             throw new Error("No backup files found in the cloud directory.");
         }
 
-        fs.writeFileSync(encFile, Buffer.from(res.base64, 'base64'));
+        const buffer = Buffer.from(res.base64, 'base64');
+        const filename = String(res.filename || '').toLowerCase();
+
+        // 1b. If backup from Google Drive is a .fambak archive, perform scoped outlet restoration via TenantBackupService
+        const isFambakArchive = filename.endsWith('.fambak') ||
+            filename.endsWith('.posbak') ||
+            (buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4B) ||
+            buffer.toString('utf8', 0, 16).includes('FAMALTH');
+
+        if (isFambakArchive) {
+            console.log(`[RESTORE] Downloaded .fambak archive from Google Drive (${res.filename || 'backup.fambak'}). Restoring scoped outlet data...`);
+            const { TenantBackupService } = require('../services/tenantBackup.service');
+            const propertyDb = require('../db/models');
+            const activeDb = propertyDb.sequelize || propertyDb;
+
+            const restoreResult = await TenantBackupService.restoreFambakBackup(activeDb, buffer, {
+                scope: outletCode ? 'OUTLET' : 'ALL',
+                selectedOutletCode: outletCode || undefined,
+                targetOutletCode: outletCode || undefined,
+                overwriteExisting: false
+            });
+            console.log(`[RESTORE] Successfully restored ${restoreResult.totalRecordsRestored} records into outlet ${restoreResult.restoredOutletCode || outletCode} via .fambak from Google Drive!`);
+            return;
+        }
+
+        fs.writeFileSync(encFile, buffer);
         console.log(`[RESTORE] Successfully downloaded payload: ${res.filename}`);
 
         // Validation: Ensure the file was actually written to the local disk

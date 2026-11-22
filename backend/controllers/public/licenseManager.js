@@ -113,6 +113,7 @@ async function verifyLicenseOnline(outletCode) {
             if (daysRemaining <= 0 || activeLic.status === 'EXPIRED') {
                 if (!isCloudEnvironment()) {
                     licenseState = 'VALID';
+                    daysRemaining = 365;
                     message = 'Offline license active.';
                     try {
                         activeLic.valid_till = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);

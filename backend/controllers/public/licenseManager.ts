@@ -115,7 +115,7 @@ async function verifyLicenseOnline(outletCode) {
             const expiryDate = new Date(activeLic.valid_till);
             const graceDays = Number(activeLic.grace_period_days || 0);
             const diffMs = expiryDate.getTime() - Date.now();
-            const daysRemaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+            let daysRemaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 
             let licenseState = 'VALID';
             let message = 'License active';
@@ -124,6 +124,7 @@ async function verifyLicenseOnline(outletCode) {
                 if (!isCloudEnvironment()) {
                     // On local offline server, license never expires from online migration
                     licenseState = 'VALID';
+                    daysRemaining = 365;
                     message = 'Offline license active.';
                     try {
                         activeLic.valid_till = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);

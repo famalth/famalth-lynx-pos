@@ -468,8 +468,10 @@ function sortTablesTopologically(tableNames, fkEdges) {
     inDegree.set(t, 0);
   }
   for (const edge of fkEdges) {
-    const child = edge.child_table;
-    const parent = edge.parent_table;
+    const child = (edge.child_table || '').toLowerCase();
+    const parent = (edge.parent_table || '').toLowerCase();
+    // CRITICAL: ignore self-referential foreign keys to prevent cyclic entrapment
+    if (child === parent) continue;
     if (adj.has(parent) && adj.has(child)) {
       if (!adj.get(parent).has(child)) {
         adj.get(parent).add(child);
@@ -478,8 +480,14 @@ function sortTablesTopologically(tableNames, fkEdges) {
     }
   }
   const queue = [];
+  const masterPriority = ['outlets', 'users', 'roles', 'hr_salary_components', 'hr_pay_structures', 'item_groups', 'categories', 'tax_groups', 'supplier_master', 'customers'];
+  for (const p of masterPriority) {
+    if (tableNames.includes(p) && (inDegree.get(p) || 0) === 0) {
+      queue.push(p);
+    }
+  }
   for (const t of tableNames) {
-    if ((inDegree.get(t) || 0) === 0) {
+    if ((inDegree.get(t) || 0) === 0 && !queue.includes(t)) {
       queue.push(t);
     }
   }
@@ -1228,24 +1236,33 @@ const importBundle = async (req, res) => {
 
               // Foreign key safety for user_id / created_by / updated_by
               if ('user_id' in row && row.user_id !== null && row.user_id !== void 0) {
-                if (!validUserIds.has(row.user_id)) {
+                const rawUid = Number(row.user_id);
+                if (!validUserIds.has(rawUid) && !validUserIds.has(row.user_id)) {
                   const isNullable = targetColMetaMap.get(tName)?.get('user_id')?.is_nullable !== 'NO';
                   const fallbackUser = Array.from(validUserIds)[0] || null;
                   row.user_id = isNullable ? null : fallbackUser;
+                } else {
+                  row.user_id = rawUid;
                 }
               }
               if ('created_by' in row && row.created_by !== null && row.created_by !== void 0) {
-                if (!validUserIds.has(row.created_by)) {
+                const rawCid = Number(row.created_by);
+                if (!validUserIds.has(rawCid) && !validUserIds.has(row.created_by)) {
                   const isNullable = targetColMetaMap.get(tName)?.get('created_by')?.is_nullable !== 'NO';
                   const fallbackUser = Array.from(validUserIds)[0] || null;
                   row.created_by = isNullable ? null : fallbackUser;
+                } else {
+                  row.created_by = rawCid;
                 }
               }
               if ('updated_by' in row && row.updated_by !== null && row.updated_by !== void 0) {
-                if (!validUserIds.has(row.updated_by)) {
+                const rawUid = Number(row.updated_by);
+                if (!validUserIds.has(rawUid) && !validUserIds.has(row.updated_by)) {
                   const isNullable = targetColMetaMap.get(tName)?.get('updated_by')?.is_nullable !== 'NO';
                   const fallbackUser = Array.from(validUserIds)[0] || null;
                   row.updated_by = isNullable ? null : fallbackUser;
+                } else {
+                  row.updated_by = rawUid;
                 }
               }
 
@@ -1257,13 +1274,15 @@ const importBundle = async (req, res) => {
                 const pTable = fk.parentTable;
                 if (pTable === 'outlets') continue;
                 const parentIds = await getParentIds(pTable);
-                if (!parentIds.has(val)) {
+                if (!parentIds.has(val) && !parentIds.has(Number(val))) {
                   const meta = targetColMetaMap.get(tName)?.get(fk.col);
                   const isNullable = meta?.is_nullable !== 'NO';
                   if (isNullable) {
                     row[fk.col] = null;
                   } else if (parentIds.size > 0) {
                     row[fk.col] = Array.from(parentIds)[0];
+                  } else {
+                    row.__is_orphan_fk = true;
                   }
                 }
               }
@@ -1276,6 +1295,7 @@ const importBundle = async (req, res) => {
               for (const uRow of rows) {
                 if (!uRow || !uRow.username) continue;
                 const cleanUName = String(uRow.username).trim();
+                const baseUsername = cleanUName.replace(/(_outlet[0-9a-zA-Z]+)+$/i, '');
                 try {
                   const matchRows = await db.query(
                     `SELECT id, username, outlet_id FROM "users" WHERE "username" ILIKE $1`,
@@ -1295,13 +1315,13 @@ const importBundle = async (req, res) => {
                         { bind: [uPwd, uRow.role || 'ADMIN', match.id] }
                       );
                     } else {
-                      const uniqueUsername = `${cleanUName}_${outletCode.toLowerCase()}`;
+                      const uniqueUsername = `${baseUsername}_${outletCode.toLowerCase()}`;
                       const [inserted] = await db.query(`
                         INSERT INTO "users" (username, full_name, role, password_hash, outlet_id, is_active, mobile, created_at, updated_at)
                         VALUES ($1, $2, $3, $4, $5, true, $6, NOW(), NOW())
                         ON CONFLICT (username) DO UPDATE SET outlet_id = $5, password_hash = $4, is_active = true
                         RETURNING id;
-                      `, { bind: [uniqueUsername, uRow.full_name || cleanUName, uRow.role || 'ADMIN', uPwd, targetOutletId2, uRow.mobile || null] });
+                      `, { bind: [uniqueUsername, uRow.full_name || baseUsername, uRow.role || 'ADMIN', uPwd, targetOutletId2, uRow.mobile || null] });
                       if (inserted && inserted.length > 0) finalUserId = inserted[0].id;
                     }
                   } else {
@@ -1310,13 +1330,17 @@ const importBundle = async (req, res) => {
                       VALUES ($1, $2, $3, $4, $5, true, $6, NOW(), NOW())
                       ON CONFLICT (username) DO UPDATE SET outlet_id = $5, password_hash = $4, is_active = true
                       RETURNING id;
-                    `, { bind: [cleanUName, uRow.full_name || cleanUName, uRow.role || 'ADMIN', uPwd, targetOutletId2, uRow.mobile || null] });
+                    `, { bind: [baseUsername, uRow.full_name || baseUsername, uRow.role || 'ADMIN', uPwd, targetOutletId2, uRow.mobile || null] });
                     if (inserted && inserted.length > 0) finalUserId = inserted[0].id;
                   }
 
                   if (finalUserId) {
-                    validUserIds.add(finalUserId);
-                    if (uRow.id) userMap.set(uRow.id, finalUserId);
+                    validUserIds.add(Number(finalUserId));
+                    if (uRow.id) {
+                      userMap.set(uRow.id, finalUserId);
+                      userMap.set(Number(uRow.id), finalUserId);
+                      userMap.set(String(uRow.id), finalUserId);
+                    }
                   }
                 } catch (_) {}
               }
@@ -1362,7 +1386,10 @@ const importBundle = async (req, res) => {
               ? rows.map((r) => ({ ...r, outlet_id: targetOutletId2 }))
               : rows;
 
-            await insertRowsBatch(db, tName, scopedRows, tCols, targetColMetaMap.get(tName));
+            const validRows = scopedRows.filter((r) => !r.__is_orphan_fk);
+            if (validRows.length > 0) {
+              await insertRowsBatch(db, tName, validRows, tCols, targetColMetaMap.get(tName));
+            }
           }
           try {
             const [existingAdmins] = await db.query(

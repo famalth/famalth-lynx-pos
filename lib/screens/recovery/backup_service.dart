@@ -41,14 +41,29 @@ class BackupService {
     }
   }
 
-  static Future<bool> syncLatest() async {
+  static Future<bool> syncLatest([String? outletCode]) async {
     try {
-      final res = await ApiClient.get(ApiEndpoints.syncLatest);
-
-      if (res['success'] == true) {
-        return true;
+      final cloudBackups = await fetchCloudBackups(outletCode);
+      if (cloudBackups.isNotEmpty) {
+        final latest = cloudBackups.first;
+        final filename = (latest['filename'] ?? latest['name'] ?? '').toString();
+        if (filename.isNotEmpty) {
+          final res = await restoreCloudBackup(
+            filename: filename,
+            scope: outletCode != null && outletCode.isNotEmpty ? 'OUTLET' : 'ALL',
+            selectedOutletCode: outletCode,
+            targetOutletCode: outletCode,
+            overwriteExisting: false,
+          );
+          if (res['success'] == true) {
+            return true;
+          }
+        }
       }
-      return false;
+
+      final query = outletCode != null && outletCode.isNotEmpty ? '?outlet_code=$outletCode' : '';
+      final res = await ApiClient.get('${ApiEndpoints.syncLatest}$query');
+      return res['success'] == true;
     } catch (e) {
       debugPrint("Error syncing database: $e");
       return false;

@@ -144,7 +144,13 @@ exports.restoreFromLocalEnc = async (req: any, res: any) => {
         }
         const filename = String(body.filename || "").trim();
         const base64 = String(body.base64 || "").trim();
-        if (!filename.toLowerCase().endsWith(".enc") && !filename.toLowerCase().endsWith(".fambak") && !filename.toLowerCase().endsWith(".posbak")) {
+        if (filename.toLowerCase().endsWith(".enc")) {
+            return res.status(400).json({
+                success: false,
+                message: "Legacy .enc backup files have been retired. Please use secured .fambak archive files."
+            });
+        }
+        if (!filename.toLowerCase().endsWith(".fambak") && !filename.toLowerCase().endsWith(".posbak")) {
             return res.status(400).json({
                 success: false,
                 message: "Only proprietary .fambak secured backup archives are allowed."

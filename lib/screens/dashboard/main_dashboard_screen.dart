@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 import '../../controllers/reports/night_audit_controller.dart';
 import '../../controllers/inventory/stock_transfer_controller.dart';
 import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:retailpos/models/security/app_user_model.dart';
 import 'package:retailpos/screens/dashboard/system_update_screen.dart';
 import 'package:retailpos/screens/dashboard/cloud_migration_screen.dart';
@@ -1326,20 +1327,455 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
     super.dispose();
   }
 
+  /// Unified .fambak archive restoration modal with cloud & local inspection options
+  Future<void> _showFambakRestoreModal() async {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Row(
+                children: [
+                  Icon(Icons.cloud_download_rounded, color: Color(0xFF0284C7), size: 26),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Restore Database (.fambak)', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                        Text('Universal .fambak archive restoration with conflict protection', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Card(
+                elevation: 0,
+                color: const Color(0xFFF0F9FF),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: const BorderSide(color: Color(0xFFBAE6FD)),
+                ),
+                child: ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0xFF0284C7),
+                    child: Icon(Icons.cloud_sync_rounded, color: Colors.white, size: 20),
+                  ),
+                  title: const Text('Restore Latest Cloud Snapshot (.fambak)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
+                  subtitle: const Text('Download and safely ingest the latest verified cloud backup archive', style: TextStyle(fontSize: 11.5)),
+                  trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    await _handleLatestCloudFambakRestore();
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
+              Card(
+                elevation: 0,
+                color: const Color(0xFFF8FAFC),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                child: ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0xFF475569),
+                    child: Icon(Icons.folder_open_rounded, color: Colors.white, size: 20),
+                  ),
+                  title: const Text('Browse Local .fambak Archive', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
+                  subtitle: const Text('Select a .fambak or .posbak backup archive file from this workstation', style: TextStyle(fontSize: 11.5)),
+                  trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    await _handleLocalFambakRestore();
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
+              Card(
+                elevation: 0,
+                color: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: Colors.grey.shade200),
+                ),
+                child: ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0xFF64748B),
+                    child: Icon(Icons.storage_rounded, color: Colors.white, size: 20),
+                  ),
+                  title: const Text('Open Storage & Recovery Center', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
+                  subtitle: const Text('Full snapshot history, quotas, and granular point-in-time recovery', style: TextStyle(fontSize: 11.5)),
+                  trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    showDialog(
+                      context: context,
+                      builder: (_) => Dialog(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        child: const SizedBox(
+                          width: 480,
+                          child: Padding(
+                            padding: EdgeInsets.all(12),
+                            child: StorageBackupCard(),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleLatestCloudFambakRestore() async {
+    setState(() => _isSyncing = true);
+    try {
+      final cloudBackups = await BackupService.fetchCloudBackups();
+      setState(() => _isSyncing = false);
+      if (cloudBackups.isEmpty) {
+        if (!mounted) return;
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(
+              children: [
+                Icon(Icons.info_outline_rounded, color: Color(0xFF0284C7)),
+                SizedBox(width: 8),
+                Text('No Cloud Backups Found'),
+              ],
+            ),
+            content: const Text(
+              'No cloud .fambak snapshots were found for this account.\n\nWould you like to select a local .fambak backup archive from your computer to restore instead?',
+              style: TextStyle(fontSize: 13),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              FilledButton.icon(
+                icon: const Icon(Icons.folder_open_rounded, size: 16),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _handleLocalFambakRestore();
+                },
+                label: const Text('Browse Local File'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+
+      final latest = cloudBackups.first;
+      final filename = (latest['filename'] ?? latest['name'] ?? '').toString();
+      if (filename.isEmpty) {
+        throw Exception('Invalid cloud backup record received.');
+      }
+      await _executeFambakRestore(
+        filename: filename,
+        displayName: 'Cloud Snapshot: $filename',
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSyncing = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load cloud backup: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleLocalFambakRestore() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['fambak', 'posbak', 'enc', 'zip'],
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final file = result.files.first;
+      Uint8List? bytes = file.bytes;
+      if (bytes == null && file.path != null) {
+        bytes = await File(file.path!).readAsBytes();
+      }
+      if (bytes == null || bytes.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Selected backup file is empty.')),
+        );
+        return;
+      }
+      await _executeFambakRestore(
+        bytes: bytes,
+        displayName: file.name,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('File picker error: $e')),
+        );
+      }
+    }
+  }
+
+  /// Transactional .fambak restore with pre-inspection manifest and conflict strategy
+  Future<void> _executeFambakRestore({
+    String? filename,
+    Uint8List? bytes,
+    String? displayName,
+  }) async {
+    setState(() => _isSyncing = true);
+    try {
+      final manifest = await BackupService.inspectBackup(
+        filename: filename,
+        bytes: bytes,
+      );
+
+      if (!mounted) return;
+
+      final outletsInBackup = (manifest['outlets'] as List<dynamic>?) ?? [];
+      final manifestScope = (manifest['scope'] ?? 'OUTLET').toString().toUpperCase();
+      final isEnterpriseBackup = manifestScope == 'ALL' || outletsInBackup.length > 1;
+
+      String restoreChoice = isEnterpriseBackup ? 'SELECTIVE' : 'OUTLET';
+      String? selectedSourceOutlet = outletsInBackup.isNotEmpty ? outletsInBackup.first['code']?.toString() : null;
+      String targetOutlet = selectedSourceOutlet ?? 'OUT_1';
+      bool overwrite = false;
+
+      final proceed = await showDialog<Map<String, dynamic>>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setDlgState) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.verified_outlined, color: Color(0xFF0284C7), size: 22),
+                ),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text('Pre-Restore Inspection (.fambak)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            displayName ?? filename ?? 'Secured .fambak Archive',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Format: ${manifest['format'] ?? 'FAMALTH_V3'} • Records: ${manifest['totalRecords'] ?? 0} • Scope: $manifestScope',
+                            style: const TextStyle(fontSize: 11.5, color: Color(0xFF64748B)),
+                          ),
+                          if (outletsInBackup.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            const Text('Outlets in Backup:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 4),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: outletsInBackup.map((o) {
+                                return Chip(
+                                  visualDensity: VisualDensity.compact,
+                                  backgroundColor: Colors.white,
+                                  label: Text('${o['code']}: ${o['name']} (${o['recordCount'] ?? 0} rec)', style: const TextStyle(fontSize: 10.5)),
+                                );
+                              }).toList(),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (isEnterpriseBackup) ...[
+                      RadioListTile<String>(
+                        value: 'SELECTIVE',
+                        groupValue: restoreChoice,
+                        onChanged: (val) => setDlgState(() => restoreChoice = val ?? 'SELECTIVE'),
+                        title: const Text('Selective Outlet Restore (Preserve other outlets)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                        subtitle: const Text('Restores only the selected outlet without affecting existing data of other outlets.', style: TextStyle(fontSize: 11)),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      RadioListTile<String>(
+                        value: 'ALL',
+                        groupValue: restoreChoice,
+                        onChanged: (val) => setDlgState(() => restoreChoice = val ?? 'ALL'),
+                        title: const Text('All Outlets (Full Enterprise Restore)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                        subtitle: const Text('Restores all outlets and enterprise entities from the archive.', style: TextStyle(fontSize: 11)),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      if (restoreChoice == 'SELECTIVE')
+                        Padding(
+                          padding: const EdgeInsets.only(left: 16, bottom: 8),
+                          child: DropdownButtonFormField<String>(
+                            value: selectedSourceOutlet,
+                            decoration: const InputDecoration(labelText: 'Source Outlet', isDense: true, border: OutlineInputBorder()),
+                            items: outletsInBackup.map((o) {
+                              final code = (o['code'] ?? '').toString();
+                              final name = (o['name'] ?? '').toString();
+                              return DropdownMenuItem<String>(value: code, child: Text('$code - $name', style: const TextStyle(fontSize: 12)));
+                            }).toList(),
+                            onChanged: (val) => setDlgState(() => selectedSourceOutlet = val),
+                          ),
+                        ),
+                    ],
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Point-in-Time Rollback (Overwrite Existing)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      subtitle: const Text('When disabled (default), records are safely merged and no newer transactions are lost.', style: TextStyle(fontSize: 11)),
+                      value: overwrite,
+                      onChanged: (val) => setDlgState(() => overwrite = val),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              FilledButton.icon(
+                style: FilledButton.styleFrom(backgroundColor: const Color(0xFF0284C7)),
+                icon: const Icon(Icons.download_rounded, size: 16),
+                onPressed: () => Navigator.pop(ctx, {
+                  'proceed': true,
+                  'scope': restoreChoice,
+                  'selectedOutletCode': selectedSourceOutlet,
+                  'targetOutletCode': targetOutlet,
+                  'overwrite': overwrite,
+                }),
+                label: const Text('Restore .fambak'),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      if (proceed == null || proceed['proceed'] != true) return;
+
+      final restoreRes = await BackupService.restoreFambak(
+        filename: filename,
+        bytes: bytes,
+        scope: proceed['scope'] ?? 'OUTLET',
+        selectedOutletCode: proceed['selectedOutletCode'],
+        targetOutletCode: proceed['targetOutletCode'],
+        overwriteExisting: proceed['overwrite'] == true,
+      );
+
+      if (!mounted) return;
+
+      final restoredOutlet = restoreRes['data']?['restoredOutletCode'] ?? proceed['targetOutletCode'] ?? '';
+      final totalRestored = restoreRes['data']?['totalRecordsRestored'] ?? 0;
+
+      if (restoredOutlet.toString().trim().isNotEmpty) {
+        await LocalPreferences.setLastOutletCode(restoredOutlet.toString().trim());
+        final currentOutlets = List<String>.from(AppConfig.outlets);
+        if (!currentOutlets.contains(restoredOutlet.toString().trim())) {
+          currentOutlets.insert(0, restoredOutlet.toString().trim());
+          await AppConfig.saveConfig(AppConfig.baseUrl, currentOutlets);
+        }
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✓ Successfully restored $totalRestored records using .fambak archive! All duplicates prevented.'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+
+      await _verifyDataProtection();
+      await _loadDashboardHierarchy();
+      await _loadDashboard();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Restore error: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSyncing = false);
+      }
+    }
+  }
+
   Future<bool?> _showConfirmSyncDialog() async {
     return showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Confirm Sync'),
-        content: const Text('Proceed to replace data from online to local?'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.cloud_download_rounded, color: Color(0xFF0284C7)),
+            SizedBox(width: 8),
+            Text('Sync Latest Data', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          ],
+        ),
+        content: const Text(
+          'This will sync your store database with the latest cloud backup.\n\nOnly this outlet\'s records will be updated and existing data will be safely preserved. Do you want to proceed?',
+          style: TextStyle(fontSize: 13.5),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
             child: const Text('Cancel'),
           ),
-          FilledButton(
+          FilledButton.icon(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFF0284C7)),
+            icon: const Icon(Icons.sync_rounded, size: 16),
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Proceed'),
+            label: const Text('Sync Now'),
           ),
         ],
       ),
@@ -1350,23 +1786,40 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
     setState(() => _isSyncing = true);
 
     try {
-      final success = await BackupService.syncLatest();
+      final currentOutletCode = _dashboardHierarchyData?['current_outlet']?['outlet_code']?.toString() ??
+          (AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : null);
+
+      final success = await BackupService.syncLatest(currentOutletCode);
 
       if (!mounted) return;
 
       if (success) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Database synced successfully!'),
+            content: Text('✓ Data synced successfully from cloud!'),
             backgroundColor: Colors.green,
+            duration: Duration(seconds: 4),
           ),
         );
         await _verifyDataProtection();
+        await _loadDashboardHierarchy();
+        await _loadDashboard();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Failed to sync database. Please try again.'),
+            content: Text('Failed to sync data from cloud. Please check your connection and try again.'),
             backgroundColor: Colors.red,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Sync error: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
           ),
         );
       }
@@ -1555,8 +2008,42 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
   }
 
   Widget _buildDashboardOutletScopeSelector() {
-    final outlets = (_dashboardHierarchyData?['all_outlets'] as List?) ?? [];
-    if (outlets.length <= 1) return const SizedBox.shrink();
+    final rawOutlets = (_dashboardHierarchyData?['all_outlets'] as List?) ?? [];
+
+    // Strictly deduplicate outlets by integer ID to prevent duplicate DropdownMenuItem entries
+    final seenIds = <int>{};
+    final uniqueOutlets = <Map<String, dynamic>>[];
+    for (final raw in rawOutlets) {
+      if (raw is Map) {
+        final m = Map<String, dynamic>.from(raw);
+        final id = int.tryParse('${m['id']}');
+        if (id != null && seenIds.add(id)) {
+          uniqueOutlets.add(m);
+        }
+      }
+    }
+
+    if (uniqueOutlets.length <= 1) return const SizedBox.shrink();
+
+    final dropdownItems = <DropdownMenuItem<int?>>[
+      const DropdownMenuItem<int?>(
+        value: -1,
+        child: Text('🌐 All Linked Outlets (Combined Enterprise Metrics)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+      ),
+      ...uniqueOutlets.map<DropdownMenuItem<int?>>((o) {
+        final id = int.tryParse('${o['id']}');
+        return DropdownMenuItem<int?>(
+          value: id,
+          child: Text('🏬 ${o['outlet_name']} (${o['outlet_code']})', style: const TextStyle(fontSize: 13)),
+        );
+      }),
+    ];
+
+    // Guarantee that value matches exactly one item in dropdownItems
+    final hasValidValue = dropdownItems.any((item) => item.value == _selectedDashboardOutletId);
+    final effectiveValue = hasValidValue
+        ? _selectedDashboardOutletId
+        : (dropdownItems.isNotEmpty ? dropdownItems.first.value : null);
 
     return Card(
       elevation: 0,
@@ -1575,19 +2062,8 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
               child: DropdownButtonHideUnderline(
                 child: DropdownButton<int?>(
                   isExpanded: true,
-                  value: _selectedDashboardOutletId,
-                  items: [
-                    const DropdownMenuItem<int?>(
-                      value: -1,
-                      child: Text('🌐 All Linked Outlets (Combined Enterprise Metrics)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                    ),
-                    ...outlets.map<DropdownMenuItem<int?>>((o) {
-                      return DropdownMenuItem<int?>(
-                        value: o['id'],
-                        child: Text('🏬 ${o['outlet_name']} (${o['outlet_code']})', style: const TextStyle(fontSize: 13)),
-                      );
-                    }).toList(),
-                  ],
+                  value: effectiveValue,
+                  items: dropdownItems,
                   onChanged: (val) {
                     setState(() {
                       _selectedDashboardOutletId = val;
@@ -1682,7 +2158,17 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
   }
 
   Widget _buildLinkedOutletsDirectoryCard() {
-    final outlets = (_dashboardHierarchyData?['all_outlets'] as List?) ?? [];
+    final rawOutlets = (_dashboardHierarchyData?['all_outlets'] as List?) ?? [];
+    final seenIds = <dynamic>{};
+    final outlets = <Map<String, dynamic>>[];
+    for (final raw in rawOutlets) {
+      if (raw is Map) {
+        final id = raw['id'] ?? raw['outlet_code'];
+        if (id != null && seenIds.add(id)) {
+          outlets.add(Map<String, dynamic>.from(raw));
+        }
+      }
+    }
     if (outlets.length <= 1) return const SizedBox.shrink();
     final currentOutlet = _dashboardHierarchyData?['current_outlet'];
     final currentOutletId = currentOutlet?['id'];
@@ -2717,7 +3203,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
                       ),
                     )
                   : IconButton(
-                      icon: const Icon(Icons.cloud_download),
+                      icon: const Icon(Icons.cloud_download_rounded),
                       tooltip: 'Sync Latest Data',
                       onPressed: () async {
                         final confirm = await _showConfirmSyncDialog();

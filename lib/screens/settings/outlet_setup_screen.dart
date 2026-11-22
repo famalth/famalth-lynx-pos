@@ -493,15 +493,15 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
   Future<void> _pickRestoreEncFile() async {
     final result = await FilePicker.pickFiles(
       type: FileType.custom,
-      allowedExtensions: const ['fambak', 'enc', 'posbak'],
+      allowedExtensions: const ['fambak', 'posbak'],
       withData: true,
     );
     if (result == null || result.files.isEmpty) return;
     final file = result.files.first;
     final name = file.name.trim();
     final lowerName = name.toLowerCase();
-    if (!lowerName.endsWith('.enc') && !lowerName.endsWith('.fambak') && !lowerName.endsWith('.posbak')) {
-      _showError('Only .fambak, .enc, or .posbak backup files are allowed.');
+    if (!lowerName.endsWith('.fambak') && !lowerName.endsWith('.posbak')) {
+      _showError('Only proprietary .fambak backup archive files are allowed (.enc has been retired).');
       return;
     }
 
@@ -522,7 +522,7 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
         _restoreEncName!.isEmpty ||
         _restoreEncBytes == null ||
         _restoreEncBytes!.isEmpty) {
-      _showError('Please select a valid .fambak or .enc backup file first.');
+      _showError('Please select a valid .fambak backup archive first.');
       return;
     }
 

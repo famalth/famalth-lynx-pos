@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/auth/token_storage.dart';
 import '../../core/services/cloud_migration_service.dart';
 import '../splash_screen.dart';
+import '../auth/login_screen.dart';
 
 enum MigrationDirection {
   offlineToCloud,
@@ -285,16 +286,24 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
         await CloudMigrationService.completeCloudMigrationSwitch(
           cloudUrl: "http://127.0.0.1:3000",
           outletCode: outletCode,
-          token: pullRes['token'],
-          user: pullRes['user'],
         );
+
+        // Auto-logout: clear all active session tokens and cached credentials when migrating from online to offline
+        await TokenStorage.clear();
         await LocalPreferences.setLastOutletCode(outletCode);
 
         setState(() {
           _currentStep = MigrationStep.completed;
-          _statusMessage = "Cloud store downloaded and restored to local offline station!";
+          _statusMessage = "Cloud store restored to local offline station! Auto-logging out...";
           _migratedStats = Map<String, dynamic>.from(pullRes['stats'] ?? {});
           _migratedOutletCode = outletCode;
+        });
+
+        // Auto-redirect to LoginScreen after 2.5s so user sees completion stats and is cleanly logged out
+        Timer(const Duration(milliseconds: 2500), () {
+          if (mounted && _currentStep == MigrationStep.completed) {
+            _finishAndLaunch();
+          }
         });
       }
 
@@ -307,11 +316,21 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
   }
 
   void _finishAndLaunch() {
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const SplashScreen()),
-      (route) => false,
-    );
+    if (_direction == MigrationDirection.cloudToOffline) {
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(
+          builder: (_) => LoginScreen(initialOutletCode: _migratedOutletCode),
+        ),
+        (route) => false,
+      );
+    } else {
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const SplashScreen()),
+        (route) => false,
+      );
+    }
   }
 
   @override
@@ -912,7 +931,7 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
         Text(
           isOfflineMode
               ? 'Your store data has been safely transferred to the online cloud server with relational ID translation.'
-              : 'Your cloud store has been restored locally in standalone offline mode.',
+              : 'Your cloud store has been restored locally in standalone offline mode. Auto-logging out to sign in with offline credentials...',
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 13.5,
@@ -1003,7 +1022,7 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
           onPressed: _finishAndLaunch,
           icon: Icon(isOfflineMode ? Icons.login_rounded : Icons.rocket_launch_rounded),
           label: Text(
-            isOfflineMode ? 'Proceed to Login / Console Activation' : 'Open Local Offline POS Now',
+            isOfflineMode ? 'Proceed to Login / Console Activation' : 'Sign In to Restored Offline Store (Logged Out)',
             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
           ),
         ),
