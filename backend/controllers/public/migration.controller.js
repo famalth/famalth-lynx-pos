@@ -1113,8 +1113,15 @@ const importBundle = async (req, res) => {
             }
           }
           // 3. Ingest every table in topological order (parents first) with full column fidelity & zero-collision ID isolation
+          const [existingAllUsers] = await db.query(`SELECT id FROM "users"`);
+          const validUserIds = new Set((existingAllUsers || []).map((u) => u.id));
+
           const idRemap = new Map();
           const commonFkLookups = {
+            'user_id': 'users',
+            'created_by': 'users',
+            'updated_by': 'users',
+            'salesman_id': 'users',
             'item_id': 'item_master',
             'sale_id': 'sales_headers',
             'voucher_id': 'accounting_vouchers',
@@ -1160,10 +1167,35 @@ const importBundle = async (req, res) => {
                   }
                 }
               }
+
+              // Foreign key safety for user_id / created_by / updated_by
+              if ('user_id' in row && row.user_id !== null && row.user_id !== void 0) {
+                if (!validUserIds.has(row.user_id)) {
+                  const isNullable = targetColMetaMap.get(tName)?.get('user_id')?.is_nullable !== 'NO';
+                  const fallbackUser = Array.from(validUserIds)[0] || null;
+                  row.user_id = isNullable ? null : fallbackUser;
+                }
+              }
+              if ('created_by' in row && row.created_by !== null && row.created_by !== void 0) {
+                if (!validUserIds.has(row.created_by)) {
+                  const isNullable = targetColMetaMap.get(tName)?.get('created_by')?.is_nullable !== 'NO';
+                  const fallbackUser = Array.from(validUserIds)[0] || null;
+                  row.created_by = isNullable ? null : fallbackUser;
+                }
+              }
+              if ('updated_by' in row && row.updated_by !== null && row.updated_by !== void 0) {
+                if (!validUserIds.has(row.updated_by)) {
+                  const isNullable = targetColMetaMap.get(tName)?.get('updated_by')?.is_nullable !== 'NO';
+                  const fallbackUser = Array.from(validUserIds)[0] || null;
+                  row.updated_by = isNullable ? null : fallbackUser;
+                }
+              }
             }
 
             // 3b. Handle users table specially to preserve credentials & prevent username collisions
             if (tName === 'users') {
+              if (!idRemap.has('users')) idRemap.set('users', new Map());
+              const userMap = idRemap.get('users');
               for (const uRow of rows) {
                 if (!uRow || !uRow.username) continue;
                 const cleanUName = String(uRow.username).trim();
@@ -1177,6 +1209,8 @@ const importBundle = async (req, res) => {
                     ? await import_bcryptjs.default.hash(admin_password, 10) 
                     : (uRow.password_hash || await import_bcryptjs.default.hash("1234", 10));
 
+                  let finalUserId = match?.id;
+
                   if (match) {
                     if (match.outlet_id === targetOutletId2) {
                       await db.query(
@@ -1185,18 +1219,27 @@ const importBundle = async (req, res) => {
                       );
                     } else {
                       const uniqueUsername = `${cleanUName}_${outletCode.toLowerCase()}`;
-                      await db.query(`
+                      const [inserted] = await db.query(`
                         INSERT INTO "users" (username, full_name, role, password_hash, outlet_id, is_active, mobile, created_at, updated_at)
                         VALUES ($1, $2, $3, $4, $5, true, $6, NOW(), NOW())
-                        ON CONFLICT (username) DO UPDATE SET outlet_id = $5, password_hash = $4, is_active = true;
+                        ON CONFLICT (username) DO UPDATE SET outlet_id = $5, password_hash = $4, is_active = true
+                        RETURNING id;
                       `, { bind: [uniqueUsername, uRow.full_name || cleanUName, uRow.role || 'ADMIN', uPwd, targetOutletId2, uRow.mobile || null] });
+                      if (inserted && inserted.length > 0) finalUserId = inserted[0].id;
                     }
                   } else {
-                    await db.query(`
+                    const [inserted] = await db.query(`
                       INSERT INTO "users" (username, full_name, role, password_hash, outlet_id, is_active, mobile, created_at, updated_at)
                       VALUES ($1, $2, $3, $4, $5, true, $6, NOW(), NOW())
-                      ON CONFLICT (username) DO UPDATE SET outlet_id = $5, password_hash = $4, is_active = true;
+                      ON CONFLICT (username) DO UPDATE SET outlet_id = $5, password_hash = $4, is_active = true
+                      RETURNING id;
                     `, { bind: [cleanUName, uRow.full_name || cleanUName, uRow.role || 'ADMIN', uPwd, targetOutletId2, uRow.mobile || null] });
+                    if (inserted && inserted.length > 0) finalUserId = inserted[0].id;
+                  }
+
+                  if (finalUserId) {
+                    validUserIds.add(finalUserId);
+                    if (uRow.id) userMap.set(uRow.id, finalUserId);
                   }
                 } catch (_) {}
               }
