@@ -84,6 +84,14 @@ function formatMigrationError(error) {
   }
   return error.message || String(error);
 }
+function isPlatformMasterTable(tName) {
+  const t = (tName || "").toLowerCase().trim();
+  if (t.startsWith("master_") || t.startsWith("control_plane_") || t.startsWith("platform_")) return true;
+  if (t.includes("tenant") && t !== "tenant_settings") return true;
+  if (t === "resellers" || t === "support_agents" || t === "support_tickets" || t === "ticket_messages") return true;
+  if (t === "system_backups" || t === "system_update_logs" || t === "client_logs" || t === "master_staff_users") return true;
+  return false;
+}
 const ping = async (req, res) => {
   return res.status(200).json({
     success: true,
@@ -420,7 +428,9 @@ const exportBundle = async (req, res) => {
               AND table_name NOT IN ('SequelizeMeta', 'spatial_ref_sys')
             ORDER BY table_name;
         `);
-    const allTableNames = tableRows.map((r) => Array.isArray(r) ? r[0] : r.table_name || r[0]);
+    const allTableNames = tableRows
+      .map((r) => Array.isArray(r) ? r[0] : r.table_name || r[0])
+      .filter((t) => !isPlatformMasterTable(t));
     const [columnRows] = await db.query(`
             SELECT table_name, column_name, data_type, udt_name, is_nullable, column_default 
             FROM information_schema.columns 
@@ -493,8 +503,33 @@ const exportBundle = async (req, res) => {
         }
       }
     } else {
+      // Selected Outlet Export: Strictly export THIS outlet's data only
       for (const tName of allTableNames) {
         if (childTableRelations[tName]) continue;
+
+        if (tName === "outlets") {
+          tablesData["outlets"] = outletRecord ? [outletRecord] : [];
+          stats["outlets"] = tablesData["outlets"].length;
+          continue;
+        }
+
+        if (tName === "users") {
+          try {
+            const rows = await db.query(
+              `SELECT * FROM "users" WHERE "outlet_id" = $1 OR "username" = $2 OR "username" = $3`,
+              {
+                bind: [outletId, `admin_${outletCode}`, `admin_${outletCode.toLowerCase()}`],
+                type: import_sequelize.QueryTypes.SELECT
+              }
+            );
+            tablesData["users"] = rows;
+            stats["users"] = rows.length;
+          } catch (_) {
+            tablesData["users"] = [];
+          }
+          continue;
+        }
+
         const cols = tableColsMap.get(tName) || /* @__PURE__ */ new Set();
         try {
           if (cols.has("outlet_id")) {
@@ -517,21 +552,6 @@ const exportBundle = async (req, res) => {
         } catch (err) {
           console.warn(`[EXPORT] Outlet table ${tName} warning:`, err.message);
           tablesData[tName] = [];
-        }
-      }
-      if (allTableNames.includes("users") && Array.isArray(tablesData["users"])) {
-        try {
-          const adminUsers = await db.query(`SELECT * FROM "users" WHERE "role" IN ('ADMIN', 'SUPER_ADMIN') AND "is_active" = true`, {
-            type: import_sequelize.QueryTypes.SELECT
-          });
-          const existingUserIds = new Set(tablesData["users"].map((u) => u.id));
-          for (const adm of adminUsers) {
-            if (!existingUserIds.has(adm.id)) {
-              tablesData["users"].push(adm);
-              existingUserIds.add(adm.id);
-            }
-          }
-        } catch (_) {
         }
       }
       for (const [childTable, rel] of Object.entries(childTableRelations)) {
@@ -659,7 +679,9 @@ const importBundle = async (req, res) => {
                   AND table_name NOT IN ('SequelizeMeta', 'spatial_ref_sys')
                 ORDER BY table_name;
             `);
-      const targetTableNames = targetTableRows.map((r) => Array.isArray(r) ? r[0] : r.table_name || r[0]);
+      const targetTableNames = targetTableRows
+        .map((r) => Array.isArray(r) ? r[0] : r.table_name || r[0])
+        .filter((t) => !isPlatformMasterTable(t));
       const [targetColRows] = await db.query(`
                 SELECT table_name, column_name, data_type, udt_name, is_nullable, column_default 
                 FROM information_schema.columns 
@@ -682,6 +704,7 @@ const importBundle = async (req, res) => {
       }
       if (bundle.tableSchemas && typeof bundle.tableSchemas === "object") {
         for (const [tName, schemaCols] of Object.entries(bundle.tableSchemas)) {
+          if (isPlatformMasterTable(tName)) continue;
           if (!Array.isArray(schemaCols) || schemaCols.length === 0) continue;
           if (!targetTableNames.includes(tName)) {
             try {
@@ -770,6 +793,7 @@ const importBundle = async (req, res) => {
             }
           }
           for (const tName of orderedTableNames) {
+            if (isPlatformMasterTable(tName) || tName === "outlets") continue;
             const rows = bundle.tables[tName];
             if (!targetTableNames.includes(tName) || !Array.isArray(rows) || rows.length === 0) continue;
             const tCols = targetColsMap.get(tName) || [];
@@ -819,6 +843,7 @@ const importBundle = async (req, res) => {
             }
           }
           for (const tName of orderedTableNames) {
+            if (isPlatformMasterTable(tName) || tName === "outlets") continue;
             const rows = bundle.tables[tName];
             if (!targetTableNames.includes(tName) || !Array.isArray(rows) || rows.length === 0) continue;
             const tCols = targetColsMap.get(tName) || [];

@@ -57,6 +57,18 @@ function formatMigrationError(error: any): string {
 }
 
 /**
+ * Identify platform-level / Super Admin / Control Plane tables that must NEVER be migrated in outlet store migrations
+ */
+function isPlatformMasterTable(tName: string): boolean {
+    const t = (tName || '').toLowerCase().trim();
+    if (t.startsWith('master_') || t.startsWith('control_plane_') || t.startsWith('platform_')) return true;
+    if (t.includes('tenant') && t !== 'tenant_settings') return true;
+    if (t === 'resellers' || t === 'support_agents' || t === 'support_tickets' || t === 'ticket_messages') return true;
+    if (t === 'system_backups' || t === 'system_update_logs' || t === 'client_logs' || t === 'master_staff_users') return true;
+    return false;
+}
+
+/**
  * 1. Ping Cloud / Local Server to check compatibility
  */
 export const ping = async (req: Request, res: Response) => {
@@ -475,7 +487,7 @@ export const exportBundle = async (req: Request, res: Response) => {
 
         const stats: Record<string, number> = {};
 
-        // 1. Fetch all public base tables from information_schema
+        // 1. Fetch all public base tables from information_schema (excluding platform / super admin tables)
         const [tableRows] = await db.query(`
             SELECT table_name 
             FROM information_schema.tables 
@@ -484,7 +496,9 @@ export const exportBundle = async (req: Request, res: Response) => {
               AND table_name NOT IN ('SequelizeMeta', 'spatial_ref_sys')
             ORDER BY table_name;
         `);
-        const allTableNames: string[] = tableRows.map((r: any) => Array.isArray(r) ? r[0] : (r.table_name || r[0]));
+        const allTableNames: string[] = tableRows
+            .map((r: any) => Array.isArray(r) ? r[0] : (r.table_name || r[0]))
+            .filter((t: string) => !isPlatformMasterTable(t));
 
         // 2. Fetch all column definitions across all tables
         const [columnRows] = await db.query(`
@@ -566,10 +580,35 @@ export const exportBundle = async (req: Request, res: Response) => {
                 }
             }
         } else {
-            // Selected Outlet Export: Every table in database with full column coverage
-            // 1. First pass: tables with outlet_id or outlet_code, and global master tables
+            // Selected Outlet Export: Strictly export THIS outlet's data only
+            // 1. First pass: tables with outlet_id or outlet_code, and store-level catalog tables
             for (const tName of allTableNames) {
                 if (childTableRelations[tName]) continue; // process in pass 2
+
+                if (tName === 'outlets') {
+                    // Strictly export ONLY the selected outlet record!
+                    tablesData['outlets'] = outletRecord ? [outletRecord] : [];
+                    stats['outlets'] = tablesData['outlets'].length;
+                    continue;
+                }
+
+                if (tName === 'users') {
+                    // Strictly export ONLY users belonging to this specific outlet
+                    try {
+                        const rows = await db.query(
+                            `SELECT * FROM "users" WHERE "outlet_id" = $1 OR "username" = $2 OR "username" = $3`,
+                            {
+                                bind: [outletId, `admin_${outletCode}`, `admin_${outletCode.toLowerCase()}`],
+                                type: QueryTypes.SELECT
+                            }
+                        );
+                        tablesData['users'] = rows;
+                        stats['users'] = rows.length;
+                    } catch (_) {
+                        tablesData['users'] = [];
+                    }
+                    continue;
+                }
 
                 const cols = tableColsMap.get(tName) || new Set();
                 try {
@@ -586,7 +625,7 @@ export const exportBundle = async (req: Request, res: Response) => {
                         });
                         tablesData[tName] = rows;
                     } else {
-                        // Global / Master Table: include all rows for complete configuration
+                        // Store-level master catalog / settings table
                         const rows = await db.query(`SELECT * FROM "${tName}"`, { type: QueryTypes.SELECT });
                         tablesData[tName] = rows;
                     }
@@ -595,22 +634,6 @@ export const exportBundle = async (req: Request, res: Response) => {
                     console.warn(`[EXPORT] Outlet table ${tName} warning:`, err.message);
                     tablesData[tName] = [];
                 }
-            }
-
-            // Always ensure active ADMIN users are included in single-outlet export
-            if (allTableNames.includes('users') && Array.isArray(tablesData['users'])) {
-                try {
-                    const adminUsers = await db.query(`SELECT * FROM "users" WHERE "role" IN ('ADMIN', 'SUPER_ADMIN') AND "is_active" = true`, {
-                        type: QueryTypes.SELECT
-                    });
-                    const existingUserIds = new Set(tablesData['users'].map((u: any) => u.id));
-                    for (const adm of adminUsers) {
-                        if (!existingUserIds.has(adm.id)) {
-                            tablesData['users'].push(adm);
-                            existingUserIds.add(adm.id);
-                        }
-                    }
-                } catch (_) {}
             }
 
             // 2. Second pass: child tables linked by parent headers
@@ -758,7 +781,9 @@ export const importBundle = async (req: Request, res: Response) => {
                   AND table_name NOT IN ('SequelizeMeta', 'spatial_ref_sys')
                 ORDER BY table_name;
             `);
-            const targetTableNames: string[] = targetTableRows.map((r: any) => Array.isArray(r) ? r[0] : (r.table_name || r[0]));
+            const targetTableNames: string[] = targetTableRows
+                .map((r: any) => Array.isArray(r) ? r[0] : (r.table_name || r[0]))
+                .filter((t: string) => !isPlatformMasterTable(t));
 
             const [targetColRows] = await db.query(`
                 SELECT table_name, column_name, data_type, udt_name, is_nullable, column_default 
@@ -784,7 +809,8 @@ export const importBundle = async (req: Request, res: Response) => {
 
             // AUTO-EVOLVE TARGET SCHEMA: If bundle includes newly created tables or columns, apply them dynamically
             if (bundle.tableSchemas && typeof bundle.tableSchemas === 'object') {
-                for (const [tName, schemaCols] of Object.entries(bundle.tableSchemas) as [string, any[]]) {
+                for (const [tName, schemaCols] of Object.entries(bundle.tableSchemas) as [string, any][]) {
+                    if (isPlatformMasterTable(tName)) continue;
                     if (!Array.isArray(schemaCols) || schemaCols.length === 0) continue;
 
                     if (!targetTableNames.includes(tName)) {
@@ -936,6 +962,7 @@ export const importBundle = async (req: Request, res: Response) => {
 
                     // 3. Ingest every table in topological order (parents first) with full column fidelity
                     for (const tName of orderedTableNames) {
+                        if (isPlatformMasterTable(tName) || tName === 'outlets') continue;
                         const rows = bundle.tables[tName];
                         if (!targetTableNames.includes(tName) || !Array.isArray(rows) || rows.length === 0) continue;
                         const tCols = targetColsMap.get(tName) || [];
