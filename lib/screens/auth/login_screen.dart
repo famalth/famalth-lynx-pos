@@ -631,26 +631,7 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   void _showExpiredDialog(String message) {
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          icon: const Icon(Icons.lock_clock, color: Colors.red, size: 48),
-          title: const Text('License Expired'),
-          content: Text(
-            message,
-            textAlign: TextAlign.center,
-          ),
-          actions: [
-            OutlinedButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Close'),
-            ),
-          ],
-        );
-      },
-    );
+    ApiClient.showLicenseExpiredLockoutDialog(message: message);
   }
 
   ImageProvider? _getHeroBgImageProvider(String? rawPath) {

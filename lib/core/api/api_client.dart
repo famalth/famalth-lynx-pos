@@ -286,6 +286,109 @@ class ApiClient {
     );
   }
 
+  // ---------------- LICENSE EXPIRED LOCKOUT DIALOG ----------------
+  static bool _isLicenseExpiredDialogOpen = false;
+
+  static void showLicenseExpiredLockoutDialog({String? message}) {
+    if (isAdminConsole) return;
+    if (_isLicenseExpiredDialogOpen) return;
+
+    final context = globalNavigatorKey.currentContext;
+    if (context == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        showLicenseExpiredLockoutDialog(message: message);
+      });
+      return;
+    }
+
+    _isLicenseExpiredDialogOpen = true;
+
+    final resolvedMessage = (message != null && message.trim().isNotEmpty)
+        ? message.trim()
+        : 'Software license has expired. Cloud subscription requires renewal to continue.';
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext ctx) {
+        return PopScope(
+          canPop: false,
+          child: AlertDialog(
+            backgroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            icon: const Icon(Icons.lock_clock_rounded, color: Color(0xFFDC2626), size: 48),
+            title: const Text(
+              'Enterprise License Expired',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A), fontSize: 18),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  resolvedMessage,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Color(0xFF475569), fontSize: 13, height: 1.5),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF2F2),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFFECACA)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.info_outline, size: 18, color: Color(0xFFDC2626)),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Your access has been locked by administration. Please renew your subscription to restore service.',
+                          style: TextStyle(fontSize: 11.5, color: Color(0xFF991B1B)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFDC2626),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  icon: const Icon(Icons.logout_rounded, size: 18),
+                  label: const Text('Log Out Immediately', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  onPressed: () async {
+                    _isLicenseExpiredDialogOpen = false;
+                    await TokenStorage.clear();
+                    await ControlPlaneStorage.clear();
+                    final nav = globalNavigatorKey.currentState;
+                    if (nav != null) {
+                      final targetScreen = AppConfig.isMobileBilling
+                          ? const MobileBillingAuthScreen()
+                          : const LoginScreen();
+                      nav.pushAndRemoveUntil(
+                        MaterialPageRoute(builder: (_) => targetScreen),
+                        (route) => false,
+                      );
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   // ---------------- AUTOMATIC SESSION EXPIRATION & RELOGIN HANDLER ----------------
   static bool _isHandlingSessionExpired = false;
 
@@ -416,9 +519,16 @@ class ApiClient {
           lowerMsg.contains('unauthorized staff request') ||
           (response.statusCode == 403 && (lowerMsg.contains('session') || lowerMsg.contains('token')));
 
-      if (isSessionExpired && !isAuthLoginPath) {
+      final bool isLicenseExpired = response.statusCode == 403 &&
+          (lowerCode == 'license_expired' ||
+              lowerMsg.contains('license expired') ||
+              (data is Map && data['license_status'] == 'EXPIRED'));
+
+      if (isLicenseExpired && !isAuthLoginPath) {
+        showLicenseExpiredLockoutDialog(message: errorMessage);
+      } else if (isSessionExpired && !isAuthLoginPath) {
         handleSessionExpired(reason: 'Session expired. Please log in again.');
-      } else if (!isSessionExpired && !silent) {
+      } else if (!isSessionExpired && !isLicenseExpired && !silent) {
         showErrorSnackbar(errorMessage);
       }
 

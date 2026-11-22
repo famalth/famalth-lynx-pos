@@ -66,6 +66,14 @@ class _LicenseWarningBannerState extends State<LicenseWarningBanner> {
           _tenantData = data['tenant'] as Map<String, dynamic>?;
           _isLoading = false;
         });
+
+        // If license has expired, IMMEDIATELY show the non-dismissible lockout popup!
+        if (_warningLevel == 'EXPIRED' || _daysLeft <= 0) {
+          ApiClient.showLicenseExpiredLockoutDialog(
+            message: data['message']?.toString() ??
+                'Software license has expired. Cloud subscription requires renewal to continue.',
+          );
+        }
       }
     } catch (_) {
       if (mounted) {

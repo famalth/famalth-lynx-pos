@@ -39,6 +39,18 @@ class AuthService {
         throw Exception(res['message'] ?? "Login failed");
       }
 
+      if (res['license_status'] == 'EXPIRED') {
+        ApiClient.showLicenseExpiredLockoutDialog(
+          message: res['message']?.toString() ?? 'Software license has expired. Cloud subscription requires renewal to continue.',
+        );
+        return LoginResult(
+          success: false,
+          licenseStatus: 'EXPIRED',
+          daysRemaining: 0,
+          message: res['message'] ?? 'Software license has expired. Cloud subscription requires renewal to continue.',
+        );
+      }
+
       final token = res['token'];
       if (token == null) throw Exception("Token not received from server");
 
@@ -105,6 +117,18 @@ class AuthService {
         throw Exception(res['message'] ?? "PIN Login failed");
       }
 
+      if (res['license_status'] == 'EXPIRED') {
+        ApiClient.showLicenseExpiredLockoutDialog(
+          message: res['message']?.toString() ?? 'Software license has expired. Cloud subscription requires renewal to continue.',
+        );
+        return LoginResult(
+          success: false,
+          licenseStatus: 'EXPIRED',
+          daysRemaining: 0,
+          message: res['message'] ?? 'Software license has expired. Cloud subscription requires renewal to continue.',
+        );
+      }
+
       final token = res['token'];
       if (token == null) throw Exception("Token not received from server");
 
@@ -168,6 +192,18 @@ class AuthService {
         throw Exception(res['message'] ?? "QR Badge Login failed");
       }
 
+      if (res['license_status'] == 'EXPIRED') {
+        ApiClient.showLicenseExpiredLockoutDialog(
+          message: res['message']?.toString() ?? 'Software license has expired. Cloud subscription requires renewal to continue.',
+        );
+        return LoginResult(
+          success: false,
+          licenseStatus: 'EXPIRED',
+          daysRemaining: 0,
+          message: res['message'] ?? 'Software license has expired. Cloud subscription requires renewal to continue.',
+        );
+      }
+
       final token = res['token'];
       if (token == null) throw Exception("Token not received from server");
 
@@ -208,6 +244,13 @@ class AuthService {
 
       if (res == null || res['success'] != true) {
         throw Exception(res?['message'] ?? 'Failed to switch outlet');
+      }
+
+      if (res['license_status'] == 'EXPIRED') {
+        ApiClient.showLicenseExpiredLockoutDialog(
+          message: res['message']?.toString() ?? 'Software license has expired. Cloud subscription requires renewal to continue.',
+        );
+        return false;
       }
 
       final token = res['token'];

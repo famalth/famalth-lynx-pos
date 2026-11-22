@@ -716,17 +716,33 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
   Future<void> _sendLiveActivityHeartbeat() async {
     try {
       final outletCode = await TokenStorage.getOutletCode();
-      if (outletCode == null || outletCode.isEmpty) return;
+      if (outletCode != null && outletCode.isNotEmpty) {
+        final res = await ApiClient.post('/api/public/outlet/heartbeat', {
+          'outlet_code': outletCode,
+          'client_version': currentVersion,
+        }, silent: true);
 
-      final res = await ApiClient.post('/api/public/outlet/heartbeat', {
-        'outlet_code': outletCode,
-        'client_version': currentVersion,
-      }, silent: true);
+        if (res != null && mounted) {
+          final status = (res['license_status'] ?? '').toString().toUpperCase();
+          if (status == 'EXPIRED' || status == 'SUSPENDED' || status == 'LOCKED') {
+            ApiClient.showLicenseExpiredLockoutDialog(
+              message: res['message']?.toString() ?? 'Software subscription has expired. Please renew to continue.',
+            );
+            return;
+          }
+        }
+      }
 
-      if (res != null && mounted) {
-        final status = (res['license_status'] ?? '').toString().toUpperCase();
-        if ((status == 'EXPIRED' || status == 'SUSPENDED' || status == 'LOCKED') && !_isLicenseLockoutOpen) {
-          _showLicenseLockoutDialog(res['message']?.toString() ?? 'Software subscription has expired. Please renew to continue.');
+      // Proactively check multi-tenant control plane license status
+      final licRes = await ApiClient.get('/api/v1/control-plane/license-and-rm-status', silent: true);
+      if (licRes != null && licRes['success'] == true && mounted) {
+        final licData = licRes['data'] ?? {};
+        final warningLevel = (licData['warningLevel'] ?? '').toString().toUpperCase();
+        final daysLeft = int.tryParse('${licData['daysLeft']}') ?? 365;
+        if (warningLevel == 'EXPIRED' || daysLeft <= 0) {
+          ApiClient.showLicenseExpiredLockoutDialog(
+            message: licData['message']?.toString() ?? 'Software license has expired. Cloud subscription requires renewal to continue.',
+          );
         }
       }
     } catch (_) {
@@ -735,79 +751,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
   }
 
   void _showLicenseLockoutDialog(String message) {
-    if (!mounted || _isLicenseLockoutOpen) return;
-    _isLicenseLockoutOpen = true;
-
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext ctx) {
-        return PopScope(
-          canPop: false,
-          child: AlertDialog(
-            backgroundColor: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            icon: const Icon(Icons.lock_clock_rounded, color: Color(0xFFDC2626), size: 48),
-            title: const Text(
-              'Enterprise License Expired',
-              style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A), fontSize: 18),
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  message,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Color(0xFF475569), fontSize: 13, height: 1.5),
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFEF2F2),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFFFECACA)),
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.info_outline, size: 18, color: Color(0xFFDC2626)),
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Your access has been locked by administration. Please contact your administrator or renew your subscription to restore service.',
-                          style: TextStyle(fontSize: 11.5, color: Color(0xFF991B1B)),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFDC2626),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                ),
-                icon: const Icon(Icons.logout, size: 16),
-                label: const Text('Log Out Immediately', style: TextStyle(fontWeight: FontWeight.bold)),
-                onPressed: () async {
-                  _liveHeartbeatTimer?.cancel();
-                  await TokenStorage.clear();
-                  if (!mounted) return;
-                  Navigator.pushAndRemoveUntil(
-                    context,
-                    MaterialPageRoute(builder: (context) => const LoginScreen()),
-                    (route) => false,
-                  );
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
+    ApiClient.showLicenseExpiredLockoutDialog(message: message);
   }
 
   void _startAppBarTimer() {
