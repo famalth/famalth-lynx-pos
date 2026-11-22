@@ -41,13 +41,96 @@ class CloudMigrationService {
     }
   }
 
+  /// Request a 6-digit migration verification OTP sent to the registered outlet email
+  static Future<Map<String, dynamic>> requestMigrationOtp({
+    required String serverUrl,
+    required String outletCode,
+    String scope = 'OUTLET',
+  }) async {
+    String cleanUrl = serverUrl.trim();
+    if (cleanUrl.endsWith('/')) {
+      cleanUrl = cleanUrl.substring(0, cleanUrl.length - 1);
+    }
+
+    try {
+      final uri = Uri.parse('$cleanUrl/api/public/migration/request-otp');
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'outlet_code': scope == 'ALL' ? 'ALL' : outletCode,
+          'scope': scope,
+        }),
+      ).timeout(const Duration(seconds: 15));
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {
+          'success': true,
+          'message': data['message'] ?? 'Security OTP sent to registered email.',
+          'masked_email': data['masked_email'] ?? '',
+        };
+      } else {
+        return {
+          'success': false,
+          'message': data['message'] ?? 'Failed to send verification OTP.',
+        };
+      }
+    } catch (e) {
+      debugPrint('[MIGRATION] OTP Request failed: $e');
+      return {
+        'success': false,
+        'message': 'Could not connect to server for OTP verification: $e',
+      };
+    }
+  }
+
+  /// Verify the 6-digit security OTP with the server
+  static Future<Map<String, dynamic>> verifyMigrationOtp({
+    required String serverUrl,
+    required String outletCode,
+    required String otp,
+    String scope = 'OUTLET',
+  }) async {
+    String cleanUrl = serverUrl.trim();
+    if (cleanUrl.endsWith('/')) {
+      cleanUrl = cleanUrl.substring(0, cleanUrl.length - 1);
+    }
+
+    try {
+      final uri = Uri.parse('$cleanUrl/api/public/migration/verify-otp');
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'outlet_code': scope == 'ALL' ? 'ALL' : outletCode,
+          'scope': scope,
+          'otp': otp.trim(),
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      final data = jsonDecode(response.body);
+      return {
+        'success': response.statusCode == 200 && data['success'] == true,
+        'message': data['message'] ?? 'Invalid OTP code.',
+      };
+    } catch (e) {
+      debugPrint('[MIGRATION] OTP Verify failed: $e');
+      return {
+        'success': false,
+        'message': 'Could not verify OTP: $e',
+      };
+    }
+  }
+
   /// Package and export all local store data from the offline backend
-  static Future<Map<String, dynamic>> exportLocalStoreBundle({String scope = 'OUTLET'}) async {
+  static Future<Map<String, dynamic>> exportLocalStoreBundle({String scope = 'OUTLET', String? otp}) async {
     try {
       final outletCode = await TokenStorage.getOutletCode() ?? '';
       final res = await ApiClient.post('/api/public/migration/export-bundle', {
         'outlet_code': scope == 'ALL' ? 'ALL' : outletCode,
         'scope': scope,
+        if (otp != null && otp.isNotEmpty) 'otp': otp,
       });
 
       if (res['success'] == true && res['bundle'] != null) {
@@ -78,6 +161,7 @@ class CloudMigrationService {
     String? targetOutletCode,
     String? adminPassword,
     String mode = "MERGE_OUTLET",
+    String? otp,
   }) async {
     String cleanUrl = cloudUrl.trim();
     if (cleanUrl.endsWith('/')) {
@@ -91,6 +175,7 @@ class CloudMigrationService {
         'mode': mode,
         'target_outlet_code': targetOutletCode,
         'admin_password': adminPassword,
+        if (otp != null && otp.isNotEmpty) 'otp': otp,
       });
 
       final response = await http.post(
@@ -157,6 +242,7 @@ class CloudMigrationService {
     required String outletCode,
     String? adminPassword,
     String scope = 'OUTLET',
+    String? otp,
   }) async {
     try {
       final res = await ApiClient.post('/api/public/migration/sync-online-to-offline', {
@@ -164,6 +250,7 @@ class CloudMigrationService {
         'outlet_code': scope == 'ALL' ? 'ALL' : outletCode,
         'admin_password': adminPassword,
         'scope': scope,
+        if (otp != null && otp.isNotEmpty) 'otp': otp,
       });
 
       if (res['success'] == true) {

@@ -1,3 +1,5 @@
+import 'dart:async';
+import '../../core/config/app_config.dart';
 import '../../core/settings/local_preferences.dart';
 import 'package:flutter/material.dart';
 import '../../core/auth/token_storage.dart';
@@ -32,6 +34,13 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
   final _cloudUrlCtrl = TextEditingController(text: "https://");
   final _outletCodeCtrl = TextEditingController();
   final _adminPassCtrl = TextEditingController();
+  final _otpCtrl = TextEditingController();
+
+  bool _isRequestingOtp = false;
+  bool _otpSent = false;
+  String _maskedEmail = "";
+  int _resendCooldown = 0;
+  Timer? _cooldownTimer;
 
   MigrationStep _currentStep = MigrationStep.configure;
   String _statusMessage = "";
@@ -61,7 +70,75 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
     _cloudUrlCtrl.dispose();
     _outletCodeCtrl.dispose();
     _adminPassCtrl.dispose();
+    _otpCtrl.dispose();
+    _cooldownTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _requestSecurityOtp() async {
+    final cloudUrl = _cloudUrlCtrl.text.trim();
+    final outletCode = _outletCodeCtrl.text.trim();
+    final isOfflineMode = _direction == MigrationDirection.offlineToCloud;
+    final isAllScope = _migrationScope == 'ALL';
+
+    if (!isOfflineMode && (cloudUrl.isEmpty || cloudUrl == 'https://')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid Cloud Server URL to verify outlet.')),
+      );
+      return;
+    }
+
+    if (!isAllScope && outletCode.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter the Outlet Code.')),
+      );
+      return;
+    }
+
+    setState(() => _isRequestingOtp = true);
+
+    // Target server to request OTP:
+    // If downloading from cloud (Online -> Offline), request OTP from Cloud Server
+    // If uploading to cloud (Offline -> Online), request OTP from local backend
+    final targetServer = isOfflineMode ? (AppConfig.baseUrl) : cloudUrl;
+
+    final res = await CloudMigrationService.requestMigrationOtp(
+      serverUrl: targetServer,
+      outletCode: isAllScope ? 'ALL' : outletCode,
+      scope: _migrationScope,
+    );
+
+    if (!mounted) return;
+    setState(() => _isRequestingOtp = false);
+
+    if (res['success'] == true) {
+      setState(() {
+        _otpSent = true;
+        _maskedEmail = res['masked_email'] ?? '';
+        _resendCooldown = 60;
+      });
+      _cooldownTimer?.cancel();
+      _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (_resendCooldown > 0) {
+          if (mounted) setState(() => _resendCooldown--);
+        } else {
+          timer.cancel();
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(res['message'] ?? 'OTP sent to registered email!'),
+          backgroundColor: const Color(0xFF059669),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(res['message'] ?? 'Failed to send OTP.'),
+          backgroundColor: const Color(0xFFDC2626),
+        ),
+      );
+    }
   }
 
   Future<void> _startMigration() async {
@@ -80,6 +157,17 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
     if (_direction == MigrationDirection.cloudToOffline && !isAllScope && outletCode.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Outlet Code is required to download cloud store data')),
+      );
+      return;
+    }
+
+    final otp = _otpCtrl.text.trim();
+    if (otp.isEmpty || otp.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('🔒 Security Verification: Please request and enter the 6-digit Email OTP before migrating.'),
+          backgroundColor: Color(0xFFEA580C),
+        ),
       );
       return;
     }
@@ -108,7 +196,7 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
           _statusMessage = "Packaging local products, customers, transactions and settings...";
         });
 
-        final exportRes = await CloudMigrationService.exportLocalStoreBundle(scope: _migrationScope);
+        final exportRes = await CloudMigrationService.exportLocalStoreBundle(scope: _migrationScope, otp: otp);
         if (exportRes['success'] != true || exportRes['bundle'] == null) {
           setState(() {
             _currentStep = MigrationStep.failed;
@@ -130,6 +218,7 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
           targetOutletCode: outletCode.isNotEmpty ? outletCode : null,
           adminPassword: adminPass.isNotEmpty ? adminPass : null,
           mode: "MERGE_OUTLET",
+          otp: otp,
         );
 
         if (importRes['success'] != true) {
@@ -175,6 +264,7 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
           outletCode: isAllScope ? 'ALL' : outletCode,
           adminPassword: adminPass.isNotEmpty ? adminPass : null,
           scope: _migrationScope,
+          otp: otp,
         );
 
         if (pullRes['success'] != true) {
@@ -549,6 +639,122 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
             hintText: 'Leave empty to preserve existing password',
             prefixIcon: Icon(Icons.lock_outline_rounded),
             border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 18),
+
+        // Security Authorization Section (Email OTP)
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: _otpSent
+                  ? const Color(0xFF10B981)
+                  : (isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1)),
+              width: _otpSent ? 1.5 : 1,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.security_rounded,
+                    color: _otpSent ? const Color(0xFF10B981) : const Color(0xFF0284C7),
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Email Security Authorization (Required)',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'To prevent unauthorized data access or restore, an OTP verification code must be sent to the outlet owner\'s registered email address.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                ),
+              ),
+              const SizedBox(height: 14),
+              if (_otpSent) ...[
+                if (_maskedEmail.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 16),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Verification code sent to $_maskedEmail (Valid for 10 min)',
+                            style: const TextStyle(
+                              color: Color(0xFF059669),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _otpCtrl,
+                        keyboardType: TextInputType.number,
+                        maxLength: 6,
+                        decoration: const InputDecoration(
+                          counterText: '',
+                          labelText: '6-Digit Email OTP *',
+                          hintText: 'Enter 6-digit code',
+                          prefixIcon: Icon(Icons.password_rounded),
+                          border: OutlineInputBorder(),
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                      ),
+                      onPressed: (_resendCooldown > 0 || _isRequestingOtp) ? null : _requestSecurityOtp,
+                      icon: const Icon(Icons.refresh_rounded, size: 16),
+                      label: Text(_resendCooldown > 0 ? '${_resendCooldown}s' : 'Resend OTP'),
+                    ),
+                  ],
+                ),
+              ] else ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      side: BorderSide(
+                        color: isDark ? const Color(0xFF38BDF8) : const Color(0xFF0284C7),
+                      ),
+                    ),
+                    onPressed: _isRequestingOtp ? null : _requestSecurityOtp,
+                    icon: _isRequestingOtp
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.mark_email_read_outlined, size: 18),
+                    label: Text(_isRequestingOtp ? 'Sending OTP to Registered Email...' : 'Send Security OTP to Registered Email'),
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
         const SizedBox(height: 24),

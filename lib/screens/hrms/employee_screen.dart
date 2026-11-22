@@ -700,9 +700,9 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
         if (loadedStructures.isNotEmpty) _payStructures = loadedStructures;
         _users        = List<Map<String, dynamic>>.from(results[3]['data'] ?? []);
         _leaveTypes   = List<Map<String, dynamic>>.from(results[4]['data'] ?? []);
-        _offices      = List<Map<String, dynamic>>.from(results[6]['data'] ?? (widget.initialOffices ?? []));
-        if (_offices.isEmpty && widget.initialOffices != null && widget.initialOffices!.isNotEmpty) {
-          _offices = List<Map<String, dynamic>>.from(widget.initialOffices!);
+        _offices      = List<Map<String, dynamic>>.from(results[6]['data'] ?? (widget.initialOffices ?? []));
+        if (_offices.isEmpty && widget.initialOffices != null && widget.initialOffices!.isNotEmpty) {
+          _offices = List<Map<String, dynamic>>.from(widget.initialOffices!);
         }
         if (_officeId == null && _offices.isNotEmpty) {
           _officeId = _offices.first['id'] as int?;
@@ -2300,6 +2300,14 @@ class _EmployeeDetailScreenState extends State<_EmployeeDetailScreen>
                 style: TextStyle(color: Color(0xFF2563EB), fontSize: 13)),
           ),
           const SizedBox(width: 8),
+          TextButton.icon(
+            onPressed: _unbindDevice,
+            icon: const Icon(Icons.phonelink_erase_rounded,
+                color: Color(0xFFD97706), size: 16),
+            label: const Text('Reset Device Lock',
+                style: TextStyle(color: Color(0xFFD97706), fontSize: 13)),
+          ),
+          const SizedBox(width: 8),
           if (status.toString().toLowerCase() == 'terminated')
             TextButton.icon(
               onPressed: _rejoinEmployee,
@@ -2432,6 +2440,8 @@ class _EmployeeDetailScreenState extends State<_EmployeeDetailScreen>
               emp['requires_attendance'] == true ? 'Yes' : 'No'),
           _infoRow('Pay if Attendance Unmarked',
               emp['pay_if_unmarked'] == true ? 'Yes (Full Pay)' : 'No (Paid Days Only)'),
+          _infoRow('Bound Device Lock',
+              emp['bound_device_id'] != null ? '${emp['bound_device_id']} (Locked)' : 'Unlocked (No device bound)'),
         ]),
         _infoCard('LEAVE APPROVERS', [
           _infoRow('Level 1 Approver',
@@ -3589,6 +3599,65 @@ class _EmployeeDetailScreenState extends State<_EmployeeDetailScreen>
         ],
       ),
     );
+  }
+
+  Future<void> _unbindDevice() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: Row(
+          children: const [
+            Icon(Icons.phonelink_erase_rounded, color: Color(0xFFD97706)),
+            SizedBox(width: 8),
+            Text('Reset Device Lock'),
+          ],
+        ),
+        content: Text(
+          'Are you sure you want to unbind and reset the registered mobile device for ${emp['full_name']} (${emp['employee_code']})? This will allow attendance to be recorded from a new device without restriction.',
+          style: const TextStyle(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD97706)),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Unbind Device', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      final res = await ApiClient.post('/api/hrms/employees/${emp['id']}/unbind-device', {});
+      if (res['success'] == true) {
+        setState(() {
+          emp['bound_device_id'] = null;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(res['message'] ?? 'Device lock removed successfully!'),
+            backgroundColor: const Color(0xFF059669),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(res['message'] ?? 'Failed to unbind device'),
+            backgroundColor: const Color(0xFFDC2626),
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    }
   }
 
   // ─────────── UI helpers ───────────

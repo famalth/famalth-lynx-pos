@@ -691,6 +691,16 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                 label: const Text('Apply Penalty / Fine', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
                 onPressed: _showApplyPenaltyDialog,
               ),
+              const SizedBox(width: 8),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF059669),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+                icon: const Icon(Icons.add_circle_outline, color: Colors.white, size: 14),
+                label: const Text('Add Arrear / Bonus', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                onPressed: _showAddArrearDialog,
+              ),
               if (_runStatus == 'Draft') ...[
                 OutlinedButton.icon(
                   icon: const Icon(Icons.analytics_outlined, size: 14),
@@ -1516,11 +1526,22 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('Company Bonuses & Rewards', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF1E3A5F))),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.add, color: Colors.white, size: 16),
-                label: const Text('Add Bonus Payout', style: TextStyle(color: Colors.white)),
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFE03E2D)),
-                onPressed: _showBulkBonusDialog,
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.add_circle_outline, color: Colors.white, size: 16),
+                    label: const Text('Add Arrear / Bonus', style: TextStyle(color: Colors.white)),
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF059669)),
+                    onPressed: _showAddArrearDialog,
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.group_add_outlined, size: 16),
+                    label: const Text('Bulk Bonus Payout'),
+                    onPressed: _showBulkBonusDialog,
+                  ),
+                ],
               ),
             ],
           ),
@@ -1533,6 +1554,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
               headingRowColor: WidgetStateProperty.all(const Color(0xFFF9FAFB)),
               columns: const [
                 DataColumn(label: Text('Employee', style: TextStyle(fontWeight: FontWeight.bold))),
+                DataColumn(label: Text('Type', style: TextStyle(fontWeight: FontWeight.bold))),
                 DataColumn(label: Text('Amount', style: TextStyle(fontWeight: FontWeight.bold))),
                 DataColumn(label: Text('Reason', style: TextStyle(fontWeight: FontWeight.bold))),
                 DataColumn(label: Text('Payout Month', style: TextStyle(fontWeight: FontWeight.bold))),
@@ -1541,13 +1563,30 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
               rows: _bonuses.map((bon) {
                 final emp = bon['employee'] ?? {};
                 final name = emp['full_name']?.toString() ?? '—';
+                final itemType = bon['type']?.toString() ?? bon['bonus_type']?.toString() ?? 'Bonus';
                 final amt = double.tryParse(bon['amount']?.toString() ?? '0') ?? 0;
-                final reason = bon['reason']?.toString() ?? 'Diwali Bonus';
+                final reason = bon['reason']?.toString() ?? '—';
                 final month = bon['payment_month']?.toString() ?? '—';
                 final status = bon['status']?.toString() ?? 'Pending';
 
                 return DataRow(cells: [
                   DataCell(Text(name, style: const TextStyle(fontWeight: FontWeight.w600))),
+                  DataCell(Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: itemType == 'Arrear' ? const Color(0xFFEFF6FF) : const Color(0xFFECFDF5),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: itemType == 'Arrear' ? const Color(0xFF93C5FD) : const Color(0xFFA7F3D0)),
+                    ),
+                    child: Text(
+                      itemType,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: itemType == 'Arrear' ? const Color(0xFF1D4ED8) : const Color(0xFF047857),
+                      ),
+                    ),
+                  )),
                   DataCell(Text(CurrencyService.format(amt), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF059669)))),
                   DataCell(Text(reason)),
                   DataCell(Text(month)),
@@ -2617,8 +2656,8 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
       List<Map<String, dynamic>> raw = [];
       if (_selectedReportIndex == 0) {
         // Salary Revision Report
-        final res = await ApiClient.get('/api/hrms/payroll/approvals');
-        raw = List<Map<String, dynamic>>.from(res['data']?['revisions'] ?? []);
+        final res = await ApiClient.get('/api/hrms/payroll/revisions');
+        raw = List<Map<String, dynamic>>.from(res['data'] ?? []);
       } else if (_selectedReportIndex == 1) {
         // Advance / Loan Report
         final res = await ApiClient.get('/api/hrms/loans');
@@ -2629,12 +2668,12 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
         raw = List<Map<String, dynamic>>.from(res['data'] ?? []);
       } else if (_selectedReportIndex == 3) {
         // Leave Report
-        final res = await ApiClient.get('/api/hrms/payroll/approvals');
-        raw = List<Map<String, dynamic>>.from(res['data']?['leaves'] ?? []);
+        final res = await ApiClient.get(ApiEndpoints.hrmsLeaves);
+        raw = List<Map<String, dynamic>>.from(res['data'] ?? []);
       } else if (_selectedReportIndex == 4) {
         // Bonus & Arrears Report
-        final res = await ApiClient.get('/api/hrms/payroll/approvals');
-        raw = List<Map<String, dynamic>>.from(res['data']?['bonuses'] ?? []);
+        final res = await ApiClient.get('/api/hrms/payroll/bonuses');
+        raw = List<Map<String, dynamic>>.from(res['data'] ?? []);
       }
       setState(() {
         _reportData = raw;
@@ -3711,6 +3750,229 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
             ],
           );
         },
+      ),
+    );
+  }
+
+  void _showAddArrearDialog() async {
+    if (_employeesList.isEmpty) {
+      try {
+        final res = await ApiClient.get(ApiEndpoints.hrmsEmployees);
+        if (res['success'] == true && res['data'] != null) {
+          _employeesList = List<Map<String, dynamic>>.from(res['data'] ?? []);
+        }
+      } catch (_) {}
+    }
+
+    int? selectedEmpId;
+    if (_previewData.isNotEmpty) {
+      selectedEmpId = _previewData.first['employee_id'] as int?;
+    } else if (_employeesList.isNotEmpty) {
+      selectedEmpId = _employeesList.first['id'] as int?;
+    }
+
+    final amountCtrl = TextEditingController();
+    final reasonCtrl = TextEditingController();
+    String itemType = 'Arrear';
+    String paymentMode = 'Payroll';
+    String paymentMethod = 'Bank Transfer';
+    final period = DateFormat('yyyy-MM').format(_currentMonth);
+
+    showDialog(
+      context: context,
+      builder: (dctx) => StatefulBuilder(
+        builder: (ctx, setDState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: const [
+              Icon(Icons.monetization_on_outlined, color: Color(0xFF059669)),
+              SizedBox(width: 8),
+              Text('Add Arrear / Bonus Payout', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: SizedBox(
+              width: 440,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Select Employee *', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                  const SizedBox(height: 4),
+                  DropdownButtonFormField<int>(
+                    value: selectedEmpId,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    items: (_employeesList.isNotEmpty ? _employeesList : _previewData).map((e) {
+                      final id = (e['id'] ?? e['employee_id']) as int;
+                      final name = e['full_name'] ?? e['employee_name'] ?? 'Employee';
+                      final code = e['employee_code'] ?? '';
+                      return DropdownMenuItem<int>(
+                        value: id,
+                        child: Text('$name ($code)', overflow: TextOverflow.ellipsis),
+                      );
+                    }).toList(),
+                    onChanged: (val) => setDState(() => selectedEmpId = val),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Adjustment Type *', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: RadioListTile<String>(
+                          title: const Text('Arrear', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                          value: 'Arrear',
+                          groupValue: itemType,
+                          activeColor: const Color(0xFF059669),
+                          contentPadding: EdgeInsets.zero,
+                          onChanged: (v) => setDState(() => itemType = v!),
+                        ),
+                      ),
+                      Expanded(
+                        child: RadioListTile<String>(
+                          title: const Text('Bonus', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                          value: 'Bonus',
+                          groupValue: itemType,
+                          activeColor: const Color(0xFF059669),
+                          contentPadding: EdgeInsets.zero,
+                          onChanged: (v) => setDState(() => itemType = v!),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text('$itemType Amount (${CurrencyService.symbol}) *', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                  const SizedBox(height: 4),
+                  TextField(
+                    controller: amountCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      prefixText: '${CurrencyService.symbol} ',
+                      hintText: 'e.g. 5000',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Reason / Remarks *', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                  const SizedBox(height: 4),
+                  TextField(
+                    controller: reasonCtrl,
+                    decoration: InputDecoration(
+                      hintText: itemType == 'Arrear' ? 'e.g. Revision difference arrears for prev month' : 'e.g. Performance incentive',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Payout Option', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                  const SizedBox(height: 4),
+                  DropdownButtonFormField<String>(
+                    value: paymentMode,
+                    items: const [
+                      DropdownMenuItem(value: 'Payroll', child: Text('Add to Payroll (Calculated into next Net Pay)')),
+                      DropdownMenuItem(value: 'Instant', child: Text('Pay Instantly (Direct Payout)')),
+                    ],
+                    onChanged: (v) => setDState(() => paymentMode = v!),
+                    decoration: InputDecoration(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                  if (paymentMode == 'Instant') ...[
+                    const SizedBox(height: 12),
+                    const Text('Payment Method', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                    const SizedBox(height: 4),
+                    DropdownButtonFormField<String>(
+                      value: paymentMethod,
+                      items: const [
+                        DropdownMenuItem(value: 'Bank Transfer', child: Text('Bank Transfer')),
+                        DropdownMenuItem(value: 'Cash', child: Text('Cash')),
+                        DropdownMenuItem(value: 'Cheque', child: Text('Cheque')),
+                        DropdownMenuItem(value: 'UPI', child: Text('UPI')),
+                      ],
+                      onChanged: (v) => setDState(() => paymentMethod = v!),
+                      decoration: InputDecoration(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel', style: TextStyle(color: Color(0xFF6B7280))),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF059669),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () async {
+                final val = double.tryParse(amountCtrl.text) ?? 0.0;
+                if (selectedEmpId == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Please select an employee')),
+                  );
+                  return;
+                }
+                if (val <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Please enter a valid $itemType amount')),
+                  );
+                  return;
+                }
+                try {
+                  final payload = {
+                    'employee_id': selectedEmpId,
+                    'amount': val,
+                    'type': itemType,
+                    'bonus_type': itemType,
+                    'payment_mode': paymentMode,
+                    'payment_method': paymentMode == 'Instant' ? paymentMethod : null,
+                    'reason': reasonCtrl.text.isEmpty ? '$itemType adjustment' : reasonCtrl.text,
+                    'payment_month': period,
+                  };
+                  final res = await ApiClient.post('/api/hrms/payroll/bonuses', payload);
+                  Navigator.pop(ctx);
+                  if (res['success'] == true) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(res['message'] ?? '$itemType added successfully!'),
+                        backgroundColor: const Color(0xFF059669),
+                      ),
+                    );
+                    _loadTabContent();
+                    if (_tabController.index == 0) {
+                      _fetchPreviewData();
+                    }
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(res['message'] ?? 'Failed to add $itemType'),
+                        backgroundColor: const Color(0xFFDC2626),
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error: $e')),
+                  );
+                }
+              },
+              child: Text('Save $itemType', style: const TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
       ),
     );
   }

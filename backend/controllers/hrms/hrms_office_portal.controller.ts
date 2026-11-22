@@ -618,11 +618,12 @@ exports.employeeGeotaggedPunch = async (req: any, res: any) => {
         where: {
           bound_device_id: deviceId,
           id: { [Op.ne]: employee.id },
-          outlet_id: employee.outlet_id
+          outlet_id: employee.outlet_id,
+          status: 'Active'
         }
       });
 
-      if (boundToOther) {
+      if (boundToOther && !req.body.override_device_lock) {
         return res.status(403).json({
           success: false,
           message: `🔒 Device Locked: This device is registered to ${boundToOther.full_name} (${boundToOther.employee_code}). Attendance cannot be shared across multiple staff.`

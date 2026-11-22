@@ -737,7 +737,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                                         final inDt = DateTime.tryParse(punch['punch_in'].toString())?.toLocal();
                                         final outDt = DateTime.tryParse(punch['punch_out'].toString())?.toLocal();
                                         if (inDt != null && outDt != null) {
-                                          hrs = outDt.difference(inDt).inMinutes / 60.0;
+                                          var diff = outDt.difference(inDt).inMinutes / 60.0;
+                                          if (diff < 0) diff += 24.0;
+                                          hrs = diff;
                                         }
                                       } else {
                                         hrs = double.tryParse(punch['hours_worked']?.toString() ?? '0') ?? 0.0;
@@ -750,7 +752,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                                         final inDt = DateTime.tryParse(punch['punch_in'].toString())?.toLocal();
                                         final outDt = DateTime.tryParse(punch['punch_out'].toString())?.toLocal();
                                         if (inDt != null && outDt != null) {
-                                          hrs = outDt.difference(inDt).inMinutes / 60.0;
+                                          var diff = outDt.difference(inDt).inMinutes / 60.0;
+                                          if (diff < 0) diff += 24.0;
+                                          hrs = diff;
                                         }
                                       } else {
                                         hrs = double.tryParse(punch['hours_worked']?.toString() ?? '0') ?? 0.0;
@@ -777,7 +781,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                                         final inDt = DateTime.tryParse(punch['punch_in'].toString())?.toLocal();
                                         final outDt = DateTime.tryParse(punch['punch_out'].toString())?.toLocal();
                                         if (inDt != null && outDt != null) {
-                                          hrs = outDt.difference(inDt).inMinutes / 60.0;
+                                          var diff = outDt.difference(inDt).inMinutes / 60.0;
+                                          if (diff < 0) diff += 24.0;
+                                          hrs = diff;
                                         }
                                       } else {
                                         hrs = double.tryParse(punch['hours_worked']?.toString() ?? '0') ?? 0.0;
@@ -2032,7 +2038,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                     final day = int.parse(parts[2]);
 
                     final inDt = DateTime(year, month, day, punchInTime!.hour, punchInTime!.minute);
-                    final outDt = DateTime(year, month, day, punchOutTime!.hour, punchOutTime!.minute);
+                    DateTime outDt = DateTime(year, month, day, punchOutTime!.hour, punchOutTime!.minute);
+                    if (outDt.isBefore(inDt)) {
+                      outDt = outDt.add(const Duration(days: 1));
+                    }
 
                     final payload = {
                       'employee_id': employeeId,

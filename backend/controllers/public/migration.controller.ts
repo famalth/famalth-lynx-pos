@@ -11,6 +11,40 @@ import loadConfig from '../../utils/decryptConfig';
 const isCompiled = typeof (process as any).pkg !== 'undefined';
 const rootDir = isCompiled ? path.dirname(process.execPath) : process.cwd();
 
+const { sendOtpEmail } = require('../../modules/emailService');
+const MIGRATION_OTP_FILE = path.join(rootDir, "data", "migration_otp_store.json");
+
+function readMigrationOtpStore(): Record<string, any> {
+    try {
+        if (!fs.existsSync(MIGRATION_OTP_FILE)) {
+            return {};
+        }
+        const raw = fs.readFileSync(MIGRATION_OTP_FILE, "utf8");
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (e: any) {
+        return {};
+    }
+}
+
+function writeMigrationOtpStore(store: any) {
+    try {
+        fs.mkdirSync(path.dirname(MIGRATION_OTP_FILE), { recursive: true });
+        fs.writeFileSync(MIGRATION_OTP_FILE, JSON.stringify(store, null, 2));
+    } catch (e: any) {
+        console.error('[MIGRATION OTP] Failed to write store:', e.message);
+    }
+}
+
+function pruneMigrationOtps(store: any) {
+    const now = Date.now();
+    for (const [key, rec] of Object.entries(store) as any) {
+        if (!rec || !rec.expiresAt || now > rec.expiresAt) {
+            delete store[key];
+        }
+    }
+}
+
 /**
  * 1. Ping Cloud / Local Server to check compatibility
  */
@@ -26,6 +60,180 @@ export const ping = async (req: Request, res: Response) => {
 };
 
 /**
+ * Request a 6-digit Migration Security OTP sent to registered outlet email
+ */
+export const requestMigrationOtp = async (req: Request, res: Response) => {
+    try {
+        const rawOutletCode = String(req.body.outlet_code || '').trim();
+        const scope = String(req.body.scope || '').trim().toUpperCase();
+        const isAllScope = scope === 'ALL' || rawOutletCode.toUpperCase() === 'ALL';
+        const outletCode = isAllScope ? 'ALL' : rawOutletCode.toUpperCase();
+        const db = (req as any).propertyDb;
+
+        if (!db) {
+            return res.status(500).json({ success: false, message: "Database connection not available." });
+        }
+
+        if (!isAllScope && !outletCode) {
+            return res.status(400).json({ success: false, message: "Outlet Code is required to request migration security OTP." });
+        }
+
+        let targetEmail = "";
+        let targetOutletName = "";
+
+        // 1. Look up outlet in property database
+        if (db.models.outlets) {
+            const outletWhere = isAllScope ? {} : { outlet_code: outletCode };
+            const outlet = await db.models.outlets.findOne({ where: outletWhere, raw: true });
+            if (outlet && outlet.contact_email) {
+                targetEmail = outlet.contact_email.trim();
+                targetOutletName = outlet.outlet_name || outlet.outlet_code;
+            }
+        }
+
+        // 2. Fallback to Admin User email
+        if (!targetEmail && db.models.users) {
+            const adminUser = await db.models.users.findOne({
+                where: { role: 'ADMIN' },
+                raw: true
+            });
+            if (adminUser && (adminUser.contact_email || adminUser.email)) {
+                targetEmail = (adminUser.contact_email || adminUser.email).trim();
+            }
+        }
+
+        // 3. Fallback to property_info
+        if (!targetEmail && db.models.property_info) {
+            const propInfo = await db.models.property_info.findOne({ raw: true });
+            if (propInfo && (propInfo.contact_email || propInfo.email)) {
+                targetEmail = (propInfo.contact_email || propInfo.email).trim();
+            }
+        }
+
+        // 4. Fallback to Google Script drive service if configured
+        if (!targetEmail && outletCode && outletCode !== 'ALL') {
+            try {
+                const { sendToGoogleScript } = require("../../modules/driveService");
+                const sysConfig = require('../../utils/configManager');
+                const effectiveConfig = (sysConfig && sysConfig.default) ? sysConfig.default : (sysConfig || {});
+                if (effectiveConfig.sheetId) {
+                    const cloudRes = await sendToGoogleScript({
+                        action: 'verify_and_get_client',
+                        rootFolderId: effectiveConfig.rootFolderId,
+                        sheetId: effectiveConfig.sheetId,
+                        outletCode: outletCode
+                    });
+                    if (cloudRes?.client?.contact_email) {
+                        targetEmail = cloudRes.client.contact_email.trim();
+                    }
+                }
+            } catch (_) {}
+        }
+
+        if (!targetEmail) {
+            return res.status(404).json({
+                success: false,
+                message: `No registered business email address found for outlet '${outletCode}'. Please verify the outlet code.`
+            });
+        }
+
+        const storeKey = isAllScope ? 'ALL' : outletCode;
+        const store = readMigrationOtpStore();
+        pruneMigrationOtps(store);
+
+        // 60-second cooldown check
+        const existing = store[storeKey];
+        if (existing && existing.lastSentAt && (Date.now() - existing.lastSentAt < 60000)) {
+            const remaining = Math.ceil((60000 - (Date.now() - existing.lastSentAt)) / 1000);
+            return res.status(429).json({
+                success: false,
+                message: `Please wait ${remaining} seconds before requesting a new OTP.`
+            });
+        }
+
+        // Generate 6-digit OTP
+        const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+        store[storeKey] = {
+            otp: otpCode,
+            outletCode: storeKey,
+            email: targetEmail,
+            expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes
+            lastSentAt: Date.now()
+        };
+        writeMigrationOtpStore(store);
+
+        // Send Email
+        try {
+            await sendOtpEmail(targetEmail, otpCode, `Store Migration & Cloud Sync Security Verification (${targetOutletName || storeKey})`);
+        } catch (mailErr: any) {
+            console.error('[MIGRATION OTP] Email sending failed:', mailErr.message);
+        }
+
+        // Mask email for privacy display
+        const atIdx = targetEmail.indexOf('@');
+        let maskedEmail = targetEmail;
+        if (atIdx > 2) {
+            const userPart = targetEmail.substring(0, atIdx);
+            const domainPart = targetEmail.substring(atIdx);
+            maskedEmail = `${userPart[0]}***${userPart[userPart.length - 1]}${domainPart}`;
+        } else if (atIdx > 0) {
+            maskedEmail = `*${targetEmail.substring(atIdx)}`;
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: `A 6-digit migration verification OTP has been sent to the registered email (${maskedEmail}).`,
+            masked_email: maskedEmail,
+            expires_in_minutes: 10
+        });
+
+    } catch (error: any) {
+        console.error('[MIGRATION OTP ERROR]:', error);
+        return res.status(500).json({
+            success: false,
+            message: `Failed to generate migration OTP: ${error.message}`
+        });
+    }
+};
+
+/**
+ * Verify 6-digit Migration Security OTP
+ */
+export const verifyMigrationOtp = async (req: Request, res: Response) => {
+    try {
+        const rawOutletCode = String(req.body.outlet_code || '').trim();
+        const scope = String(req.body.scope || '').trim().toUpperCase();
+        const isAllScope = scope === 'ALL' || rawOutletCode.toUpperCase() === 'ALL';
+        const outletCode = isAllScope ? 'ALL' : rawOutletCode.toUpperCase();
+        const otp = String(req.body.otp || '').trim();
+
+        if (!otp) {
+            return res.status(400).json({ success: false, message: "Security OTP is required." });
+        }
+
+        const storeKey = isAllScope ? 'ALL' : outletCode;
+        const store = readMigrationOtpStore();
+        pruneMigrationOtps(store);
+
+        const record = store[storeKey];
+        if (!record || record.otp !== otp || Date.now() > record.expiresAt) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid or expired security OTP. Please request a new code."
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Security OTP verified successfully. Migration authorized."
+        });
+    } catch (error: any) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/**
  * 2. Export store data bundle for cloud / offline migration
  */
 export const exportBundle = async (req: Request, res: Response) => {
@@ -37,6 +245,28 @@ export const exportBundle = async (req: Request, res: Response) => {
 
         if (!db) {
             return res.status(500).json({ success: false, message: "Database connection not available." });
+        }
+
+        // SECURITY GATEWAY: Require verified 6-digit Email OTP or logged-in Admin session
+        const isAuthedAdmin = req.user && (req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN');
+        const reqOtp = String(req.body?.otp || '').trim();
+
+        if (!isAuthedAdmin) {
+            const storeKey = isAllScope ? 'ALL' : String(outletCode || '').toUpperCase();
+            const store = readMigrationOtpStore();
+            pruneMigrationOtps(store);
+            const record = store[storeKey];
+
+            if (!reqOtp || !record || record.otp !== reqOtp || Date.now() > record.expiresAt) {
+                return res.status(401).json({
+                    success: false,
+                    message: "🔒 Security Verification Required: A valid 6-digit OTP sent to the registered store owner email is required to export or migrate data."
+                });
+            }
+
+            // Single-use: consume after verification
+            delete store[storeKey];
+            writeMigrationOtpStore(store);
         }
 
         const stats: Record<string, number> = {};
@@ -60,9 +290,10 @@ export const exportBundle = async (req: Request, res: Response) => {
         let users: any[] = [];
         if (db.models.users) {
             users = await db.models.users.findAll({
-                where: (isAllScope || !outletCode || outletCode === 'ALL') ? {} : { outlet_code: outletCode },
-                attributes: ['id', 'username', 'password', 'role', 'outlet_code', 'outlet_id', 'is_active', 'full_name', 'email', 'mobile', 'pos_pin'],
+                where: outletFilter,
                 raw: true
+            }).catch(async () => {
+                return await db.models.users.findAll({ raw: true });
             });
             stats.users = users.length;
         }
@@ -349,18 +580,20 @@ export const importBundle = async (req: Request, res: Response) => {
                 const userCode = u.username || `admin_${outletCode.toLowerCase()}`;
                 const hashedPassword = admin_password 
                     ? await bcrypt.hash(admin_password, 10) 
-                    : (u.password || await bcrypt.hash("admin@123", 10));
+                    : (u.password_hash || u.password || await bcrypt.hash("admin@123", 10));
 
                 let userRec = await db.models.users.findOne({ where: { username: userCode } });
                 if (!userRec) {
                     userRec = await db.models.users.create({
                         username: userCode,
-                        password: hashedPassword,
+                        password_hash: hashedPassword,
                         role: u.role || 'ADMIN',
-                        outlet_code: outletCode,
                         outlet_id: targetOutletId,
-                        is_active: true,
-                        full_name: u.full_name || 'Outlet Administrator'
+                        is_active: u.is_active !== undefined ? u.is_active : true,
+                        full_name: u.full_name || 'Outlet Administrator',
+                        pin_code: u.pin_code || u.pos_pin || null,
+                        mobile: u.mobile || null,
+                        contact_email: u.contact_email || u.email || null,
                     });
                 }
 
@@ -885,7 +1118,7 @@ export const importBundle = async (req: Request, res: Response) => {
  */
 export const syncOnlineToOffline = async (req: Request, res: Response) => {
     try {
-        const { cloud_url, outlet_code, admin_password, scope } = req.body;
+        const { cloud_url, outlet_code, admin_password, scope, otp } = req.body;
 
         if (!cloud_url) {
             return res.status(400).json({ success: false, message: "Cloud URL is required." });
@@ -910,7 +1143,7 @@ export const syncOnlineToOffline = async (req: Request, res: Response) => {
             const fetchRes = await fetch(`${cleanCloudUrl}/api/public/migration/export-bundle`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ outlet_code, scope: effectiveScope }),
+                body: JSON.stringify({ outlet_code, scope: effectiveScope, otp }),
                 signal: abortCtrl.signal
             });
             cloudExportRes = await fetchRes.json();
@@ -971,6 +1204,8 @@ export const syncOnlineToOffline = async (req: Request, res: Response) => {
 
 module.exports = {
     ping,
+    requestMigrationOtp,
+    verifyMigrationOtp,
     exportBundle,
     importBundle,
     syncOnlineToOffline
@@ -978,6 +1213,8 @@ module.exports = {
 
 export default {
     ping,
+    requestMigrationOtp,
+    verifyMigrationOtp,
     exportBundle,
     importBundle,
     syncOnlineToOffline

@@ -869,7 +869,10 @@ class ModuleCapability {
             labelUpper == 'STORE SETUP CHECKLIST & GUIDE' ||
             labelUpper == 'OUTLET DETAIL MODIFICATION' ||
             labelUpper == 'MASTER & CHILD OUTLETS SETUP' ||
-            labelUpper == 'SETTINGS') {
+            labelUpper == 'SETTINGS' ||
+            catUpper == 'DATA MIGRATION' ||
+            catUpper == 'MIGRATION' ||
+            labelUpper.contains('MIGRATION')) {
           return true;
         }
 

@@ -72,6 +72,8 @@ router.put('/settings/tax-groups/:id', taxGroupCtrl.updateTaxGroup);
 const migrationCtrl = require('../controllers/public/migration.controller');
 router.get('/migration/ping', migrationCtrl.ping);
 router.post('/migration/ping', migrationCtrl.ping);
+router.post('/migration/request-otp', migrationCtrl.requestMigrationOtp);
+router.post('/migration/verify-otp', migrationCtrl.verifyMigrationOtp);
 router.post('/migration/export-bundle', migrationCtrl.exportBundle);
 router.post('/migration/import-bundle', migrationCtrl.importBundle);
 router.post('/migration/sync-online-to-offline', migrationCtrl.syncOnlineToOffline);

@@ -426,6 +426,18 @@ exports.terminateEmployee = async (req, res) => {
         return res.status(500).json({ success: false, message: err.message });
     }
 };
+exports.unbindEmployeeDevice = async (req, res) => {
+    try {
+        const { hr_employees } = req.propertyDb.models;
+        const { id } = req.params;
+        const emp = await hr_employees.findByPk(id);
+        if (!emp) return res.status(404).json({ success: false, message: 'Employee not found' });
+        await emp.update({ bound_device_id: null, bound_device_info: null });
+        return res.json({ success: true, message: `Device binding for ${emp.full_name} has been reset successfully. Staff may now bind a new phone.` });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
 // ==================== ATTENDANCE ====================
 async function recalculateLeaveBalances(employeeId, outletId, propertyDb) {
     try {
@@ -710,7 +722,13 @@ exports.manualAttendance = async (req, res) => {
             computedHours = parseFloat(hours_worked);
         }
         else if (punch_in && punch_out) {
-            computedHours = parseFloat((moment(punch_out).diff(moment(punch_in), 'minutes') / 60).toFixed(2));
+            let diffMins = moment(punch_out).diff(moment(punch_in), 'minutes');
+            if (diffMins < 0) diffMins += 1440;
+            computedHours = parseFloat((diffMins / 60).toFixed(2));
+        }
+        let finalPunchOut = punch_out || null;
+        if (punch_in && punch_out && moment(punch_out).isBefore(moment(punch_in))) {
+            finalPunchOut = moment(punch_out).add(1, 'day').toISOString();
         }
         let punch = await hr_attendance_punches.findOne({
             where: {
@@ -721,7 +739,7 @@ exports.manualAttendance = async (req, res) => {
         });
         if (punch) {
             punch.punch_in = punch_in || null;
-            punch.punch_out = punch_out || null;
+            punch.punch_out = finalPunchOut;
             punch.status = status || 'Present';
             punch.hours_worked = computedHours;
             punch.overtime_hours = parseFloat(overtime_hours || 0.0);
@@ -741,7 +759,7 @@ exports.manualAttendance = async (req, res) => {
                 employee_id,
                 punch_date,
                 punch_in: punch_in || null,
-                punch_out: punch_out || null,
+                punch_out: finalPunchOut,
                 status: status || 'Present',
                 hours_worked: computedHours,
                 overtime_hours: parseFloat(overtime_hours || 0.0),
@@ -766,8 +784,8 @@ exports.getLeaves = async (req, res) => {
         const { hr_leave_applications, hr_employees, hr_leave_types, hr_offices } = req.propertyDb.models;
         const { employee_id, status, office_id } = req.query;
         const where = {};
-        if (req.user && req.user.outlet_id) {
-            where.outlet_id = req.user.outlet_id;
+        if (req.user && req.user.outlet_id && req.user.role !== 'Admin' && req.user.role !== 'Superadmin') {
+            where[Op.or] = [{ outlet_id: req.user.outlet_id }, { outlet_id: null }, { outlet_id: 0 }];
         }
         if (employee_id)
             where.employee_id = employee_id;
@@ -1251,11 +1269,21 @@ exports.previewPayroll = async (req, res) => {
             }
             let loan_deduction = 0;
             if (!salaryOverrideZero) {
+                const loanOutletFilter = (req.user && req.user.outlet_id && req.user.role !== 'Admin' && req.user.role !== 'Superadmin')
+                    ? { [Op.or]: [{ outlet_id: req.user.outlet_id }, { outlet_id: null }, { outlet_id: 0 }] }
+                    : {};
                 const loans = await hr_loans.findAll({
-                    where: { employee_id: emp.id, status: 'Active', remaining_balance: { [Op.gt]: 0 }, outlet_id: req.user.outlet_id }
+                    where: {
+                        employee_id: emp.id,
+                        status: { [Op.in]: ['Active', 'Approved', 'Disbursed', 'In Repayment', 'Paid'] },
+                        remaining_balance: { [Op.gt]: 0 },
+                        ...loanOutletFilter
+                    }
                 });
                 loans.forEach(loan => {
-                    loan_deduction += Math.min(parseFloat(loan.monthly_emi), parseFloat(loan.remaining_balance));
+                    const emi = parseFloat(loan.monthly_emi || 0);
+                    const bal = parseFloat(loan.remaining_balance || loan.loan_amount || 0);
+                    loan_deduction += Math.min(emi > 0 ? emi : bal, bal);
                 });
             }
             let penalties = 0;
@@ -1519,11 +1547,21 @@ exports.runPayroll = async (req, res) => {
                 });
             }
             if (d.loan_deduction > 0) {
+                const loanOutletFilter = (req.user && req.user.outlet_id && req.user.role !== 'Admin' && req.user.role !== 'Superadmin')
+                    ? { [Op.or]: [{ outlet_id: req.user.outlet_id }, { outlet_id: null }, { outlet_id: 0 }] }
+                    : {};
                 const loans = await hr_loans.findAll({
-                    where: { employee_id: d.employee_id, status: 'Active', remaining_balance: { [Op.gt]: 0 }, outlet_id: req.user.outlet_id }
+                    where: {
+                        employee_id: d.employee_id,
+                        status: { [Op.in]: ['Active', 'Approved', 'Disbursed', 'In Repayment', 'Paid'] },
+                        remaining_balance: { [Op.gt]: 0 },
+                        ...loanOutletFilter
+                    }
                 });
                 for (const loan of loans) {
-                    const deduction = Math.min(parseFloat(loan.monthly_emi), parseFloat(loan.remaining_balance));
+                    const emi = parseFloat(loan.monthly_emi || 0);
+                    const bal = parseFloat(loan.remaining_balance || loan.loan_amount || 0);
+                    const deduction = Math.min(emi > 0 ? emi : bal, bal);
                     if (deduction > 0) {
                         const tx = await hr_loan_transactions.create({
                             loan_id: loan.id, transaction_date: new Date(),
@@ -2344,6 +2382,37 @@ exports.bulkRevise = async (req, res) => {
         return res.status(500).json({ success: false, message: err.message });
     }
 };
+exports.createBonusOrArrear = async (req, res) => {
+    try {
+        const { hr_arrears, hr_employees } = req.propertyDb.models;
+        const { employee_id, amount, reason, payment_month, type, payment_mode, payment_method } = req.body;
+        if (!employee_id) return res.status(400).json({ success: false, message: 'Employee is required' });
+        const amt = parseFloat(amount || 0);
+        if (isNaN(amt) || amt <= 0) return res.status(400).json({ success: false, message: 'Valid amount is required' });
+
+        const emp = await hr_employees.findByPk(employee_id);
+        if (!emp) return res.status(404).json({ success: false, message: 'Employee not found' });
+
+        const month = payment_month || moment().format('YYYY-MM');
+        const isInstant = payment_mode === 'Instant';
+        const status = isInstant ? 'Paid' : 'Pending Approval';
+
+        const arrear = await hr_arrears.create({
+            outlet_id: req.user?.outlet_id || emp.outlet_id || 1,
+            employee_id: parseInt(employee_id),
+            amount: amt,
+            payment_month: month,
+            reason: `${type || 'Arrear'} - ${reason || 'Salary Adjustment'}${isInstant ? ' (Instant)' : ''}`,
+            status,
+            created_by: req.user?.id || 1
+        });
+
+        return res.json({ success: true, data: arrear, message: `${type || 'Arrear/Bonus'} of ₹${amt.toFixed(2)} recorded successfully.` });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
 exports.bulkBonus = async (req, res) => {
     const transaction = await req.propertyDb.transaction();
     try {
@@ -2444,8 +2513,11 @@ exports.bulkBonus = async (req, res) => {
 exports.getRevisions = async (req, res) => {
     try {
         const { hr_salary_revisions, hr_employees } = req.propertyDb.models;
+        const outletWhere = (req.user && req.user.outlet_id && req.user.role !== 'Admin' && req.user.role !== 'Superadmin')
+            ? { [Op.or]: [{ outlet_id: req.user.outlet_id }, { outlet_id: null }, { outlet_id: 0 }] }
+            : {};
         const data = await hr_salary_revisions.findAll({
-            where: { outlet_id: req.user.outlet_id },
+            where: outletWhere,
             include: [{ model: hr_employees, as: 'employee', attributes: ['id', 'full_name', 'employee_code', 'office_id'] }],
             order: [['id', 'DESC']]
         });
@@ -2458,8 +2530,11 @@ exports.getRevisions = async (req, res) => {
 exports.getBonuses = async (req, res) => {
     try {
         const { hr_arrears, hr_employees } = req.propertyDb.models;
+        const outletWhere = (req.user && req.user.outlet_id && req.user.role !== 'Admin' && req.user.role !== 'Superadmin')
+            ? { [Op.or]: [{ outlet_id: req.user.outlet_id }, { outlet_id: null }, { outlet_id: 0 }] }
+            : {};
         const data = await hr_arrears.findAll({
-            where: { outlet_id: req.user.outlet_id },
+            where: outletWhere,
             include: [{ model: hr_employees, as: 'employee', attributes: ['id', 'full_name', 'employee_code', 'office_id'] }],
             order: [['id', 'DESC']]
         });

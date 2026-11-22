@@ -64,7 +64,7 @@ const TRANSACTION_TABLES = [
     'milk_subscription_schemes',
     'milk_subscriptions',
 
-    // HRMS tables (dependent children first)
+    // HRMS Transactional tables (dependent children first; Master tables like hr_employees are PROTECTED)
     'hr_loan_transactions',
     'hr_loans',
     'hr_sales_commissions',
@@ -76,14 +76,7 @@ const TRANSACTION_TABLES = [
     'hr_attendance_punches',
     'hr_leave_balances',
     'hr_leave_applications',
-    'hr_employees',
-    'hr_pay_structure_components',
-    'hr_pay_structures',
-    'hr_salary_components',
-    'hr_leave_types',
-    'hr_shifts',
-    'hr_designations',
-    'hr_holidays',
+    'hr_penalties',
 
     // 11. Sales & Customer Advances tables
     'sales_items',
@@ -115,6 +108,18 @@ const TRANSACTION_TABLES = [
 
 const PROTECTED_TABLES = new Set([
     'schema_version',
+    'hr_employees',
+    'hr_designations',
+    'hr_shifts',
+    'hr_leave_types',
+    'hr_pay_structures',
+    'hr_pay_structure_components',
+    'hr_salary_components',
+    'hr_holidays',
+    'hr_offices',
+    'outlets',
+    'users',
+    'property_info',
 ]);
 
 const WIPE_TABLES = [...new Set(TRANSACTION_TABLES)].filter(
@@ -509,6 +514,17 @@ exports.clearTransactionData = async (req, res) => {
             recipientEmail: recipientEmail || undefined,
             req,
         });
+
+        try {
+            // Also release any locked hardware device bindings on employees so new punches work cleanly
+            const { hr_employees } = req.propertyDb.models;
+            if (hr_employees) {
+                await hr_employees.update(
+                    { bound_device_id: null, bound_device_info: null },
+                    { where: { outlet_id: outletId } }
+                );
+            }
+        } catch (_) {}
 
         try {
             await audit.log(req, 'CLEAR_TRANSACTION_DATA', {
