@@ -382,8 +382,8 @@ class _ServerConfigScreenState extends State<ServerConfigScreen>
       }
 
       if (outletCode.isEmpty) {
-        // No outlet code entered -> New user registration flow
-        await AppConfig.saveConfig(finalUrl, []);
+        // No outlet code entered -> Keep existing linked outlets if present
+        await AppConfig.saveConfig(finalUrl, AppConfig.outlets);
         if (!mounted) return;
         Navigator.pushAndRemoveUntil(
           context,
@@ -403,8 +403,15 @@ class _ServerConfigScreenState extends State<ServerConfigScreen>
       );
 
       if (res['success'] == true && res['exists'] == true) {
-        // Outlet exists -> Save configuration and proceed to Login / Splash
-        await AppConfig.saveConfig(finalUrl, [outletCode]);
+        // Outlet exists -> Preserve existing outlets and promote active outlet to top
+        final currentOutlets = List<String>.from(AppConfig.outlets);
+        if (!currentOutlets.contains(outletCode)) {
+          currentOutlets.insert(0, outletCode);
+        } else {
+          currentOutlets.remove(outletCode);
+          currentOutlets.insert(0, outletCode);
+        }
+        await AppConfig.saveConfig(finalUrl, currentOutlets);
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -430,7 +437,7 @@ class _ServerConfigScreenState extends State<ServerConfigScreen>
             backgroundColor: Colors.orange,
           ),
         );
-        await AppConfig.saveConfig(finalUrl, []);
+        await AppConfig.saveConfig(finalUrl, AppConfig.outlets);
         if (!mounted) return;
         Navigator.pushAndRemoveUntil(
           context,

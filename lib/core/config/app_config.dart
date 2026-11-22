@@ -99,19 +99,29 @@ class AppConfig {
         cleanUrl = cleanUrl.substring(0, cleanUrl.length - 1);
       }
 
+      // Preserve unique non-empty outlets in order
+      final seen = <String>{};
+      final cleanOutlets = <String>[];
+      for (final o in newOutlets) {
+        final trimmed = o.trim();
+        if (trimmed.isNotEmpty && seen.add(trimmed)) {
+          cleanOutlets.add(trimmed);
+        }
+      }
+
       baseUrl = cleanUrl;
-      outlets = newOutlets;
+      outlets = cleanOutlets;
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('server_base_url', cleanUrl);
 
       if (kIsWeb) {
-        await prefs.setStringList('web_linked_outlets', newOutlets);
+        await prefs.setStringList('web_linked_outlets', cleanOutlets);
         return;
       }
 
       final file = File(_configPath);
-      await file.writeAsString(jsonEncode({'baseUrl': cleanUrl, 'outlets': newOutlets}));
+      await file.writeAsString(jsonEncode({'baseUrl': cleanUrl, 'outlets': cleanOutlets}));
 
       // If running on a local workstation (not a remote/cloud server), also keep server_port.txt synchronized
       if (isLocalServer) {

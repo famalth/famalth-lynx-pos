@@ -222,7 +222,25 @@ class CloudMigrationService {
       cleanUrl = cleanUrl.substring(0, cleanUrl.length - 1);
     }
 
-    await AppConfig.saveConfig(cleanUrl, [outletCode]);
+    // Ensure config is fresh from disk before mutating
+    await AppConfig.loadConfig();
+
+    // Preserve all existing outlets. Never unlink or drop other linked outlets!
+    final currentOutlets = List<String>.from(AppConfig.outlets);
+    if (outletCode.isNotEmpty) {
+      if (!currentOutlets.contains(outletCode)) {
+        currentOutlets.insert(0, outletCode);
+      } else {
+        // Bring newly switched outlet to the top of the list
+        currentOutlets.remove(outletCode);
+        currentOutlets.insert(0, outletCode);
+      }
+    }
+
+    await AppConfig.saveConfig(
+      cleanUrl,
+      currentOutlets.isNotEmpty ? currentOutlets : (outletCode.isNotEmpty ? [outletCode] : []),
+    );
 
     if (token != null && token.isNotEmpty) {
       await TokenStorage.save(token);
