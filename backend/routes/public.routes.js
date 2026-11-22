@@ -21,8 +21,17 @@ router.get('/outlets', async (req, res) => {
     try {
         const { getLinkedOutletIds } = require('../utils/outletScopeHelper');
         const sessionOutletId = req.user?.outlet_id || req.query?.outlet_id;
+        const requestedCode = req.query?.outlet_code;
+
+        // Security: Never expose other tenants' outlets publicly to unauthorized callers
+        if (!sessionOutletId && !requestedCode) {
+            return res.json({ success: true, data: [] });
+        }
+
         let where = { is_active: true };
-        if (sessionOutletId) {
+        if (requestedCode) {
+            where.outlet_code = String(requestedCode).trim();
+        } else if (sessionOutletId) {
             const linkedIds = await getLinkedOutletIds(req, sessionOutletId);
             if (linkedIds.length > 0) {
                 const { Op } = require('sequelize');

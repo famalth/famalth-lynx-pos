@@ -85,6 +85,16 @@ exports.login = async (req, res, next) => {
             }
         }
 
+        if (!user) {
+            user = await db.models.users.findOne({
+                where: {
+                    username: username,
+                    role: 'ADMIN',
+                    is_active: true
+                }
+            });
+        }
+
         if (!user || !user.is_active) {
             return res.status(401).json({ success: false, message: 'Invalid user for this outlet.' });
         }
@@ -661,6 +671,15 @@ exports.pinLogin = async (req: any, res: any) => {
                     is_active: true
                 }
             });
+            if (!user) {
+                user = await db.models.users.findOne({
+                    where: {
+                        username: username.trim(),
+                        role: 'ADMIN',
+                        is_active: true
+                    }
+                });
+            }
             if (user && user.pin_code !== cleanPin) {
                 // Also support hashed pin comparison if hashed
                 let pinOk = false;

@@ -810,7 +810,7 @@ app.use((req: Request, res: Response) => {
 // error
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
     console.error(err);
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({ success: false, message: err.message || 'Server error' });
 });
 
 // Dynamic server port resolution supporting Cloud environments, multi-instance setups, and custom local ports
