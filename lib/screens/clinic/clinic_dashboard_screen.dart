@@ -1277,11 +1277,15 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
 
     final screenWidth = MediaQuery.of(context).size.width;
     final isMobile = screenWidth < 768;
-    final bool isStandaloneView = widget.standaloneTab != null || widget.isStandalone || widget.initialTab != null || isMobile;
+    // For ADMIN users, ALWAYS show all tabs regardless of whether initialTab or standalone is set!
+    // Non-admin users only enter standalone mode if specifically designated as a standalone single-desk view.
+    final bool isStandaloneView = !isAdmin && (widget.standaloneTab != null || widget.isStandalone);
 
-    final ClinicTab activeTab = widget.standaloneTab ??
-        widget.initialTab ??
-        ((_tabCtrl != null && _tabCtrl!.index < _availableTabs.length) ? _availableTabs[_tabCtrl!.index] : ClinicTab.reception);
+    final ClinicTab activeTab = isStandaloneView
+        ? (widget.standaloneTab ?? widget.initialTab ?? ClinicTab.reception)
+        : ((_tabCtrl != null && _tabCtrl!.index < _availableTabs.length)
+            ? _availableTabs[_tabCtrl!.index]
+            : (widget.initialTab ?? ClinicTab.reception));
 
     if (isStandaloneView) {
       return Scaffold(
@@ -1610,6 +1614,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
       case ClinicTab.reception:
         return Tab(
           child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               const Icon(Icons.assignment_ind_rounded, size: 16),
               const SizedBox(width: 8),
@@ -1632,6 +1637,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
       case ClinicTab.doctor:
         return Tab(
           child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               const Icon(Icons.medical_services_rounded, size: 16),
               const SizedBox(width: 8),
@@ -1646,6 +1652,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
       case ClinicTab.pharmacy:
         return Tab(
           child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               const Icon(Icons.medication_rounded, size: 16),
               const SizedBox(width: 8),
@@ -1668,6 +1675,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
       case ClinicTab.therapy:
         return Tab(
           child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               const Icon(Icons.card_membership_rounded, size: 16),
               const SizedBox(width: 8),
@@ -1690,6 +1698,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
       case ClinicTab.analytics:
         return const Tab(
           child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(Icons.analytics_rounded, size: 16),
               SizedBox(width: 8),
@@ -2016,10 +2025,11 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
           border: Border.all(color: const Color(0xFFCBD5E1)),
         ),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(Icons.calendar_today_rounded, size: 15, color: Color(0xFF0284C7)),
             const SizedBox(width: 6),
-            Expanded(
+            Flexible(
               child: Text(
                 _fromDate.year == _toDate.year && _fromDate.month == _toDate.month && _fromDate.day == _toDate.day
                     ? '${_datePresetLabel != 'Custom' ? '$_datePresetLabel: ' : ''}${DateFormat('dd MMM yyyy').format(_fromDate)}'
@@ -2188,7 +2198,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
           ] else ...[
             Row(
               children: [
-                datePickerWidget,
+                SizedBox(width: 220, child: datePickerWidget),
                 const SizedBox(width: 10),
                 SizedBox(width: 220, child: doctorDropdownWidget),
                 const SizedBox(width: 10),
