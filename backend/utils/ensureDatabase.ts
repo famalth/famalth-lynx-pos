@@ -46,6 +46,8 @@ export async function ensureDatabase(): Promise<void> {
 
             await sequelize.authenticate();
             console.log(`✅ Connected to PostgreSQL on ${host}:${port}`);
+            process.env.DB_PORT = String(port);
+            config.db_port = port;
             connected = true;
             break;
         } catch (err: any) {

@@ -125,7 +125,14 @@ exports.getOffices = async (req, res) => {
     const outlet_id = req.user ? req.user.outlet_id : (req.outlet_id || 1);
 
     const offices = await hr_offices.findAll({
-      where: { outlet_id, is_active: true },
+      where: {
+        [Op.or]: [
+          { outlet_id },
+          { outlet_id: 1 },
+          { outlet_id: null }
+        ],
+        is_active: true
+      },
       order: [['id', 'ASC']]
     });
 
@@ -1231,7 +1238,14 @@ exports.getHrmsDashboardOverview = async (req, res) => {
 
     // 1. Fetch all active offices for the dropdown filter
     const offices = await hr_offices.findAll({
-      where: { outlet_id, is_active: true },
+      where: {
+        [Op.or]: [
+          { outlet_id },
+          { outlet_id: 1 },
+          { outlet_id: null }
+        ],
+        is_active: true
+      },
       order: [['id', 'ASC']]
     });
 

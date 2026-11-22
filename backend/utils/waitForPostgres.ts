@@ -42,6 +42,8 @@ export async function waitForPostgres(): Promise<boolean> {
                 await sequelize.close();
 
                 console.log(`✅ PostgreSQL ready on ${host}:${port}`);
+                process.env.DB_PORT = String(port);
+                config.db_port = port;
                 return true;
             } catch (err: any) {
                 console.log(`❌ Failed on port ${port}:`, err.message);

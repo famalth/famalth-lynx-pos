@@ -327,21 +327,58 @@ function hasOutletIdCondition(where) {
     }
     return false;
 }
-function applyOutletFilter(options, outletId) {
+const SHARED_MASTER_TABLES = new Set([
+    'hr_designations',
+    'hr_shifts',
+    'hr_leave_types',
+    'hr_salary_components',
+    'hr_pay_structures',
+    'hr_pay_structure_components',
+    'hr_offices'
+]);
+function applyOutletFilter(options, outletId, isInclude = false) {
     if (!options)
         return;
     if (options.bypassOutletFilter)
         return;
-    if (options.model && options.model.rawAttributes && options.model.rawAttributes.outlet_id) {
+    const rawModel = options.model;
+    const modelName = ((rawModel?.name || rawModel?.tableName || '')).toLowerCase();
+    const isSharedMaster = SHARED_MASTER_TABLES.has(modelName);
+    if (isInclude && isSharedMaster) {
+        return;
+    }
+    if (rawModel && rawModel.rawAttributes && rawModel.rawAttributes.outlet_id) {
         if (!hasOutletIdCondition(options.where)) {
-            if (!options.where) {
-                options.where = { outlet_id: outletId };
+            if (isSharedMaster) {
+                const sharedWhere = {
+                    [sequelize_1.Op.or]: [
+                        { outlet_id: outletId },
+                        { outlet_id: 1 },
+                        { outlet_id: null }
+                    ]
+                };
+                if (!options.where) {
+                    options.where = sharedWhere;
+                }
+                else if (Array.isArray(options.where)) {
+                    options.where.push(sharedWhere);
+                }
+                else if (typeof options.where === 'object') {
+                    options.where = {
+                        [sequelize_1.Op.and]: [options.where, sharedWhere]
+                    };
+                }
             }
-            else if (Array.isArray(options.where)) {
-                options.where.push({ outlet_id: outletId });
-            }
-            else if (typeof options.where === 'object') {
-                options.where.outlet_id = outletId;
+            else {
+                if (!options.where) {
+                    options.where = { outlet_id: outletId };
+                }
+                else if (Array.isArray(options.where)) {
+                    options.where.push({ outlet_id: outletId });
+                }
+                else if (typeof options.where === 'object') {
+                    options.where.outlet_id = outletId;
+                }
             }
         }
     }
@@ -349,7 +386,7 @@ function applyOutletFilter(options, outletId) {
         const includes = Array.isArray(options.include) ? options.include : [options.include];
         includes.forEach(inc => {
             if (typeof inc === 'object') {
-                applyOutletFilter(inc, outletId);
+                applyOutletFilter(inc, outletId, true);
             }
         });
     }

@@ -52,6 +52,12 @@ const rootDir = (process as any).pkg ? path.dirname(process.execPath) : process.
 dotenv.config({
     path: path.join(rootDir, '.env')
 });
+if (fs.existsSync(path.join(rootDir, 'backend', '.env'))) {
+    dotenv.config({ path: path.join(rootDir, 'backend', '.env'), override: true });
+}
+if (fs.existsSync(path.join(__dirname, '.env'))) {
+    dotenv.config({ path: path.join(__dirname, '.env'), override: true });
+}
 
 import { securityHeadersMiddleware } from './middlewares/security.middleware';
 import { requestIdMiddleware } from './middlewares/requestId.middleware';

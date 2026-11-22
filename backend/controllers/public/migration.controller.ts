@@ -613,10 +613,35 @@ export const exportBundle = async (req: Request, res: Response) => {
                 const cols = tableColsMap.get(tName) || new Set();
                 try {
                     if (cols.has('outlet_id')) {
-                        const rows = await db.query(`SELECT * FROM "${tName}" WHERE "outlet_id" = $1`, {
+                        let rows = await db.query(`SELECT * FROM "${tName}" WHERE "outlet_id" = $1`, {
                             bind: [outletId],
                             type: QueryTypes.SELECT
                         });
+
+                        // Essential HR & Organization Masters: include organization baseline masters so employees never lose their designations, shifts, pay structures, etc.
+                        const sharedMasterTables = [
+                            'hr_designations',
+                            'hr_shifts',
+                            'hr_leave_types',
+                            'hr_salary_components',
+                            'hr_pay_structures',
+                            'hr_offices'
+                        ];
+                        if (sharedMasterTables.includes(tName)) {
+                            try {
+                                const sharedRows = await db.query(
+                                    `SELECT * FROM "${tName}" WHERE "outlet_id" = 1 OR "outlet_id" IS NULL ORDER BY id ASC`,
+                                    { type: QueryTypes.SELECT }
+                                );
+                                const existingIds = new Set(rows.map((r: any) => r.id));
+                                for (const sr of sharedRows) {
+                                    if (!existingIds.has(sr.id)) {
+                                        rows.push(sr);
+                                        existingIds.add(sr.id);
+                                    }
+                                }
+                            } catch (_) {}
+                        }
                         tablesData[tName] = rows;
                     } else if (cols.has('outlet_code')) {
                         const rows = await db.query(`SELECT * FROM "${tName}" WHERE "outlet_code" = $1`, {

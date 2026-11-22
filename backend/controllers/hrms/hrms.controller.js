@@ -25,7 +25,17 @@ function evalFormula(formula, baseSalary, basic) {
 exports.getSalaryComponents = async (req, res) => {
     try {
         const { hr_salary_components } = req.propertyDb.models;
-        const data = await hr_salary_components.findAll({ where: { outlet_id: req.user.outlet_id } });
+        const outlet_id = req.user ? req.user.outlet_id : (req.outlet_id || 1);
+        const data = await hr_salary_components.findAll({
+            where: {
+                [Op.or]: [
+                    { outlet_id },
+                    { outlet_id: 1 },
+                    { outlet_id: null }
+                ]
+            },
+            order: [['id', 'ASC']]
+        });
         return res.json({ success: true, data });
     }
     catch (err) {
@@ -67,9 +77,16 @@ exports.getPayStructures = async (req, res) => {
   try {
     const { hr_pay_structures, hr_salary_components, hr_offices } = req.propertyDb.models;
     const { office_id } = req.query;
-    const where = { outlet_id: req.user.outlet_id };
+    const outlet_id = req.user ? req.user.outlet_id : (req.outlet_id || 1);
+    const where = {
+      [Op.or]: [
+        { outlet_id },
+        { outlet_id: 1 },
+        { outlet_id: null }
+      ]
+    };
     if (office_id && office_id !== 'all' && office_id !== '0') {
-      where[Op.or] = [{ office_id: office_id }, { office_id: null }];
+      where[Op.and] = [{ office_id: { [Op.or]: [office_id, null] } }];
     }
     const data = await hr_pay_structures.findAll({
       where,
@@ -77,10 +94,13 @@ exports.getPayStructures = async (req, res) => {
         {
           model: hr_salary_components,
           as: 'components',
+          required: false,
           through: { attributes: [] }
         },
-        ...(hr_offices ? [{ model: hr_offices, as: 'office', attributes: ['id', 'office_code', 'office_name'] }] : [])
+        ...(hr_offices ? [{ model: hr_offices, as: 'office', required: false, attributes: ['id', 'office_code', 'office_name'] }] : [])
       ],
+      order: [['id', 'ASC']]
+    });
       order: [['id', 'ASC']]
     });
         return res.json({ success: true, data });
@@ -114,7 +134,17 @@ exports.createPayStructure = async (req, res) => {
 exports.getLeaveTypes = async (req, res) => {
     try {
         const { hr_leave_types } = req.propertyDb.models;
-        const data = await hr_leave_types.findAll({ where: { outlet_id: req.user.outlet_id } });
+        const outlet_id = req.user ? req.user.outlet_id : (req.outlet_id || 1);
+        const data = await hr_leave_types.findAll({
+            where: {
+                [Op.or]: [
+                    { outlet_id },
+                    { outlet_id: 1 },
+                    { outlet_id: null }
+                ]
+            },
+            order: [['id', 'ASC']]
+        });
         return res.json({ success: true, data });
     }
     catch (err) {
@@ -140,7 +170,17 @@ exports.createLeaveType = async (req, res) => {
 exports.getShifts = async (req, res) => {
     try {
         const { hr_shifts } = req.propertyDb.models;
-        const data = await hr_shifts.findAll({ where: { outlet_id: req.user.outlet_id } });
+        const outlet_id = req.user ? req.user.outlet_id : (req.outlet_id || 1);
+        const data = await hr_shifts.findAll({
+            where: {
+                [Op.or]: [
+                    { outlet_id },
+                    { outlet_id: 1 },
+                    { outlet_id: null }
+                ]
+            },
+            order: [['id', 'ASC']]
+        });
         return res.json({ success: true, data });
     }
     catch (err) {
@@ -169,7 +209,17 @@ exports.createShift = async (req, res) => {
 exports.getDesignations = async (req, res) => {
     try {
         const { hr_designations } = req.propertyDb.models;
-        const data = await hr_designations.findAll({ where: { outlet_id: req.user.outlet_id } });
+        const outlet_id = req.user ? req.user.outlet_id : (req.outlet_id || 1);
+        const data = await hr_designations.findAll({
+            where: {
+                [Op.or]: [
+                    { outlet_id },
+                    { outlet_id: 1 },
+                    { outlet_id: null }
+                ]
+            },
+            order: [['id', 'ASC']]
+        });
         return res.json({ success: true, data });
     }
     catch (err) {
@@ -194,21 +244,25 @@ exports.createDesignation = async (req, res) => {
 // ==================== EMPLOYEES ====================
 exports.getEmployees = async (req, res) => {
     try {
-        const { hr_employees, hr_designations, hr_shifts, hr_pay_structures, hr_leave_balances } = req.propertyDb.models;
-        const { status, designation_id } = req.query;
+        const { hr_employees, hr_designations, hr_shifts, hr_pay_structures, hr_leave_balances, hr_offices } = req.propertyDb.models;
+        const { status, designation_id, office_id } = req.query;
         const where = { outlet_id: req.user.outlet_id };
         if (status)
             where.status = status;
         if (designation_id)
             where.designation_id = designation_id;
+        if (office_id && office_id !== 'all' && office_id !== '0')
+            where.office_id = office_id;
         const data = await hr_employees.findAll({
             where,
             include: [
-                { model: hr_designations, as: 'designation' },
-                { model: hr_shifts, as: 'shift' },
-                { model: hr_pay_structures, as: 'payStructure' },
-                { model: hr_leave_balances, as: 'leaveBalances', include: ['leaveType'] }
-            ]
+                { model: hr_offices, as: 'office', required: false },
+                { model: hr_designations, as: 'designation', required: false },
+                { model: hr_shifts, as: 'shift', required: false },
+                { model: hr_pay_structures, as: 'payStructure', required: false },
+                { model: hr_leave_balances, as: 'leaveBalances', include: [{ association: 'leaveType', required: false }], required: false }
+            ],
+            order: [['id', 'ASC']]
         });
         return res.json({ success: true, data });
     }
@@ -218,14 +272,15 @@ exports.getEmployees = async (req, res) => {
 };
 exports.getEmployee = async (req, res) => {
     try {
-        const { hr_employees, hr_designations, hr_shifts, hr_pay_structures, hr_leave_balances } = req.propertyDb.models;
+        const { hr_employees, hr_designations, hr_shifts, hr_pay_structures, hr_leave_balances, hr_offices } = req.propertyDb.models;
         const data = await hr_employees.findOne({
             where: { id: req.params.id, outlet_id: req.user.outlet_id },
             include: [
-                { model: hr_designations, as: 'designation' },
-                { model: hr_shifts, as: 'shift' },
-                { model: hr_pay_structures, as: 'payStructure' },
-                { model: hr_leave_balances, as: 'leaveBalances', include: ['leaveType'] }
+                { model: hr_offices, as: 'office', required: false },
+                { model: hr_designations, as: 'designation', required: false },
+                { model: hr_shifts, as: 'shift', required: false },
+                { model: hr_pay_structures, as: 'payStructure', required: false },
+                { model: hr_leave_balances, as: 'leaveBalances', include: [{ association: 'leaveType', required: false }], required: false }
             ]
         });
         if (!data)

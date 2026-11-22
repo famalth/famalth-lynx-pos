@@ -47,8 +47,8 @@ try {
       config.db_user,
       config.db_password,
       {
-        host: config.db_host || '127.0.0.1',
-        port: Number(config.db_port || 5432),
+        host: process.env.DB_HOST || config.db_host || '127.0.0.1',
+        port: Number(process.env.DB_PORT || config.db_port || 5432),
         dialect: 'postgres',
         logging: false,
         timezone: dbTimezone,
