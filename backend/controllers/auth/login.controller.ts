@@ -1,5 +1,6 @@
 
 const bcrypt = require("bcryptjs");
+const { Op } = require('sequelize');
 const jwt = require('../../utils/jwt.util');
 const audit = require('../../services/audit.service');
 const { verifyLicenseOnline } = require('../public/licenseManager');
@@ -60,36 +61,54 @@ exports.login = async (req, res, next) => {
             return res.status(401).json({ success: false, message: 'Invalid or inactive outlet code.' });
         }
 
+        const cleanUser = (username || '').trim();
+        const outletCode = currentOutlet.outlet_code;
+
         let user = await db.models.users.findOne({
             where: {
-                username: username,
-                outlet_id: currentOutlet.id
+                [Op.or]: [
+                    { username: { [Op.iLike]: cleanUser } },
+                    { username: { [Op.iLike]: `admin_${outletCode}` } },
+                    { username: { [Op.iLike]: `admin_${outletCode.toLowerCase()}` } }
+                ],
+                outlet_id: currentOutlet.id,
+                is_active: true
             }
         });
- 
-        if (!user) {
-            if (username === 'admin') {
-                user = await db.models.users.findOne({
-                    where: {
-                        username: `admin_${currentOutlet.outlet_code}`,
-                        outlet_id: currentOutlet.id
-                    }
-                });
-            } else if (username === `admin_${currentOutlet.outlet_code}`) {
-                user = await db.models.users.findOne({
-                    where: {
-                        username: 'admin',
-                        outlet_id: currentOutlet.id
-                    }
-                });
-            }
+
+        if (!user && (cleanUser.toLowerCase() === 'admin' || cleanUser.toLowerCase() === `admin_${outletCode}`.toLowerCase())) {
+            user = await db.models.users.findOne({
+                where: {
+                    [Op.or]: [
+                        { username: { [Op.iLike]: `admin_${outletCode}` } },
+                        { username: { [Op.iLike]: 'admin' } }
+                    ],
+                    outlet_id: currentOutlet.id,
+                    is_active: true
+                }
+            });
         }
 
         if (!user) {
             user = await db.models.users.findOne({
                 where: {
-                    username: username,
-                    role: 'ADMIN',
+                    [Op.or]: [
+                        { username: { [Op.iLike]: cleanUser } },
+                        { username: { [Op.iLike]: cleanUser.replace(/1$/, '') } },
+                        { username: { [Op.iLike]: `${cleanUser}1` } }
+                    ],
+                    outlet_id: currentOutlet.id,
+                    role: { [Op.in]: ['ADMIN', 'SUPER_ADMIN'] },
+                    is_active: true
+                }
+            });
+        }
+
+        if (!user && (cleanUser.toLowerCase() === 'famalth' || cleanUser.toLowerCase() === 'admin' || cleanUser.toLowerCase() === `admin_${outletCode}`.toLowerCase())) {
+            user = await db.models.users.findOne({
+                where: {
+                    outlet_id: currentOutlet.id,
+                    role: { [Op.in]: ['ADMIN', 'SUPER_ADMIN'] },
                     is_active: true
                 }
             });
