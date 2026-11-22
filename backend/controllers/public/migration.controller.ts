@@ -346,6 +346,118 @@ function getSensibleDefault(dataType?: string, udtName?: string): any {
 }
 
 /**
+ * Safely coerces values to match target database column types, preventing syntax errors (e.g. "14.00" -> 14 for INTEGER)
+ */
+function coerceValueForColumn(
+    val: any,
+    colName: string,
+    meta?: { is_nullable: string; column_default: any; data_type: string; udt_name: string }
+): any {
+    if (val === undefined || val === null) {
+        if (meta && meta.is_nullable === 'NO' && meta.column_default === null) {
+            return getSensibleDefault(meta.data_type, meta.udt_name);
+        }
+        return null;
+    }
+
+    const dType = (meta?.data_type || '').toLowerCase();
+    const udt = (meta?.udt_name || '').toLowerCase();
+
+    // 1. Integer types (int2, int4, int8, integer, bigint, smallint)
+    const isInteger = dType === 'integer' || dType === 'bigint' || dType === 'smallint' ||
+                      udt === 'int4' || udt === 'int8' || udt === 'int2' ||
+                      (!meta && (colName === 'id' || colName.endsWith('_id') || colName === 'annual_quota' || colName.endsWith('_count')));
+
+    if (isInteger) {
+        if (typeof val === 'string') {
+            const trimmed = val.trim();
+            if (trimmed === '') {
+                return (meta && meta.is_nullable === 'NO') ? 0 : null;
+            }
+            const num = Number(trimmed);
+            if (!isNaN(num)) {
+                return Math.round(num);
+            }
+            return (meta && meta.is_nullable === 'NO') ? 0 : null;
+        } else if (typeof val === 'number') {
+            if (isNaN(val)) return (meta && meta.is_nullable === 'NO') ? 0 : null;
+            return Math.round(val);
+        } else if (typeof val === 'boolean') {
+            return val ? 1 : 0;
+        }
+        return val;
+    }
+
+    // 2. Boolean types
+    const isBoolean = dType === 'boolean' || udt === 'bool' ||
+                      (!meta && (colName.startsWith('is_') || colName.startsWith('has_') || colName.startsWith('enable_')));
+    if (isBoolean) {
+        if (typeof val === 'string') {
+            const s = val.trim().toLowerCase();
+            if (s === '1' || s === 'true' || s === 't') return true;
+            if (s === '0' || s === 'false' || s === 'f') return false;
+            if (s === '') return (meta && meta.is_nullable === 'NO') ? false : null;
+        } else if (typeof val === 'number') {
+            return val !== 0;
+        }
+        return Boolean(val);
+    }
+
+    // 3. Numeric / Decimal / Floating point
+    const isNumeric = dType === 'numeric' || dType === 'decimal' || dType === 'real' || dType === 'double precision' ||
+                      udt === 'numeric' || udt === 'float4' || udt === 'float8';
+    if (isNumeric) {
+        if (typeof val === 'string') {
+            const trimmed = val.trim();
+            if (trimmed === '') {
+                return (meta && meta.is_nullable === 'NO') ? 0 : null;
+            }
+            const num = Number(trimmed);
+            if (!isNaN(num)) return num;
+            return (meta && meta.is_nullable === 'NO') ? 0 : null;
+        } else if (typeof val === 'number') {
+            if (isNaN(val)) return (meta && meta.is_nullable === 'NO') ? 0 : null;
+            return val;
+        }
+        return val;
+    }
+
+    // 4. Date / Timestamp types
+    const isDate = dType.includes('timestamp') || dType.includes('date') || dType.includes('time') ||
+                   (!meta && (colName.endsWith('_at') || colName.endsWith('_date') || colName === 'date'));
+    if (isDate) {
+        if (typeof val === 'string') {
+            const trimmed = val.trim();
+            if (trimmed === '' || trimmed.toLowerCase() === 'invalid date' || trimmed === '0000-00-00' || trimmed.startsWith('0000-00-00')) {
+                return (meta && meta.is_nullable === 'NO') ? new Date().toISOString() : null;
+            }
+        }
+        return val;
+    }
+
+    // 5. JSON / JSONB types
+    const isJson = dType === 'json' || dType === 'jsonb' || udt === 'json' || udt === 'jsonb' ||
+                   (!meta && (colName.endsWith('_json') || colName.endsWith('_config') || colName.endsWith('_mappings') || colName === 'metadata'));
+    if (isJson) {
+        if (typeof val === 'object' && !(val instanceof Date) && !Buffer.isBuffer(val)) {
+            return JSON.stringify(val);
+        }
+        if (typeof val === 'string') {
+            const trimmed = val.trim();
+            if (trimmed === '') return (meta && meta.is_nullable === 'NO') ? '{}' : null;
+        }
+        return val;
+    }
+
+    // Fallback: Objects/Arrays to JSON string
+    if (val !== null && typeof val === 'object' && !(val instanceof Date) && !Buffer.isBuffer(val)) {
+        return JSON.stringify(val);
+    }
+
+    return val;
+}
+
+/**
  * Helper to safely insert rows in batches of 50 preserving all table columns with auto-defaults
  */
 async function insertRowsBatch(
@@ -381,19 +493,8 @@ async function insertRowsBatch(
         for (const row of chunk) {
             const rowPlaceholders: string[] = [];
             for (const col of validCols) {
-                let val = row[col];
-
-                // Auto-compatibility: If value is missing and destination column is NOT NULL with no default, inject safe default
-                if (val === undefined || val === null) {
-                    const meta = columnMetadataMap?.get(col);
-                    if (meta && meta.is_nullable === 'NO' && meta.column_default === null) {
-                        val = getSensibleDefault(meta.data_type, meta.udt_name);
-                    }
-                }
-
-                if (val !== null && typeof val === 'object' && !(val instanceof Date) && !Buffer.isBuffer(val)) {
-                    val = JSON.stringify(val);
-                }
+                const meta = columnMetadataMap?.get(col) || columnMetadataMap?.get(col.toLowerCase());
+                let val = coerceValueForColumn(row[col], col, meta);
                 bindValues.push(val === undefined ? null : val);
                 rowPlaceholders.push(`$${pIdx++}`);
             }
@@ -961,16 +1062,26 @@ export const importBundle = async (req: Request, res: Response) => {
             const targetColMetaMap = new Map<string, Map<string, any>>();
             for (const c of targetColRows) {
                 const tName = c.table_name;
+                const lowerT = tName.toLowerCase();
                 if (!targetColsMap.has(tName)) targetColsMap.set(tName, []);
                 targetColsMap.get(tName)!.push(c.column_name);
+                if (lowerT !== tName && !targetColsMap.has(lowerT)) {
+                    targetColsMap.set(lowerT, targetColsMap.get(tName)!);
+                }
 
                 if (!targetColMetaMap.has(tName)) targetColMetaMap.set(tName, new Map());
-                targetColMetaMap.get(tName)!.set(c.column_name, {
+                const metaObj = {
                     is_nullable: c.is_nullable,
                     column_default: c.column_default,
                     data_type: c.data_type,
                     udt_name: c.udt_name
-                });
+                };
+                targetColMetaMap.get(tName)!.set(c.column_name, metaObj);
+                targetColMetaMap.get(tName)!.set(c.column_name.toLowerCase(), metaObj);
+
+                if (lowerT !== tName) {
+                    targetColMetaMap.set(lowerT, targetColMetaMap.get(tName)!);
+                }
             }
 
             // AUTO-EVOLVE TARGET SCHEMA: If bundle includes newly created tables or columns, apply them dynamically
