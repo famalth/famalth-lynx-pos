@@ -63,8 +63,11 @@ function isPlatformMasterTable(tName: string): boolean {
     const t = (tName || '').toLowerCase().trim();
     if (t.startsWith('master_') || t.startsWith('control_plane_') || t.startsWith('platform_')) return true;
     if (t.includes('tenant') && t !== 'tenant_settings') return true;
+    if (t.includes('diagnostic_query') || t === 'diagnostic_query_audit_logs') return true;
+    if (t.includes('announcement') || t.includes('relationship_manager')) return true;
     if (t === 'resellers' || t === 'support_agents' || t === 'support_tickets' || t === 'ticket_messages') return true;
     if (t === 'system_backups' || t === 'system_update_logs' || t === 'client_logs' || t === 'master_staff_users') return true;
+    if (t === 'invoices' && !t.includes('sales')) return true;
     return false;
 }
 
@@ -1141,25 +1144,51 @@ export const importBundle = async (req: Request, res: Response) => {
                 }
             }
 
-            // Resolve topological table order so parent records are inserted before child records
+            // Resolve topological table order and build full foreign-key column relationships
             let orderedTableNames = [...targetTableNames];
+            const fkColMap = new Map<string, Array<{ col: string, parentTable: string }>>();
             try {
-                const [fkRows] = await db.query(`
+                const [fkRows]: any = await db.query(`
                     SELECT 
                         tc.table_name AS child_table,
+                        kcu.column_name,
                         ccu.table_name AS parent_table
                     FROM information_schema.table_constraints tc
+                    JOIN information_schema.key_column_usage kcu
+                        ON tc.constraint_name = kcu.constraint_name 
+                        AND tc.table_schema = kcu.table_schema
                     JOIN information_schema.constraint_column_usage ccu 
                         ON tc.constraint_name = ccu.constraint_name 
-                        AND tc.constraint_schema = ccu.constraint_schema
+                        AND tc.table_schema = ccu.table_schema
                     WHERE tc.constraint_type = 'FOREIGN KEY' 
-                      AND tc.table_schema = 'public'
-                      AND tc.table_name != ccu.table_name;
+                      AND tc.table_schema = 'public';
                 `);
                 if (Array.isArray(fkRows) && fkRows.length > 0) {
                     orderedTableNames = sortTablesTopologically(targetTableNames, fkRows);
+                    for (const fk of fkRows) {
+                        const childT = (fk.child_table || '').toLowerCase();
+                        if (!fkColMap.has(childT)) fkColMap.set(childT, []);
+                        fkColMap.get(childT)!.push({
+                            col: fk.column_name,
+                            parentTable: (fk.parent_table || '').toLowerCase()
+                        });
+                    }
                 }
             } catch (_) {}
+
+            const existingParentIdsCache = new Map<string, Set<any>>();
+            async function getParentIds(pTable: string): Promise<Set<any>> {
+                const pKey = (pTable || '').toLowerCase();
+                if (!existingParentIdsCache.has(pKey)) {
+                    try {
+                        const pRows = await db.query(`SELECT "id" FROM "${pTable}"`, { type: QueryTypes.SELECT });
+                        existingParentIdsCache.set(pKey, new Set(pRows.map((r: any) => r.id)));
+                    } catch (_) {
+                        existingParentIdsCache.set(pKey, new Set());
+                    }
+                }
+                return existingParentIdsCache.get(pKey)!;
+            }
 
             // Temporarily bypass foreign key constraints if superuser permitted
             let sessionRoleBypassed = false;
@@ -1285,6 +1314,7 @@ export const importBundle = async (req: Request, res: Response) => {
                         'payroll_run_id': 'hr_payroll_runs',
                         'employee_id': 'hr_employees',
                         'tax_group_id': 'tax_groups',
+                        'salary_component_id': 'hr_salary_components',
                         'expense_id': 'expenses'
                     };
 
@@ -1294,6 +1324,7 @@ export const importBundle = async (req: Request, res: Response) => {
                         if (!targetTableNames.includes(tName) || !Array.isArray(rows) || rows.length === 0) continue;
                         const tCols = targetColsMap.get(tName) || [];
                         const hasOutletId = tCols.includes('outlet_id') && tName !== 'outlets';
+                        const tFks = fkColMap.get(tName.toLowerCase()) || [];
 
                         // 3a. Cascade mapped foreign keys from previously inserted parent tables
                         for (const row of rows) {
@@ -1306,6 +1337,15 @@ export const importBundle = async (req: Request, res: Response) => {
                                     if (pMap.has(val)) {
                                         row[colName] = pMap.get(val);
                                     }
+                                }
+                            }
+
+                            // Dynamic FK remap based on schema constraints
+                            for (const fk of tFks) {
+                                const val = row[fk.col];
+                                if (val === null || val === undefined) continue;
+                                if (idRemap.has(fk.parentTable) && idRemap.get(fk.parentTable)!.has(val)) {
+                                    row[fk.col] = idRemap.get(fk.parentTable)!.get(val);
                                 }
                             }
 
@@ -1329,6 +1369,25 @@ export const importBundle = async (req: Request, res: Response) => {
                                     const isNullable = targetColMetaMap.get(tName)?.get('updated_by')?.is_nullable !== 'NO';
                                     const fallbackUser = Array.from(validUserIds)[0] || null;
                                     row.updated_by = isNullable ? null : fallbackUser;
+                                }
+                            }
+
+                            // Dynamic foreign key existence validation:
+                            // Check if referenced foreign record exists in destination database
+                            for (const fk of tFks) {
+                                const val = row[fk.col];
+                                if (val === null || val === undefined) continue;
+                                const pTable = fk.parentTable;
+                                if (pTable === 'outlets') continue;
+                                const parentIds = await getParentIds(pTable);
+                                if (!parentIds.has(val)) {
+                                    const meta = targetColMetaMap.get(tName)?.get(fk.col);
+                                    const isNullable = meta?.is_nullable !== 'NO';
+                                    if (isNullable) {
+                                        row[fk.col] = null;
+                                    } else if (parentIds.size > 0) {
+                                        row[fk.col] = Array.from(parentIds)[0];
+                                    }
                                 }
                             }
                         }
@@ -1412,6 +1471,9 @@ export const importBundle = async (req: Request, res: Response) => {
                                         } else {
                                             occupiedIds.add(origId);
                                             thisTableRemap.set(origId, origId);
+                                        }
+                                        if (existingParentIdsCache.has(tName.toLowerCase())) {
+                                            existingParentIdsCache.get(tName.toLowerCase())!.add(row.id);
                                         }
                                     }
                                 }
