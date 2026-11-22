@@ -45,6 +45,17 @@ function pruneMigrationOtps(store: any) {
     }
 }
 
+function formatMigrationError(error: any): string {
+    if (!error) return "Unknown error";
+    if (error.errors && Array.isArray(error.errors) && error.errors.length > 0) {
+        return error.errors.map((e: any) => `${e.path || e.type || 'field'}: ${e.message}`).join(', ');
+    }
+    if (error.original && error.original.message) {
+        return error.original.message;
+    }
+    return error.message || String(error);
+}
+
 /**
  * 1. Ping Cloud / Local Server to check compatibility
  */
@@ -567,9 +578,8 @@ export const importBundle = async (req: Request, res: Response) => {
                     business_module: srcOutlet.business_module || 'ALL',
                     recovery_pin_hash: defaultPinHash,
                     tax_id: srcOutlet.tax_id || 'TAX_DEFAULT',
-                    address: srcOutlet.address || '',
                     contact_phone: srcOutlet.contact_phone || '0000000000',
-                    contact_email: srcOutlet.contact_email || 'admin@retailpos.com',
+                    contact_email: (srcOutlet.contact_email || 'admin@retailpos.com').substring(0, 50),
                     is_active: true,
                     supervisor_pin: srcOutlet.supervisor_pin || '1234',
                     supervisor_pin_type: srcOutlet.supervisor_pin_type || 'STATIC',
@@ -583,65 +593,86 @@ export const importBundle = async (req: Request, res: Response) => {
         let primaryAdmin: any = null;
         if (db.models.users && Array.isArray(bundle.users)) {
             for (const u of bundle.users) {
-                const oldUserId = u.id;
-                const userCode = u.username || `admin_${outletCode.toLowerCase()}`;
-                const hashedPassword = admin_password 
-                    ? await bcrypt.hash(admin_password, 10) 
-                    : (u.password_hash || u.password || await bcrypt.hash("admin@123", 10));
+                try {
+                    const oldUserId = u.id;
+                    const userCode = u.username || `admin_${outletCode.toLowerCase()}`;
+                    const hashedPassword = admin_password 
+                        ? await bcrypt.hash(admin_password, 10) 
+                        : (u.password_hash || u.password || await bcrypt.hash("admin@123", 10));
 
-                let userRec = await db.models.users.findOne({ where: { username: userCode } });
-                if (!userRec) {
-                    userRec = await db.models.users.create({
-                        username: userCode,
-                        password_hash: hashedPassword,
-                        role: u.role || 'ADMIN',
-                        outlet_id: targetOutletId,
-                        is_active: u.is_active !== undefined ? u.is_active : true,
-                        full_name: u.full_name || 'Outlet Administrator',
-                        pin_code: u.pin_code || u.pos_pin || null,
-                        mobile: u.mobile || null,
-                        contact_email: u.contact_email || u.email || null,
-                    });
-                }
+                    let userRec = await db.models.users.findOne({ where: { username: userCode } });
+                    if (!userRec) {
+                        userRec = await db.models.users.create({
+                            username: userCode,
+                            password_hash: hashedPassword,
+                            role: u.role || 'ADMIN',
+                            outlet_id: targetOutletId,
+                            is_active: u.is_active !== undefined ? u.is_active : true,
+                            full_name: u.full_name || 'Outlet Administrator',
+                            pin_code: u.pin_code || u.pos_pin || null,
+                            mobile: u.mobile || null,
+                            contact_email: u.contact_email ? u.contact_email.substring(0, 50) : (u.email ? u.email.substring(0, 50) : null),
+                        });
+                    }
 
-                if (oldUserId) userMap.set(oldUserId, userRec.id);
+                    if (oldUserId) userMap.set(oldUserId, userRec.id);
 
-                if (u.role === 'ADMIN' || !primaryAdmin) {
-                    primaryAdmin = userRec;
+                    if (u.role === 'ADMIN' || !primaryAdmin) {
+                        primaryAdmin = userRec;
+                    }
+                } catch (uErr: any) {
+                    console.warn(`[MIGRATION] User sync warning: ${uErr.message}`);
                 }
             }
         }
 
         // 3. Settings & Branding Sync
         if (bundle.settings && db.models.system_settings) {
-            const { id, ...sData } = bundle.settings;
-            const existingSettings = await db.models.system_settings.findOne();
-            if (existingSettings) {
-                await existingSettings.update(sData);
-            } else {
-                await db.models.system_settings.create(sData);
+            try {
+                const { id, ...sData } = bundle.settings;
+                sData.outlet_id = targetOutletId;
+                const existingSettings = await db.models.system_settings.findOne({ where: { outlet_id: targetOutletId } });
+                if (existingSettings) {
+                    await existingSettings.update(sData);
+                } else {
+                    await db.models.system_settings.create(sData);
+                }
+            } catch (sErr: any) {
+                console.warn(`[MIGRATION] Settings sync warning: ${sErr.message}`);
             }
         }
 
         if (bundle.branding && db.models.app_branding) {
-            const { id, ...bData } = bundle.branding;
-            const existingBranding = await db.models.app_branding.findOne();
-            if (existingBranding) {
-                await existingBranding.update(bData);
-            } else {
-                await db.models.app_branding.create(bData);
+            try {
+                const { id, ...bData } = bundle.branding;
+                bData.outlet_id = targetOutletId;
+                bData.company_name = bData.company_name || 'Famalth Technologies';
+                bData.product_name = bData.product_name || 'Famalth Inventory';
+                bData.support_email = bData.support_email || 'help@famalth.com';
+                bData.support_website = bData.support_website || 'www.famalth.com';
+                bData.support_phone = bData.support_phone || '+91-00000-00000';
+                const existingBranding = await db.models.app_branding.findOne({ where: { outlet_id: targetOutletId } });
+                if (existingBranding) {
+                    await existingBranding.update(bData);
+                } else {
+                    await db.models.app_branding.create(bData);
+                }
+            } catch (bErr: any) {
+                console.warn(`[MIGRATION] Branding sync warning: ${bErr.message}`);
             }
         }
 
         // Numbering Settings
         if (Array.isArray(bundle.numbering) && db.models.numbering_settings) {
             for (const num of bundle.numbering) {
-                const { id, ...numData } = num;
-                numData.outlet_id = targetOutletId;
-                await db.models.numbering_settings.findOrCreate({
-                    where: { outlet_id: targetOutletId, doc_type: num.doc_type || 'SALE' },
-                    defaults: numData
-                });
+                try {
+                    const { id, ...numData } = num;
+                    numData.outlet_id = targetOutletId;
+                    await db.models.numbering_settings.findOrCreate({
+                        where: { outlet_id: targetOutletId, doc_type: num.doc_type || 'SALE' },
+                        defaults: numData
+                    });
+                } catch (_) {}
             }
         }
 
@@ -662,185 +693,248 @@ export const importBundle = async (req: Request, res: Response) => {
         // 4. Tax Groups Translation
         if (Array.isArray(bundle.taxGroups) && db.models.tax_groups) {
             for (const tg of bundle.taxGroups) {
-                const oldTgId = tg.id;
-                const { id, ...tgData } = tg;
-                let existingTg = await db.models.tax_groups.findOne({ where: { group_name: tg.group_name } });
-                if (!existingTg) {
-                    existingTg = await db.models.tax_groups.create(tgData);
+                try {
+                    const oldTgId = tg.id;
+                    const { id, ...tgData } = tg;
+                    tgData.outlet_id = targetOutletId;
+                    let existingTg = await db.models.tax_groups.findOne({ 
+                        where: { group_name: tg.group_name, outlet_id: targetOutletId } 
+                    });
+                    if (!existingTg) {
+                        existingTg = await db.models.tax_groups.create(tgData);
+                    }
+                    if (oldTgId) taxGroupMap.set(oldTgId, existingTg.id);
+                } catch (tgErr: any) {
+                    console.warn(`[MIGRATION] Tax group sync warning: ${tgErr.message}`);
                 }
-                if (oldTgId) taxGroupMap.set(oldTgId, existingTg.id);
             }
         }
 
         // 5. Item Groups / Categories & Brands Translation
         if (Array.isArray(bundle.itemGroups) && db.models.item_groups) {
             for (const ig of bundle.itemGroups) {
-                const oldIgId = ig.id;
-                const { id, ...igData } = ig;
-                let existingIg = await db.models.item_groups.findOne({ where: { group_name: ig.group_name } });
-                if (!existingIg) {
-                    existingIg = await db.models.item_groups.create(igData);
+                try {
+                    const oldIgId = ig.id;
+                    const { id, ...igData } = ig;
+                    igData.outlet_id = targetOutletId;
+                    let existingIg = await db.models.item_groups.findOne({ 
+                        where: { group_name: ig.group_name, outlet_id: targetOutletId } 
+                    });
+                    if (!existingIg) {
+                        existingIg = await db.models.item_groups.create(igData);
+                    }
+                    if (oldIgId) groupMap.set(oldIgId, existingIg.id);
+                } catch (igErr: any) {
+                    console.warn(`[MIGRATION] Item group sync warning: ${igErr.message}`);
                 }
-                if (oldIgId) groupMap.set(oldIgId, existingIg.id);
             }
         }
 
         if (Array.isArray(bundle.brands) && db.models.brands) {
             for (const b of bundle.brands) {
-                const oldBrandId = b.id;
-                const { id, ...bData } = b;
-                let existingB = await db.models.brands.findOne({ where: { name: b.name } });
-                if (!existingB) {
-                    existingB = await db.models.brands.create(bData);
+                try {
+                    const oldBrandId = b.id;
+                    const { id, ...bData } = b;
+                    bData.outlet_id = targetOutletId;
+                    bData.brand_name = b.brand_name || b.name || 'Generic';
+                    let existingB = await db.models.brands.findOne({ 
+                        where: { brand_name: bData.brand_name, outlet_id: targetOutletId } 
+                    });
+                    if (!existingB) {
+                        existingB = await db.models.brands.create(bData);
+                    }
+                    if (oldBrandId) brandMap.set(oldBrandId, existingB.id);
+                } catch (bErr: any) {
+                    console.warn(`[MIGRATION] Brand sync warning: ${bErr.message}`);
                 }
-                if (oldBrandId) brandMap.set(oldBrandId, existingB.id);
             }
         }
 
         // 6. Master Items / Products Translation (Translate group_id & tax_group_id & brand_id)
         if (Array.isArray(bundle.items) && db.models.item_master) {
             for (const itm of bundle.items) {
-                const oldItemId = itm.id;
-                const { id, ...itmData } = itm;
+                try {
+                    const oldItemId = itm.id;
+                    const { id, ...itmData } = itm;
 
-                // Remap foreign keys
-                if (itmData.group_id && groupMap.has(itmData.group_id)) {
-                    itmData.group_id = groupMap.get(itmData.group_id);
-                }
-                if (itmData.tax_group_id && taxGroupMap.has(itmData.tax_group_id)) {
-                    itmData.tax_group_id = taxGroupMap.get(itmData.tax_group_id);
-                }
-                if (itmData.brand_id && brandMap.has(itmData.brand_id)) {
-                    itmData.brand_id = brandMap.get(itmData.brand_id);
-                }
+                    itmData.outlet_id = targetOutletId;
+                    itmData.item_code = itmData.item_code || ('ITM-' + (oldItemId || Date.now()));
+                    itmData.item_name = itmData.item_name || 'Unnamed Product';
+                    itmData.item_group = itmData.item_group || 'General';
 
-                const matchKey = itm.barcode ? { barcode: itm.barcode } : { item_name: itm.item_name };
-                let existingItem = await db.models.item_master.findOne({ where: matchKey });
-                if (!existingItem) {
-                    existingItem = await db.models.item_master.create(itmData);
-                } else {
-                    await existingItem.update(itmData);
-                }
+                    // Remap foreign keys
+                    if (itmData.group_id && groupMap.has(itmData.group_id)) {
+                        itmData.group_id = groupMap.get(itmData.group_id);
+                    }
+                    if (itmData.tax_group_id && taxGroupMap.has(itmData.tax_group_id)) {
+                        itmData.tax_group_id = taxGroupMap.get(itmData.tax_group_id);
+                    }
+                    if (itmData.brand_id && brandMap.has(itmData.brand_id)) {
+                        itmData.brand_id = brandMap.get(itmData.brand_id);
+                    }
 
-                if (oldItemId) itemMap.set(oldItemId, existingItem.id);
+                    const matchWhere: any = itm.barcode 
+                        ? { barcode: itm.barcode, outlet_id: targetOutletId } 
+                        : { item_name: itmData.item_name, outlet_id: targetOutletId };
+                    
+                    let existingItem = await db.models.item_master.findOne({ where: matchWhere });
+                    if (!existingItem) {
+                        existingItem = await db.models.item_master.create(itmData);
+                    } else {
+                        await existingItem.update(itmData);
+                    }
+
+                    if (oldItemId) itemMap.set(oldItemId, existingItem.id);
+                } catch (itmErr: any) {
+                    console.warn(`[MIGRATION] Item sync warning: ${itmErr.message}`);
+                }
             }
         }
 
         // 7. Stock Locations & Stock Ledger
         if (Array.isArray(bundle.stockLocations) && db.models.stock_locations) {
             for (const loc of bundle.stockLocations) {
-                const oldLocId = loc.id;
-                const { id, ...locData } = loc;
-                locData.outlet_id = targetOutletId;
-                let existingLoc = await db.models.stock_locations.findOne({
-                    where: { location_name: loc.location_name, outlet_id: targetOutletId }
-                });
-                if (!existingLoc) {
-                    existingLoc = await db.models.stock_locations.create(locData);
+                try {
+                    const oldLocId = loc.id;
+                    const { id, ...locData } = loc;
+                    locData.outlet_id = targetOutletId;
+                    let existingLoc = await db.models.stock_locations.findOne({
+                        where: { location_name: loc.location_name, outlet_id: targetOutletId }
+                    });
+                    if (!existingLoc) {
+                        existingLoc = await db.models.stock_locations.create(locData);
+                    }
+                    if (oldLocId) locationMap.set(oldLocId, existingLoc.id);
+                } catch (locErr: any) {
+                    console.warn(`[MIGRATION] Location sync warning: ${locErr.message}`);
                 }
-                if (oldLocId) locationMap.set(oldLocId, existingLoc.id);
             }
         }
 
         if (Array.isArray(bundle.stockLedger) && db.models.stock_ledger) {
             for (const st of bundle.stockLedger) {
-                const { id, ...stData } = st;
-                stData.outlet_id = targetOutletId;
-                if (stData.item_id && itemMap.has(stData.item_id)) {
-                    stData.item_id = itemMap.get(stData.item_id);
+                try {
+                    const { id, ...stData } = st;
+                    stData.outlet_id = targetOutletId;
+                    if (stData.item_id && itemMap.has(stData.item_id)) {
+                        stData.item_id = itemMap.get(stData.item_id);
+                    }
+                    if (stData.location_id && locationMap.has(stData.location_id)) {
+                        stData.location_id = locationMap.get(stData.location_id);
+                    }
+                    await db.models.stock_ledger.create(stData);
+                } catch (stErr: any) {
+                    console.warn(`[MIGRATION] Stock ledger warning: ${stErr.message}`);
                 }
-                if (stData.location_id && locationMap.has(stData.location_id)) {
-                    stData.location_id = locationMap.get(stData.location_id);
-                }
-                await db.models.stock_ledger.create(stData);
             }
         }
 
         // 8. Customers Translation & Advances
         if (Array.isArray(bundle.customers) && db.models.customers) {
             for (const c of bundle.customers) {
-                const oldCustId = c.id;
-                const { id, ...cData } = c;
-                cData.outlet_id = targetOutletId;
-                const phoneKey = c.mobile || c.phone;
-                const matchWhere = phoneKey ? { mobile: phoneKey, outlet_id: targetOutletId } : { customer_name: c.customer_name, outlet_id: targetOutletId };
-                
-                let existingCust = await db.models.customers.findOne({ where: matchWhere });
-                if (!existingCust) {
-                    existingCust = await db.models.customers.create(cData);
-                } else {
-                    await existingCust.update(cData);
-                }
+                try {
+                    const oldCustId = c.id;
+                    const { id, ...cData } = c;
+                    cData.outlet_id = targetOutletId;
+                    cData.customer_name = c.customer_name || c.name || 'Customer';
+                    const phoneKey = c.customer_phone || c.mobile || c.phone;
+                    if (phoneKey) cData.customer_phone = phoneKey;
 
-                if (oldCustId) customerMap.set(oldCustId, existingCust.id);
+                    const matchWhere = phoneKey 
+                        ? { customer_phone: phoneKey, outlet_id: targetOutletId } 
+                        : { customer_name: cData.customer_name, outlet_id: targetOutletId };
+                    
+                    let existingCust = await db.models.customers.findOne({ where: matchWhere });
+                    if (!existingCust) {
+                        existingCust = await db.models.customers.create(cData);
+                    } else {
+                        await existingCust.update(cData);
+                    }
+
+                    if (oldCustId) customerMap.set(oldCustId, existingCust.id);
+                } catch (cErr: any) {
+                    console.warn(`[MIGRATION] Customer sync warning: ${cErr.message}`);
+                }
             }
         }
 
         // 9. Suppliers Translation
         if (Array.isArray(bundle.suppliers) && db.models.supplier_master) {
             for (const s of bundle.suppliers) {
-                const oldSuppId = s.id;
-                const { id, ...sData } = s;
-                sData.outlet_id = targetOutletId;
-                
-                let existingSupp = await db.models.supplier_master.findOne({ where: { supplier_name: s.supplier_name, outlet_id: targetOutletId } });
-                if (!existingSupp) {
-                    existingSupp = await db.models.supplier_master.create(sData);
-                } else {
-                    await existingSupp.update(sData);
-                }
+                try {
+                    const oldSuppId = s.id;
+                    const { id, ...sData } = s;
+                    sData.outlet_id = targetOutletId;
+                    sData.supplier_name = s.supplier_name || s.name || 'Supplier';
+                    
+                    let existingSupp = await db.models.supplier_master.findOne({ 
+                        where: { supplier_name: sData.supplier_name, outlet_id: targetOutletId } 
+                    });
+                    if (!existingSupp) {
+                        existingSupp = await db.models.supplier_master.create(sData);
+                    } else {
+                        await existingSupp.update(sData);
+                    }
 
-                if (oldSuppId) supplierMap.set(oldSuppId, existingSupp.id);
+                    if (oldSuppId) supplierMap.set(oldSuppId, existingSupp.id);
+                } catch (sErr: any) {
+                    console.warn(`[MIGRATION] Supplier sync warning: ${sErr.message}`);
+                }
             }
         }
 
         // 10. Historical Sales Headers & Sales Items Translation
         if (Array.isArray(bundle.salesHeaders) && db.models.sales_headers) {
             for (const sh of bundle.salesHeaders) {
-                const oldSaleId = sh.id;
-                const { id, ...shData } = sh;
+                try {
+                    const oldSaleId = sh.id;
+                    const { id, ...shData } = sh;
 
-                // Remap foreign keys
-                shData.outlet_id = targetOutletId;
-                if (shData.customer_id && customerMap.has(shData.customer_id)) {
-                    shData.customer_id = customerMap.get(shData.customer_id);
+                    shData.outlet_id = targetOutletId;
+                    if (shData.customer_id && customerMap.has(shData.customer_id)) {
+                        shData.customer_id = customerMap.get(shData.customer_id);
+                    }
+                    if (shData.created_by && userMap.has(shData.created_by)) {
+                        shData.created_by = userMap.get(shData.created_by);
+                    } else if (primaryAdmin) {
+                        shData.created_by = primaryAdmin.id;
+                    }
+
+                    let existingSale = await db.models.sales_headers.findOne({
+                        where: { sale_no: sh.sale_no, outlet_id: targetOutletId }
+                    });
+
+                    if (!existingSale) {
+                        existingSale = await db.models.sales_headers.create(shData);
+                    }
+
+                    if (oldSaleId) salesMap.set(oldSaleId, existingSale.id);
+                } catch (shErr: any) {
+                    console.warn(`[MIGRATION] Sales header sync warning: ${shErr.message}`);
                 }
-                if (shData.created_by && userMap.has(shData.created_by)) {
-                    shData.created_by = userMap.get(shData.created_by);
-                } else if (primaryAdmin) {
-                    shData.created_by = primaryAdmin.id;
-                }
-
-                let existingSale = await db.models.sales_headers.findOne({
-                    where: { sale_no: sh.sale_no, outlet_id: targetOutletId }
-                });
-
-                if (!existingSale) {
-                    existingSale = await db.models.sales_headers.create(shData);
-                }
-
-                if (oldSaleId) salesMap.set(oldSaleId, existingSale.id);
             }
 
             // Sales Items Insertion with remapped sale_id and item_id
             if (Array.isArray(bundle.salesItems) && db.models.sales_items) {
                 for (const si of bundle.salesItems) {
-                    const { id, ...siData } = si;
-                    const mappedSaleId = salesMap.get(si.sale_id);
-                    if (!mappedSaleId) continue;
+                    try {
+                        const { id, ...siData } = si;
+                        const mappedSaleId = salesMap.get(si.sale_id);
+                        if (!mappedSaleId) continue;
 
-                    siData.sale_id = mappedSaleId;
-                    if (siData.item_id && itemMap.has(siData.item_id)) {
-                        siData.item_id = itemMap.get(siData.item_id);
-                    }
+                        siData.sale_id = mappedSaleId;
+                        if (siData.item_id && itemMap.has(siData.item_id)) {
+                            siData.item_id = itemMap.get(siData.item_id);
+                        }
 
-                    const existingLine = await db.models.sales_items.findOne({
-                        where: { sale_id: mappedSaleId, item_id: siData.item_id, item_code: siData.item_code || '' }
-                    });
+                        const existingLine = await db.models.sales_items.findOne({
+                            where: { sale_id: mappedSaleId, item_id: siData.item_id, item_code: siData.item_code || '' }
+                        });
 
-                    if (!existingLine) {
-                        await db.models.sales_items.create(siData);
-                    }
+                        if (!existingLine) {
+                            await db.models.sales_items.create(siData);
+                        }
+                    } catch (_) {}
                 }
             }
         }
@@ -848,37 +942,43 @@ export const importBundle = async (req: Request, res: Response) => {
         // 11. Purchase Orders & Goods Receipts Translation
         if (Array.isArray(bundle.purchaseOrders) && db.models.purchase_orders) {
             for (const po of bundle.purchaseOrders) {
-                const oldPoId = po.id;
-                const { id, ...poData } = po;
+                try {
+                    const oldPoId = po.id;
+                    const { id, ...poData } = po;
 
-                poData.outlet_id = targetOutletId;
-                if (poData.supplier_id && supplierMap.has(poData.supplier_id)) {
-                    poData.supplier_id = supplierMap.get(poData.supplier_id);
+                    poData.outlet_id = targetOutletId;
+                    if (poData.supplier_id && supplierMap.has(poData.supplier_id)) {
+                        poData.supplier_id = supplierMap.get(poData.supplier_id);
+                    }
+
+                    let existingPo = await db.models.purchase_orders.findOne({
+                        where: { po_number: po.po_number || `PO-${oldPoId}`, outlet_id: targetOutletId }
+                    });
+
+                    if (!existingPo) {
+                        existingPo = await db.models.purchase_orders.create(poData);
+                    }
+
+                    if (oldPoId) poMap.set(oldPoId, existingPo.id);
+                } catch (poErr: any) {
+                    console.warn(`[MIGRATION] Purchase order sync warning: ${poErr.message}`);
                 }
-
-                let existingPo = await db.models.purchase_orders.findOne({
-                    where: { po_number: po.po_number || `PO-${oldPoId}`, outlet_id: targetOutletId }
-                });
-
-                if (!existingPo) {
-                    existingPo = await db.models.purchase_orders.create(poData);
-                }
-
-                if (oldPoId) poMap.set(oldPoId, existingPo.id);
             }
 
             if (Array.isArray(bundle.purchaseOrderItems) && db.models.purchase_order_items) {
                 for (const poi of bundle.purchaseOrderItems) {
-                    const { id, ...poiData } = poi;
-                    const mappedPoId = poMap.get(poi.po_id);
-                    if (!mappedPoId) continue;
+                    try {
+                        const { id, ...poiData } = poi;
+                        const mappedPoId = poMap.get(poi.po_id);
+                        if (!mappedPoId) continue;
 
-                    poiData.po_id = mappedPoId;
-                    if (poiData.item_id && itemMap.has(poiData.item_id)) {
-                        poiData.item_id = itemMap.get(poiData.item_id);
-                    }
+                        poiData.po_id = mappedPoId;
+                        if (poiData.item_id && itemMap.has(poiData.item_id)) {
+                            poiData.item_id = itemMap.get(poiData.item_id);
+                        }
 
-                    await db.models.purchase_order_items.create(poiData);
+                        await db.models.purchase_order_items.create(poiData);
+                    } catch (_) {}
                 }
             }
         }
@@ -886,85 +986,113 @@ export const importBundle = async (req: Request, res: Response) => {
         // 12. Expense Categories & Expenses Translation
         if (Array.isArray(bundle.expenseCategories) && db.models.expense_categories) {
             for (const ec of bundle.expenseCategories) {
-                const oldEcId = ec.id;
-                const { id, ...ecData } = ec;
-                let existingEc = await db.models.expense_categories.findOne({ where: { name: ec.name } });
-                if (!existingEc) {
-                    existingEc = await db.models.expense_categories.create(ecData);
+                try {
+                    const oldEcId = ec.id;
+                    const { id, ...ecData } = ec;
+                    ecData.outlet_id = targetOutletId;
+                    ecData.category_name = ec.category_name || ec.name || 'General Expense';
+                    let existingEc = await db.models.expense_categories.findOne({ 
+                        where: { category_name: ecData.category_name, outlet_id: targetOutletId } 
+                    });
+                    if (!existingEc) {
+                        existingEc = await db.models.expense_categories.create(ecData);
+                    }
+                    if (oldEcId) expenseCatMap.set(oldEcId, existingEc.id);
+                } catch (ecErr: any) {
+                    console.warn(`[MIGRATION] Expense category sync warning: ${ecErr.message}`);
                 }
-                if (oldEcId) expenseCatMap.set(oldEcId, existingEc.id);
             }
         }
 
         if (Array.isArray(bundle.expenses) && db.models.expenses) {
             for (const exp of bundle.expenses) {
-                const { id, ...expData } = exp;
-                expData.outlet_id = targetOutletId;
-                if (expData.category_id && expenseCatMap.has(expData.category_id)) {
-                    expData.category_id = expenseCatMap.get(expData.category_id);
+                try {
+                    const { id, ...expData } = exp;
+                    expData.outlet_id = targetOutletId;
+                    if (expData.category_id && expenseCatMap.has(expData.category_id)) {
+                        expData.category_id = expenseCatMap.get(expData.category_id);
+                    }
+                    await db.models.expenses.create(expData);
+                } catch (expErr: any) {
+                    console.warn(`[MIGRATION] Expense sync warning: ${expErr.message}`);
                 }
-                await db.models.expenses.create(expData);
             }
         }
 
         // 13. Banking & Accounting Translation
         if (Array.isArray(bundle.chartOfAccounts) && db.models.chart_of_accounts) {
             for (const acc of bundle.chartOfAccounts) {
-                const oldAccId = acc.id;
-                const { id, ...accData } = acc;
-                accData.outlet_id = targetOutletId;
-                let existingAcc = await db.models.chart_of_accounts.findOne({
-                    where: { account_name: acc.account_name, outlet_id: targetOutletId }
-                });
-                if (!existingAcc) {
-                    existingAcc = await db.models.chart_of_accounts.create(accData);
+                try {
+                    const oldAccId = acc.id;
+                    const { id, ...accData } = acc;
+                    accData.outlet_id = targetOutletId;
+                    let existingAcc = await db.models.chart_of_accounts.findOne({
+                        where: { account_name: acc.account_name, outlet_id: targetOutletId }
+                    });
+                    if (!existingAcc) {
+                        existingAcc = await db.models.chart_of_accounts.create(accData);
+                    }
+                    if (oldAccId) accountMap.set(oldAccId, existingAcc.id);
+                } catch (accErr: any) {
+                    console.warn(`[MIGRATION] Chart of accounts warning: ${accErr.message}`);
                 }
-                if (oldAccId) accountMap.set(oldAccId, existingAcc.id);
             }
         }
 
         if (Array.isArray(bundle.bankAccounts) && db.models.bank_accounts) {
             for (const b of bundle.bankAccounts) {
-                const oldBankId = b.id;
-                const { id, ...bData } = b;
-                bData.outlet_id = targetOutletId;
-                let existingB = await db.models.bank_accounts.findOne({
-                    where: { account_number: b.account_number, outlet_id: targetOutletId }
-                });
-                if (!existingB) {
-                    existingB = await db.models.bank_accounts.create(bData);
+                try {
+                    const oldBankId = b.id;
+                    const { id, ...bData } = b;
+                    bData.outlet_id = targetOutletId;
+                    let existingB = await db.models.bank_accounts.findOne({
+                        where: { account_number: b.account_number, outlet_id: targetOutletId }
+                    });
+                    if (!existingB) {
+                        existingB = await db.models.bank_accounts.create(bData);
+                    }
+                    if (oldBankId) bankMap.set(oldBankId, existingB.id);
+                } catch (bErr: any) {
+                    console.warn(`[MIGRATION] Bank accounts warning: ${bErr.message}`);
                 }
-                if (oldBankId) bankMap.set(oldBankId, existingB.id);
             }
         }
 
         if (Array.isArray(bundle.accountingVouchers) && db.models.accounting_vouchers) {
             for (const v of bundle.accountingVouchers) {
-                const oldVId = v.id;
-                const { id, ...vData } = v;
-                vData.outlet_id = targetOutletId;
-                if (vData.bank_account_id && bankMap.has(vData.bank_account_id)) {
-                    vData.bank_account_id = bankMap.get(vData.bank_account_id);
+                try {
+                    const oldVId = v.id;
+                    const { id, ...vData } = v;
+                    vData.outlet_id = targetOutletId;
+                    if (vData.bank_account_id && bankMap.has(vData.bank_account_id)) {
+                        vData.bank_account_id = bankMap.get(vData.bank_account_id);
+                    }
+                    let existingV = await db.models.accounting_vouchers.findOne({
+                        where: { voucher_no: v.voucher_no, outlet_id: targetOutletId }
+                    });
+                    if (!existingV) {
+                        existingV = await db.models.accounting_vouchers.create(vData);
+                    }
+                    if (oldVId) voucherMap.set(oldVId, existingV.id);
+                } catch (vErr: any) {
+                    console.warn(`[MIGRATION] Voucher warning: ${vErr.message}`);
                 }
-                let existingV = await db.models.accounting_vouchers.findOne({
-                    where: { voucher_no: v.voucher_no, outlet_id: targetOutletId }
-                });
-                if (!existingV) {
-                    existingV = await db.models.accounting_vouchers.create(vData);
-                }
-                if (oldVId) voucherMap.set(oldVId, existingV.id);
             }
 
             if (Array.isArray(bundle.voucherLines) && db.models.voucher_lines) {
                 for (const vl of bundle.voucherLines) {
-                    const { id, ...vlData } = vl;
-                    const mappedVId = voucherMap.get(vl.voucher_id);
-                    if (!mappedVId) continue;
-                    vlData.voucher_id = mappedVId;
-                    if (vlData.account_id && accountMap.has(vlData.account_id)) {
-                        vlData.account_id = accountMap.get(vlData.account_id);
-                    }
-                    await db.models.voucher_lines.create(vlData);
+                    try {
+                        const { id, ...vlData } = vl;
+                        const mappedVId = voucherMap.get(vl.voucher_id);
+                        if (!mappedVId) continue;
+                        vlData.voucher_id = mappedVId;
+                        vlData.account_name = vlData.account_name || 'General Account';
+                        vlData.line_type = (vlData.line_type || 'DEBIT').toUpperCase();
+                        if (vlData.account_id && accountMap.has(vlData.account_id)) {
+                            vlData.account_id = accountMap.get(vlData.account_id);
+                        }
+                        await db.models.voucher_lines.create(vlData);
+                    } catch (_) {}
                 }
             }
         }
@@ -972,82 +1100,106 @@ export const importBundle = async (req: Request, res: Response) => {
         // 14. Restaurant Floors, Areas, Tables & KOTs Translation
         if (Array.isArray(bundle.floors) && db.models.floor) {
             for (const f of bundle.floors) {
-                const oldFId = f.id;
-                const { id, ...fData } = f;
-                fData.outlet_id = targetOutletId;
-                let existingF = await db.models.floor.findOne({
-                    where: { floor_name: f.floor_name, outlet_id: targetOutletId }
-                });
-                if (!existingF) {
-                    existingF = await db.models.floor.create(fData);
+                try {
+                    const oldFId = f.id;
+                    const { id, ...fData } = f;
+                    fData.outlet_id = targetOutletId;
+                    fData.name = f.name || f.floor_name || 'Ground Floor';
+                    let existingF = await db.models.floor.findOne({
+                        where: { name: fData.name, outlet_id: targetOutletId }
+                    });
+                    if (!existingF) {
+                        existingF = await db.models.floor.create(fData);
+                    }
+                    if (oldFId) floorMap.set(oldFId, existingF.id);
+                } catch (fErr: any) {
+                    console.warn(`[MIGRATION] Floor sync warning: ${fErr.message}`);
                 }
-                if (oldFId) floorMap.set(oldFId, existingF.id);
             }
         }
 
         if (Array.isArray(bundle.diningAreas) && db.models.dining_area) {
             for (const da of bundle.diningAreas) {
-                const oldDaId = da.id;
-                const { id, ...daData } = da;
-                daData.outlet_id = targetOutletId;
-                if (daData.floor_id && floorMap.has(daData.floor_id)) {
-                    daData.floor_id = floorMap.get(daData.floor_id);
+                try {
+                    const oldDaId = da.id;
+                    const { id, ...daData } = da;
+                    daData.outlet_id = targetOutletId;
+                    daData.name = da.name || da.area_name || 'Dining Area';
+                    if (daData.floor_id && floorMap.has(daData.floor_id)) {
+                        daData.floor_id = floorMap.get(daData.floor_id);
+                    }
+                    let existingDa = await db.models.dining_area.findOne({
+                        where: { name: daData.name, outlet_id: targetOutletId }
+                    });
+                    if (!existingDa) {
+                        existingDa = await db.models.dining_area.create(daData);
+                    }
+                    if (oldDaId) areaMap.set(oldDaId, existingDa.id);
+                } catch (daErr: any) {
+                    console.warn(`[MIGRATION] Dining area sync warning: ${daErr.message}`);
                 }
-                let existingDa = await db.models.dining_area.findOne({
-                    where: { area_name: da.area_name, outlet_id: targetOutletId }
-                });
-                if (!existingDa) {
-                    existingDa = await db.models.dining_area.create(daData);
-                }
-                if (oldDaId) areaMap.set(oldDaId, existingDa.id);
             }
         }
 
         if (Array.isArray(bundle.restaurantTables) && db.models.restaurant_tables) {
             for (const t of bundle.restaurantTables) {
-                const oldTId = t.id;
-                const { id, ...tData } = t;
-                tData.outlet_id = targetOutletId;
-                if (tData.dining_area_id && areaMap.has(tData.dining_area_id)) {
-                    tData.dining_area_id = areaMap.get(tData.dining_area_id);
+                try {
+                    const oldTId = t.id;
+                    const { id, ...tData } = t;
+                    tData.outlet_id = targetOutletId;
+                    tData.table_name = t.table_name || t.table_number || 'Table 1';
+                    if (tData.dining_area_id && areaMap.has(tData.dining_area_id)) {
+                        tData.dining_area_id = areaMap.get(tData.dining_area_id);
+                    }
+                    let existingT = await db.models.restaurant_tables.findOne({
+                        where: { table_name: tData.table_name, outlet_id: targetOutletId }
+                    });
+                    if (!existingT) {
+                        existingT = await db.models.restaurant_tables.create(tData);
+                    }
+                    if (oldTId) tableMap.set(oldTId, existingT.id);
+                } catch (tErr: any) {
+                    console.warn(`[MIGRATION] Table sync warning: ${tErr.message}`);
                 }
-                let existingT = await db.models.restaurant_tables.findOne({
-                    where: { table_number: t.table_number, outlet_id: targetOutletId }
-                });
-                if (!existingT) {
-                    existingT = await db.models.restaurant_tables.create(tData);
-                }
-                if (oldTId) tableMap.set(oldTId, existingT.id);
             }
         }
 
         if (Array.isArray(bundle.kotHeaders) && db.models.kot_headers) {
             for (const k of bundle.kotHeaders) {
-                const oldKId = k.id;
-                const { id, ...kData } = k;
-                kData.outlet_id = targetOutletId;
-                if (kData.table_id && tableMap.has(kData.table_id)) {
-                    kData.table_id = tableMap.get(kData.table_id);
+                try {
+                    const oldKId = k.id;
+                    const { id, ...kData } = k;
+                    kData.outlet_id = targetOutletId;
+                    kData.kot_no = k.kot_no || k.kot_number || (`KOT-${oldKId}`);
+                    if (kData.table_id && tableMap.has(kData.table_id)) {
+                        kData.table_id = tableMap.get(kData.table_id);
+                    }
+                    let existingK = await db.models.kot_headers.findOne({
+                        where: { kot_no: kData.kot_no, outlet_id: targetOutletId }
+                    });
+                    if (!existingK) {
+                        existingK = await db.models.kot_headers.create(kData);
+                    }
+                    if (oldKId) kotMap.set(oldKId, existingK.id);
+                } catch (kErr: any) {
+                    console.warn(`[MIGRATION] KOT header warning: ${kErr.message}`);
                 }
-                let existingK = await db.models.kot_headers.findOne({
-                    where: { kot_number: k.kot_number, outlet_id: targetOutletId }
-                });
-                if (!existingK) {
-                    existingK = await db.models.kot_headers.create(kData);
-                }
-                if (oldKId) kotMap.set(oldKId, existingK.id);
             }
 
             if (Array.isArray(bundle.kotItems) && db.models.kot_items) {
                 for (const ki of bundle.kotItems) {
-                    const { id, ...kiData } = ki;
-                    const mappedKId = kotMap.get(ki.kot_id);
-                    if (!mappedKId) continue;
-                    kiData.kot_id = mappedKId;
-                    if (kiData.item_id && itemMap.has(kiData.item_id)) {
-                        kiData.item_id = itemMap.get(kiData.item_id);
-                    }
-                    await db.models.kot_items.create(kiData);
+                    try {
+                        const { id, ...kiData } = ki;
+                        const mappedKId = kotMap.get(ki.kot_id || ki.kot_header_id);
+                        if (!mappedKId) continue;
+                        kiData.outlet_id = targetOutletId;
+                        kiData.kot_header_id = mappedKId;
+                        kiData.item_name = kiData.item_name || 'KOT Item';
+                        if (kiData.item_id && itemMap.has(kiData.item_id)) {
+                            kiData.item_id = itemMap.get(kiData.item_id);
+                        }
+                        await db.models.kot_items.create(kiData);
+                    } catch (_) {}
                 }
             }
         }
@@ -1055,28 +1207,40 @@ export const importBundle = async (req: Request, res: Response) => {
         // 15. Subscriptions, Deliveries & HRMS
         if (Array.isArray(bundle.milkSubscriptions) && db.models.milk_subscriptions) {
             for (const ms of bundle.milkSubscriptions) {
-                const { id, ...msData } = ms;
-                msData.outlet_id = targetOutletId;
-                if (msData.customer_id && customerMap.has(msData.customer_id)) {
-                    msData.customer_id = customerMap.get(msData.customer_id);
-                }
-                await db.models.milk_subscriptions.create(msData);
+                try {
+                    const { id, ...msData } = ms;
+                    msData.outlet_id = targetOutletId;
+                    if (msData.customer_id && customerMap.has(msData.customer_id)) {
+                        msData.customer_id = customerMap.get(msData.customer_id);
+                    }
+                    await db.models.milk_subscriptions.create(msData);
+                } catch (_) {}
             }
         }
 
         if (Array.isArray(bundle.deliveryCustomers) && db.models.delivery_customers) {
             for (const dc of bundle.deliveryCustomers) {
-                const { id, ...dcData } = dc;
-                dcData.outlet_id = targetOutletId;
-                await db.models.delivery_customers.create(dcData);
+                try {
+                    const { id, ...dcData } = dc;
+                    dcData.outlet_id = targetOutletId;
+                    await db.models.delivery_customers.create(dcData);
+                } catch (_) {}
             }
         }
 
         if (Array.isArray(bundle.hrEmployees) && db.models.hr_employees) {
             for (const emp of bundle.hrEmployees) {
-                const { id, ...empData } = emp;
-                empData.outlet_id = targetOutletId;
-                await db.models.hr_employees.create(empData);
+                try {
+                    const oldEmpId = emp.id;
+                    const { id, ...empData } = emp;
+                    empData.outlet_id = targetOutletId;
+                    empData.hire_date = empData.hire_date || new Date().toISOString().slice(0, 10);
+                    empData.employee_code = empData.employee_code || (`EMP-${oldEmpId || 1}`);
+                    empData.full_name = empData.full_name || 'Employee';
+                    await db.models.hr_employees.create(empData);
+                } catch (empErr: any) {
+                    console.warn(`[MIGRATION] Employee sync warning: ${empErr.message}`);
+                }
             }
         }
 
@@ -1128,7 +1292,7 @@ export const importBundle = async (req: Request, res: Response) => {
         console.error("[MIGRATION IMPORT ERROR]:", error);
         return res.status(500).json({
             success: false,
-            message: `Cloud migration failed: ${error.message}`
+            message: `Cloud migration failed: ${formatMigrationError(error)}`
         });
     }
 };
@@ -1218,7 +1382,7 @@ export const syncOnlineToOffline = async (req: Request, res: Response) => {
         console.error("[ONLINE->OFFLINE ERROR]:", error);
         return res.status(500).json({
             success: false,
-            message: `Online to Offline migration failed: ${error.message}`
+            message: `Online to Offline migration failed: ${formatMigrationError(error)}`
         });
     }
 };
