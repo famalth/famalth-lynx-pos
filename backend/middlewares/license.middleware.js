@@ -45,6 +45,34 @@ function license(requiredModule) {
         try {
             const isCloudMode = !!(process.env.IS_CLOUD === 'true' || process.env.DATABASE_URL || process.env.DB_HOST);
             if (isCloudMode) {
+                const outletCode = req.user?.outlet_code || req.outlet_code || req.headers['x-outlet-code'];
+                if (outletCode) {
+                    const { verifyLicenseOnline } = require('../controllers/public/licenseManager');
+                    verifyLicenseOnline(String(outletCode)).then((licCheck) => {
+                        if (licCheck && licCheck.license_status === 'EXPIRED') {
+                            return res.status(403).json({
+                                success: false,
+                                code: 'LICENSE_EXPIRED',
+                                license_status: 'EXPIRED',
+                                message: licCheck.message || 'System license expired. Cloud subscription requires activation by administrator via Console.'
+                            });
+                        }
+                        req.license = {
+                            allowed_mode: 'ONLINE',
+                            valid_till: licCheck?.valid_till || '2099-12-31',
+                            modules: ['INVENTORY', 'REPORTS', 'ADMIN', 'PURCHASE', 'SUPPLIER', 'ACCOUNTING', 'ANALYTICS', 'DELIVERY', 'FINANCE', 'NOTIFICATIONS']
+                        };
+                        next();
+                    }).catch(() => {
+                        req.license = {
+                            allowed_mode: 'ONLINE',
+                            valid_till: '2099-12-31',
+                            modules: ['INVENTORY', 'REPORTS', 'ADMIN', 'PURCHASE', 'SUPPLIER', 'ACCOUNTING', 'ANALYTICS', 'DELIVERY', 'FINANCE', 'NOTIFICATIONS']
+                        };
+                        next();
+                    });
+                    return;
+                }
                 req.license = {
                     allowed_mode: 'ONLINE',
                     valid_till: '2099-12-31',

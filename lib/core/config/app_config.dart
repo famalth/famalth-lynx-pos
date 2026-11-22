@@ -78,6 +78,14 @@ class AppConfig {
         }
         return true;
       }
+
+      // Fallback to SharedPreferences if server_config.json is missing or inaccessible
+      final prefs = await SharedPreferences.getInstance();
+      final savedUrl = prefs.getString('server_base_url');
+      if (savedUrl != null && savedUrl.trim().isNotEmpty) {
+        baseUrl = savedUrl.trim();
+        return true;
+      }
     } catch (e) {
       print('Error loading config: $e');
     }

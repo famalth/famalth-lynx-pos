@@ -94,6 +94,10 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
   void _handleTabSelection() {
     if (_tabController != null && !_tabController!.indexIsChanging) {
       _currentTabIndex = _tabController!.index;
+      // Reload system settings dynamically when switching to Security & Gateways tab
+      if (_currentTabIndex == 1 && mounted) {
+        context.read<SystemSettingsController>().load();
+      }
     }
   }
 
@@ -1773,9 +1777,13 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                     'Storage & Tenant Backups',
                     'Enterprise storage analytics, portable outlet snapshots, and server migration.',
                     [
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 8),
-                        child: StorageBackupCard(),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: StorageBackupCard(
+                          onBackupChanged: () {
+                            context.read<SystemSettingsController>().load();
+                          },
+                        ),
                       ),
                     ],
                   ),

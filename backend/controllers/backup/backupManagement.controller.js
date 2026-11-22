@@ -14,6 +14,7 @@ const crypto_1 = __importDefault(require("crypto"));
 const { sendMail } = require('../../services/email.service');
 const jwtUtil = require('../../utils/jwt.util');
 const { isCloudEnvironment } = require('../../utils/backupTracker');
+const { getBaseUrl } = require('../../utils/urlHelper');
 function formatBytes(bytes, decimals = 2) {
     if (bytes === 0)
         return '0 Bytes';
@@ -74,6 +75,16 @@ class BackupManagementController {
 
             stats.isEnterpriseConsole = isSuperAdmin;
             stats.canManageAll = isSuperAdmin;
+            let isCloudEnabled = false;
+            try {
+                const [settingsRow] = await activeDb.query(
+                    `SELECT is_cloud_enabled FROM system_settings LIMIT 1;`,
+                    { type: require('sequelize').QueryTypes.SELECT }
+                );
+                isCloudEnabled = (settingsRow === null || settingsRow === void 0 ? void 0 : settingsRow.is_cloud_enabled) === true;
+            }
+            catch (_) { }
+            stats.isCloudEnabled = isCloudEnabled;
 
             storageStatsCache.set(cacheKey, {
                 data: stats,
@@ -319,17 +330,17 @@ class BackupManagementController {
             const isMasterAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN';
             const isCloud = isCloudEnvironment();
             const scope = (String(req.body?.scope || 'OUTLET').toUpperCase() === 'ALL') ? 'ALL' : 'OUTLET';
-            if (isCloud && scope === 'ALL') {
+            if (isCloud && scope === 'ALL' && !isMasterAdmin) {
                 return res.status(403).json({
                     success: false,
-                    message: 'When hosted on cloud, only your own outlet backup (.fambak) is allowed. Multi-outlet system backups are disabled on cloud instances.',
+                    message: 'When hosted on cloud, store terminals can only backup their own outlet (.fambak). Multi-outlet system backups are restricted to Enterprise Admins.',
                 });
             }
             const isLanClient = !isLoopback && !isCloud && (ip.includes('192.168.') || ip.includes('10.') || ip.includes('172.'));
             if (scope === 'ALL' && !isLoopback && !isMasterAdmin) {
                 return res.status(403).json({
                     success: false,
-                    message: 'All Outlets (Enterprise DB) backups can only be created directly on the Local Server PC. Cloud servers and client terminals are restricted to their own outlet backup.',
+                    message: 'All Outlets (Enterprise DB) backups can only be created by Enterprise Super Admins or directly on the Local Server PC. Client terminals are restricted to their own outlet backup.',
                 });
             }
             const outletId = Number(req.body?.outletId || req.outlet_id || req.user?.outlet_id || 1);
@@ -585,9 +596,8 @@ class BackupManagementController {
             sizeBytes: stat.size,
             checksum,
         }, { expiresIn: '7d' });
-        const host = req.get('host') || 'localhost:3000';
-        const protocol = req.protocol || 'http';
-        const downloadUrl = `${protocol}://${host}/api/backup/email-download?token=${encodeURIComponent(downloadToken)}`;
+        const baseUrl = getBaseUrl(req);
+        const downloadUrl = `${baseUrl}/api/backup/email-download?token=${encodeURIComponent(downloadToken)}`;
         let offsiteS3Status = false;
         let offsiteDriveStatus = null;
         try {

@@ -58,8 +58,8 @@ class CloudMigrationService {
         uri,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'outlet_code': scope == 'ALL' ? 'ALL' : outletCode,
-          'scope': scope,
+          'outlet_code': outletCode,
+          'scope': 'OUTLET',
         }),
       ).timeout(const Duration(seconds: 15));
 
@@ -103,8 +103,8 @@ class CloudMigrationService {
         uri,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'outlet_code': scope == 'ALL' ? 'ALL' : outletCode,
-          'scope': scope,
+          'outlet_code': outletCode,
+          'scope': 'OUTLET',
           'otp': otp.trim(),
         }),
       ).timeout(const Duration(seconds: 10));
@@ -128,8 +128,8 @@ class CloudMigrationService {
     try {
       final outletCode = await TokenStorage.getOutletCode() ?? '';
       final res = await ApiClient.post('/api/public/migration/export-bundle', {
-        'outlet_code': scope == 'ALL' ? 'ALL' : outletCode,
-        'scope': scope,
+        'outlet_code': outletCode,
+        'scope': 'OUTLET',
         if (otp != null && otp.isNotEmpty) 'otp': otp,
       });
 
@@ -247,9 +247,9 @@ class CloudMigrationService {
     try {
       final res = await ApiClient.post('/api/public/migration/sync-online-to-offline', {
         'cloud_url': cloudUrl,
-        'outlet_code': scope == 'ALL' ? 'ALL' : outletCode,
+        'outlet_code': outletCode,
         'admin_password': adminPassword,
-        'scope': scope,
+        'scope': 'OUTLET',
         if (otp != null && otp.isNotEmpty) 'otp': otp,
       });
 

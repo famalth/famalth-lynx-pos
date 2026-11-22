@@ -1,3 +1,4 @@
+import 'dart:async';
 import '../core/auth/control_plane_storage.dart';
 import '../screens/recovery/backup_service.dart';
 
@@ -75,8 +76,8 @@ class _StorageBackupCardState extends State<StorageBackupCard> {
     }
   }
 
-  void _openManageBackupsDialog() {
-    showDialog(
+  void _openManageBackupsDialog() async {
+    await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => _ManageBackupsDialog(
@@ -87,6 +88,10 @@ class _StorageBackupCardState extends State<StorageBackupCard> {
         },
       ),
     );
+    if (mounted) {
+      _fetchStorageStats();
+      widget.onBackupChanged?.call();
+    }
   }
 
   @override
@@ -339,6 +344,61 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
   Map<String, dynamic>? _adminOverview;
   bool _isAdminOverviewLoading = false;
   bool _isEnterpriseConsole = false;
+  static const bool _showGetMoreStorage = false; // Hidden for now, kept intact for future work
+  Timer? _actionTimer;
+  int _actionElapsedSeconds = 0;
+  String _actionCurrentPhase = '';
+
+  void _startActionProgress(String initialMessage, {bool isRestore = false}) {
+    _actionTimer?.cancel();
+    _actionElapsedSeconds = 0;
+    _actionCurrentPhase = isRestore ? 'Phase 1/4: Validating & decrypting backup archive...' : '';
+    setState(() {
+      _dialogAlertMessage = null;
+      _isActionInProgress = true;
+      _statusMessage = initialMessage;
+    });
+
+    _actionTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        _actionElapsedSeconds++;
+        if (isRestore) {
+          if (_actionElapsedSeconds >= 35) {
+            _actionCurrentPhase = 'Phase 4/4: Running schema healing & finalizing database...';
+          } else if (_actionElapsedSeconds >= 18) {
+            _actionCurrentPhase = 'Phase 3/4: Updating sequence counters & foreign key indexes...';
+          } else if (_actionElapsedSeconds >= 5) {
+            _actionCurrentPhase = 'Phase 2/4: Safely merging table records inside ACID transaction...';
+          } else {
+            _actionCurrentPhase = 'Phase 1/4: Validating & decrypting backup archive...';
+          }
+        }
+      });
+    });
+  }
+
+  void _stopActionProgress() {
+    _actionTimer?.cancel();
+    _actionTimer = null;
+    _actionElapsedSeconds = 0;
+    _actionCurrentPhase = '';
+    if (mounted) {
+      setState(() {
+        _isActionInProgress = false;
+        _statusMessage = null;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _actionTimer?.cancel();
+    super.dispose();
+  }
 
   Future<void> _checkEnterpriseStatus() async {
     final role = (await TokenStorage.getRole() ?? '').toUpperCase();
@@ -708,9 +768,29 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
     if (!AppConfig.isLocalServer) {
       _backupScope = 'OUTLET';
     }
+    if (widget.initialData?['isCloudEnabled'] != null) {
+      _saveToGoogleDrive = widget.initialData!['isCloudEnabled'] == true;
+    }
     _backupsList = widget.initialData?['backupsList'] as List<dynamic>? ?? [];
     _checkEnterpriseStatus();
     _loadCurrentOutletAndBackups();
+  }
+
+  Future<void> _toggleCloudSyncState(bool enable) async {
+    setState(() => _saveToGoogleDrive = enable);
+    try {
+      await BackupService.toggleCloudSync(enable);
+      widget.onRefreshParent();
+      _showDialogMessage(
+        enable
+            ? '✓ Famalth Lynx Cloud Backup enabled across all screens!'
+            : 'Cloud Backup paused.',
+        type: enable ? 'SUCCESS' : 'INFO',
+      );
+    } catch (e) {
+      setState(() => _saveToGoogleDrive = !enable);
+      _showDialogMessage('Failed to update cloud backup setting: $e', type: 'ERROR');
+    }
   }
 
   Future<void> _loadCurrentOutletAndBackups() async {
@@ -754,13 +834,10 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
 
   Future<void> _takeFambakBackup() async {
     final isAll = _backupScope == 'ALL';
-    setState(() {
-      _dialogAlertMessage = null;
-      _isActionInProgress = true;
-      _statusMessage = isAll
-          ? 'Securing Complete Enterprise Database across all outlets into .fambak archive...'
-          : 'Securing isolated snapshot for outlet ${_currentOutletCode ?? ""} into .fambak archive...';
-    });
+    final initialMsg = isAll
+        ? 'Securing Complete Enterprise Database across all outlets into .fambak archive...'
+        : 'Securing isolated snapshot for outlet ${_currentOutletCode ?? ""} into .fambak archive...';
+    _startActionProgress(initialMsg, isRestore: false);
 
     try {
       final result = await BackupService.createFambakBackup(
@@ -788,12 +865,7 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
       if (!mounted) return;
       _showDialogMessage('Backup creation failed: $e', type: 'ERROR');
     } finally {
-      if (mounted) {
-        setState(() {
-          _isActionInProgress = false;
-          _statusMessage = null;
-        });
-      }
+      _stopActionProgress();
     }
   }
 
@@ -1257,12 +1329,10 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
     final String? chosenSourceOutlet = proceedResult['selectedOutletCode'];
     final String? chosenTargetOutlet = proceedResult['targetOutletCode'];
 
-    setState(() {
-      _isActionInProgress = true;
-      _statusMessage = isOverwrite
-          ? 'Executing transactional point-in-time rollback for outlet ${chosenTargetOutlet ?? ""}...'
-          : 'Safely merging records inside database transaction...';
-    });
+    final initialMsg = isOverwrite
+        ? 'Executing transactional point-in-time rollback for outlet ${chosenTargetOutlet ?? ""}...'
+        : 'Safely merging records inside database transaction...';
+    _startActionProgress(initialMsg, isRestore: true);
 
     try {
       final restoreRes = await BackupService.restoreFambak(
@@ -1304,6 +1374,7 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
               try {
                 await BackupService.toggleCloudSync(true);
                 if (mounted) {
+                  setState(() => _saveToGoogleDrive = true);
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text('Cloud backup enabled and synchronized!'),
@@ -1324,12 +1395,7 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
       if (!mounted) return;
       _showDialogMessage('Restore execution failed: $e', type: 'ERROR');
     } finally {
-      if (mounted) {
-        setState(() {
-          _isActionInProgress = false;
-          _statusMessage = null;
-        });
-      }
+      _stopActionProgress();
     }
   }
 
@@ -1778,18 +1844,21 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
                           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                         ),
                       ),
-                      FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFF0284C7),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          visualDensity: VisualDensity.compact,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                      // Hidden for now, kept intact for future work
+                      if (_showGetMoreStorage) ...[
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF0284C7),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            visualDensity: VisualDensity.compact,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                          ),
+                          icon: const Icon(Icons.add_circle_outline, size: 14),
+                          label: const Text('Get More Storage', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                          onPressed: _showUpgradeStorageModal,
                         ),
-                        icon: const Icon(Icons.add_circle_outline, size: 14),
-                        label: const Text('Get More Storage', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                        onPressed: _showUpgradeStorageModal,
-                      ),
+                      ],
                     ],
                   ),
                 ),
@@ -1814,13 +1883,13 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
                         const Spacer(),
                         if (AppConfig.isLocalServer) ...[
                           InkWell(
-                            onTap: () => setState(() => _saveToGoogleDrive = !_saveToGoogleDrive),
+                            onTap: () => _toggleCloudSyncState(!_saveToGoogleDrive),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Checkbox(
                                   value: _saveToGoogleDrive,
-                                  onChanged: (v) => setState(() => _saveToGoogleDrive = v ?? true),
+                                  onChanged: (v) => _toggleCloudSyncState(v ?? false),
                                   activeColor: const Color(0xFF0284C7),
                                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                 ),
@@ -1970,21 +2039,92 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
               if (_isActionInProgress) ...[
                 const SizedBox(height: 12),
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.blue.shade200),
+                    color: isDark ? const Color(0xFF0C4A6E).withValues(alpha: 0.25) : const Color(0xFFF0F9FF),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.4)),
                   ),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          _statusMessage ?? 'Processing operation...',
-                          style: TextStyle(color: Colors.blue.shade900, fontSize: 12.5, fontWeight: FontWeight.w600),
+                      Row(
+                        children: [
+                          const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2.2, color: Color(0xFF0284C7)),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              _statusMessage ?? 'Processing operation...',
+                              style: TextStyle(
+                                color: isDark ? Colors.lightBlue.shade200 : const Color(0xFF0369A1),
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          // Live Elapsed Timing Counter
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0284C7).withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.timer_outlined, size: 13, color: Color(0xFF0284C7)),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '${(_actionElapsedSeconds ~/ 60).toString().padLeft(2, '0')}:${(_actionElapsedSeconds % 60).toString().padLeft(2, '0')}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF0284C7),
+                                    fontFeatures: [FontFeature.tabularFigures()],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_actionCurrentPhase.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            const SizedBox(width: 30),
+                            Expanded(
+                              child: Text(
+                                _actionCurrentPhase,
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: isDark ? Colors.grey.shade400 : const Color(0xFF475569),
+                                  fontStyle: FontStyle.italic,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
+                      ],
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          const SizedBox(width: 30),
+                          Expanded(
+                            child: Text(
+                              'Estimated time: ~15-45s. Safely writing to database. Please do not close this window.',
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                color: isDark ? Colors.grey.shade500 : const Color(0xFF94A3B8),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

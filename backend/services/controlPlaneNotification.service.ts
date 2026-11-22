@@ -1,6 +1,7 @@
 import { sendEmail } from '../modules/emailService';
 import { generateSubscriptionInvoicePdf } from './subscriptionInvoicePdf.service';
 import initMasterModels from '../models/master';
+import { getBaseUrl } from '../utils/urlHelper';
 
 export class ControlPlaneNotificationService {
   /**
@@ -310,7 +311,7 @@ export class ControlPlaneNotificationService {
         });
       }
 
-      const appBaseUrl = process.env.APP_URL || process.env.PUBLIC_URL || 'http://localhost:5000';
+      const appBaseUrl = getBaseUrl();
       const downloadUrl = `${appBaseUrl}/api/v1/control-plane/invoices/download/${tenant.id}`;
 
       const subject = `Upcoming License Renewal & Tax Invoice - ${clientName} (${invNum})`;
@@ -684,7 +685,7 @@ export class ControlPlaneNotificationService {
         });
       }
 
-      const appBaseUrl = process.env.APP_URL || process.env.PUBLIC_URL || 'http://localhost:5000';
+      const appBaseUrl = getBaseUrl();
       const downloadUrl = `${appBaseUrl}/api/v1/control-plane/invoices/download/${tenant.id}`;
 
       const subject = `Payment Received — License Increased by +${numDays} Days - ${clientName} (${clientCode})`;

@@ -10,14 +10,7 @@ export const dbMiddleware = async (req: Request, res: Response, next: NextFuncti
     if (!selfHealed) {
       selfHealed = true;
       try {
-        // Ensure base tables exist on fresh database
-        await propertyDb.sync().catch((err: any) => {
-          if (!err.message.includes('foreign key constraint')) {
-            console.warn('⚠️ Model sync notice:', err.message);
-          }
-        });
-
-        // Dynamically ensure columns exist
+        // Dynamically ensure columns exist (fast execution in milliseconds)
         await propertyDb.query(`
           ALTER TABLE outlets ADD COLUMN IF NOT EXISTS business_module VARCHAR(50) DEFAULT 'ALL';
           ALTER TABLE sales_headers ADD COLUMN IF NOT EXISTS salesman_id INTEGER NULL;

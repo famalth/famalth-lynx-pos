@@ -1,9 +1,7 @@
 import { Op } from 'sequelize';
 import { decrypt } from '../utils/crypto.util';
 import { sendMessage } from './whatsapp.service';
-
-const APP_PROTOCOL = process.env.APP_PROTOCOL || 'http';
-const APP_HOST = process.env.APP_HOST || 'localhost:3000';
+import { getBaseUrl } from '../utils/urlHelper';
 
 /**
  * Automatically queue an invoice checkout alert (Utility message)
@@ -155,7 +153,7 @@ export async function processQueue(db: any): Promise<number> {
             if (template.header_type === 'DOCUMENT' && log.variables_mapped?.sale_id) {
                 const saleId = log.variables_mapped.sale_id;
                 const saleNo = log.variables_mapped.sale_no || 'Invoice';
-                const pdfUrl = `${APP_PROTOCOL}://${APP_HOST}/api/public/sales/${saleId}/pdf`;
+                const pdfUrl = `${getBaseUrl()}/api/public/sales/${saleId}/pdf`;
                 
                 components.push({
                     type: 'header',

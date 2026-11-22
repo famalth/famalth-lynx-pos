@@ -95,23 +95,23 @@ async function verifyLicenseOnline(outletCode) {
                 const res = {
                     license_status: 'EXPIRED',
                     days_remaining: 0,
-                    message: 'No active license found for this outlet. Please contact administration.'
+                    message: 'No active cloud license found for this outlet. Cloud subscription requires activation by administrator via Console.'
                 };
                 licenseCache.set(outletCode, { data: res, timestamp: Date.now() });
                 return res;
             }
 
             const expiryDate = new Date(activeLic.valid_till);
-            const graceDays = Number(activeLic.grace_period_days || 15);
+            const graceDays = Number(activeLic.grace_period_days || 0);
             const diffMs = expiryDate.getTime() - Date.now();
             const daysRemaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 
             let licenseState = 'VALID';
             let message = 'License active';
 
-            if (daysRemaining <= 0) {
+            if (daysRemaining <= 0 || activeLic.status === 'EXPIRED') {
                 licenseState = 'EXPIRED';
-                message = `Software license expired on ${expiryDate.toLocaleDateString()}. Please renew subscription to continue.`;
+                message = `Software license expired on ${expiryDate.toLocaleDateString()}. Cloud subscription must be activated via Management Console.`;
             } else if (daysRemaining <= (activeLic.warning_zone_days || 15)) {
                 licenseState = 'WARNING';
                 message = `Software license expires in ${daysRemaining} days on ${expiryDate.toLocaleDateString()}.`;
@@ -209,6 +209,9 @@ async function verifyLicenseOnline(outletCode) {
 
     } catch (error) {
         if (cached) return cached.data;
+        if (isCloudEnvironment()) {
+            return { license_status: 'EXPIRED', days_remaining: 0, message: 'Cloud license check failed. Activation required via Console.' };
+        }
         return { license_status: 'VALID', days_remaining: 365, message: 'Offline validation' };
     }
 }

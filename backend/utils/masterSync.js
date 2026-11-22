@@ -9,6 +9,7 @@ const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const master_1 = __importDefault(require("../models/master"));
 const { invalidateLicenseCache } = require('../controllers/public/licenseManager');
+const { isCloudEnvironment } = require('./backupTracker');
 async function syncClientsJsonToMaster(db) {
     const rootDir = process.pkg ? path_1.default.dirname(process.execPath) : process.cwd();
     const candidateClientPaths = [
@@ -84,23 +85,25 @@ async function syncClientsJsonToMaster(db) {
                         const validTill = item.expiry_date && !isNaN(new Date(item.expiry_date).getTime())
                             ? new Date(item.expiry_date)
                             : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+                        const isCloud = isCloudEnvironment();
                         const existingLicense = await MasterLicense.findOne({ where: { tenant_id: tenantId } });
                         if (!existingLicense) {
+                            const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
                             await MasterLicense.create({
                                 tenant_id: tenantId,
                                 license_key: licenseKey,
-                                tier_name: 'ENTERPRISE_UNLIMITED',
+                                tier_name: isCloud ? 'CLOUD_PENDING_ACTIVATION' : 'ENTERPRISE_UNLIMITED',
                                 max_outlets: 10,
                                 max_terminals: 20,
-                                valid_from: new Date(),
-                                valid_till: validTill,
-                                warning_zone_days: 15,
-                                grace_period_days: 15,
+                                valid_from: isCloud ? yesterday : new Date(),
+                                valid_till: isCloud ? yesterday : validTill,
+                                warning_zone_days: isCloud ? 0 : 15,
+                                grace_period_days: isCloud ? 0 : 15,
                                 subscription_amount: 4999.00,
                                 tax_percentage: 18.00,
-                                payment_status: 'PAID',
+                                payment_status: isCloud ? 'UNPAID' : 'PAID',
                                 is_perpetual: false,
-                                status: 'ACTIVE',
+                                status: isCloud ? 'EXPIRED' : 'ACTIVE',
                             });
                         }
                     }
@@ -172,23 +175,25 @@ async function syncClientsJsonToMaster(db) {
                         last_ping_at: new Date()
                     });
                 }
+                const isCloud = isCloudEnvironment();
                 const activeLic = await MasterLicense.findOne({ where: { tenant_id: tenantId } });
                 if (!activeLic) {
+                    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
                     await MasterLicense.create({
                         tenant_id: tenantId,
                         license_key: `LIC-${code}-${Date.now().toString(36).toUpperCase()}`,
-                        tier_name: 'ENTERPRISE_UNLIMITED',
+                        tier_name: isCloud ? 'CLOUD_PENDING_ACTIVATION' : 'ENTERPRISE_UNLIMITED',
                         max_outlets: 10,
                         max_terminals: 20,
-                        valid_from: new Date(),
-                        valid_till: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-                        warning_zone_days: 15,
-                        grace_period_days: 15,
+                        valid_from: isCloud ? yesterday : new Date(),
+                        valid_till: isCloud ? yesterday : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+                        warning_zone_days: isCloud ? 0 : 15,
+                        grace_period_days: isCloud ? 0 : 15,
                         subscription_amount: 4999.00,
                         tax_percentage: 18.00,
-                        payment_status: 'PAID',
+                        payment_status: isCloud ? 'UNPAID' : 'PAID',
                         is_perpetual: false,
-                        status: 'ACTIVE'
+                        status: isCloud ? 'EXPIRED' : 'ACTIVE'
                     });
                 }
                 try {

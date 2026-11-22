@@ -47,7 +47,7 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
   String _errorMessage = "";
   Map<String, dynamic> _migratedStats = {};
   String _migratedOutletCode = "";
-  String _migrationScope = 'OUTLET'; // 'OUTLET' or 'ALL'
+  final String _migrationScope = 'OUTLET'; // Locked to single outlet (one-by-one)
 
   @override
   void initState() {
@@ -79,7 +79,6 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
     final cloudUrl = _cloudUrlCtrl.text.trim();
     final outletCode = _outletCodeCtrl.text.trim();
     final isOfflineMode = _direction == MigrationDirection.offlineToCloud;
-    final isAllScope = _migrationScope == 'ALL';
 
     if (!isOfflineMode && (cloudUrl.isEmpty || cloudUrl == 'https://')) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -88,9 +87,9 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
       return;
     }
 
-    if (!isAllScope && outletCode.isEmpty) {
+    if (outletCode.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter the Outlet Code.')),
+        const SnackBar(content: Text('Please enter your specific Outlet Code.')),
       );
       return;
     }
@@ -104,8 +103,8 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
 
     final res = await CloudMigrationService.requestMigrationOtp(
       serverUrl: targetServer,
-      outletCode: isAllScope ? 'ALL' : outletCode,
-      scope: _migrationScope,
+      outletCode: outletCode,
+      scope: 'OUTLET',
     );
 
     if (!mounted) return;
@@ -153,10 +152,9 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
       return;
     }
 
-    final isAllScope = _migrationScope == 'ALL';
-    if (_direction == MigrationDirection.cloudToOffline && !isAllScope && outletCode.isEmpty) {
+    if (outletCode.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Outlet Code is required to download cloud store data')),
+        const SnackBar(content: Text('Outlet Code is required to migrate store data')),
       );
       return;
     }
@@ -261,9 +259,9 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
 
         final pullRes = await CloudMigrationService.pullOnlineToOffline(
           cloudUrl: cloudUrl,
-          outletCode: isAllScope ? 'ALL' : outletCode,
+          outletCode: outletCode,
           adminPassword: adminPass.isNotEmpty ? adminPass : null,
-          scope: _migrationScope,
+          scope: 'OUTLET',
           otp: otp,
         );
 
@@ -470,91 +468,44 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
         ),
         const SizedBox(height: 16),
 
-        // Migration Scope Selector
+        // Migration Scope Badge (Strictly single outlet: one-by-one)
         Container(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+            color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF0F9FF),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0)),
+            border: Border.all(color: isDark ? const Color(0xFF1E3A5F) : const Color(0xFFBAE6FD)),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
             children: [
-              const Row(
-                children: [
-                  Icon(Icons.tune_rounded, size: 15, color: Color(0xFF0284C7)),
-                  SizedBox(width: 6),
-                  Text('Migration Scope Selector:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                ],
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0284C7).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.storefront_rounded, size: 20, color: Color(0xFF0284C7)),
               ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: InkWell(
-                      onTap: () => setState(() => _migrationScope = 'OUTLET'),
-                      borderRadius: BorderRadius.circular(8),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: _migrationScope == 'OUTLET'
-                              ? (isDark ? const Color(0xFF0284C7).withValues(alpha: 0.2) : Colors.blue.shade50)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: _migrationScope == 'OUTLET' ? const Color(0xFF0284C7) : Colors.grey.shade300,
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              _migrationScope == 'OUTLET' ? Icons.radio_button_checked : Icons.radio_button_off,
-                              size: 15,
-                              color: _migrationScope == 'OUTLET' ? const Color(0xFF0284C7) : Colors.grey,
-                            ),
-                            const SizedBox(width: 6),
-                            const Expanded(
-                              child: Text('Selected Outlet Only', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 11.5)),
-                            ),
-                          ],
-                        ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Migration Scope: Single Outlet (One-by-One)',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Each store outlet must be migrated individually. Offline licenses do not work on Cloud and will require activation via the Console.',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                        height: 1.3,
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: InkWell(
-                      onTap: () => setState(() => _migrationScope = 'ALL'),
-                      borderRadius: BorderRadius.circular(8),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: _migrationScope == 'ALL'
-                              ? (isDark ? Colors.green.withValues(alpha: 0.2) : Colors.green.shade50)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: _migrationScope == 'ALL' ? Colors.green.shade600 : Colors.grey.shade300,
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              _migrationScope == 'ALL' ? Icons.radio_button_checked : Icons.radio_button_off,
-                              size: 15,
-                              color: _migrationScope == 'ALL' ? Colors.green.shade600 : Colors.grey,
-                            ),
-                            const SizedBox(width: 6),
-                            const Expanded(
-                              child: Text('All Outlets (Enterprise DB)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 11.5)),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
@@ -952,19 +903,61 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
             ],
           ),
         ),
-        const SizedBox(height: 28),
+        if (isOfflineMode) ...[
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF451A03).withValues(alpha: 0.3) : const Color(0xFFFFFBEB),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFF59E0B)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.warning_amber_rounded, color: Color(0xFFD97706), size: 24),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Cloud License Activation Required',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13.5,
+                          color: Color(0xFFD97706),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Store data migrated successfully! Note: Offline licenses do not work on online cloud servers. The cloud license is EXPIRED and must be activated via the Management Console before terminal operations can proceed.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark ? const Color(0xFFFDE68A) : const Color(0xFF92400E),
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+        const SizedBox(height: 24),
 
         FilledButton.icon(
           style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xFF10B981),
+            backgroundColor: isOfflineMode ? const Color(0xFF0284C7) : const Color(0xFF10B981),
             foregroundColor: Colors.white,
             padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
           onPressed: _finishAndLaunch,
-          icon: const Icon(Icons.rocket_launch_rounded),
+          icon: Icon(isOfflineMode ? Icons.login_rounded : Icons.rocket_launch_rounded),
           label: Text(
-            isOfflineMode ? 'Open Cloud POS Now' : 'Open Local Offline POS Now',
+            isOfflineMode ? 'Proceed to Login / Console Activation' : 'Open Local Offline POS Now',
             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
           ),
         ),

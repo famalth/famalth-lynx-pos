@@ -69,6 +69,11 @@ exports.toggleBackup = async (req, res) => {
             await activeDb.query("UPDATE system_settings SET is_cloud_enabled = :enabled;", { replacements: { enabled: !!enabled } }).catch(() => { });
         }
         catch (_) { }
+        try {
+            const { BackupManagementController } = require("../backup/backupManagement.controller");
+            BackupManagementController.invalidateStatsCache();
+        }
+        catch (_) { }
         return res.status(200).json({
             success: true,
             message: enabled ? "Cloud backup enabled" : "Cloud backup disabled"

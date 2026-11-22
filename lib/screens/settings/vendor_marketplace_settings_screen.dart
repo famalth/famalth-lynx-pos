@@ -51,11 +51,14 @@ class _VendorMarketplaceSettingsViewState
   final TextEditingController _deliverySlaCtrl =
       TextEditingController(text: 'Same Day Dispatch (Order before 2 PM)');
   final TextEditingController _searchCtrl = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
 
   List<Item> _items = [];
   String _searchQuery = '';
   bool _isLoading = false;
   bool _isSaving = false;
+  int _visibleCount = 20;
+  bool _isLoadingMore = false;
 
   // Local modifications map: itemId -> {b2b_price: double, b2c_price: double, moq: int, is_listed: bool}
   final Map<int, Map<String, dynamic>> _itemOverrides = {};
@@ -68,11 +71,48 @@ class _VendorMarketplaceSettingsViewState
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     _loadData();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final currentScroll = _scrollController.position.pixels;
+    if (currentScroll >= maxScroll - 250) {
+      _loadMoreItems();
+    }
+  }
+
+  void _loadMoreItems() {
+    if (_isLoadingMore) return;
+    final totalFiltered = _filteredItemsCount;
+    if (_visibleCount < totalFiltered) {
+      setState(() => _isLoadingMore = true);
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (mounted) {
+          setState(() {
+            _visibleCount = (_visibleCount + 20).clamp(0, totalFiltered);
+            _isLoadingMore = false;
+          });
+        }
+      });
+    }
+  }
+
+  int get _filteredItemsCount {
+    if (_searchQuery.isEmpty) return _items.length;
+    final q = _searchQuery.toLowerCase();
+    return _items.where((it) =>
+        it.itemName.toLowerCase().contains(q) ||
+        it.itemCode.toLowerCase().contains(q) ||
+        it.brand.toLowerCase().contains(q)).length;
   }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     for (var c in _b2cControllers.values) {
       c.dispose();
     }
@@ -238,18 +278,30 @@ class _VendorMarketplaceSettingsViewState
 
     final filteredItems = _items.where((it) {
       if (_searchQuery.isEmpty) return true;
-      return it.itemName.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          it.itemCode.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          it.brand.toLowerCase().contains(_searchQuery.toLowerCase());
+      final q = _searchQuery.toLowerCase();
+      return it.itemName.toLowerCase().contains(q) ||
+          it.itemCode.toLowerCase().contains(q) ||
+          it.brand.toLowerCase().contains(q);
     }).toList();
+
+    final totalCount = filteredItems.length;
+    final pagedItems = filteredItems.take(_visibleCount).toList();
 
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
+    return NotificationListener<ScrollNotification>(
+      onNotification: (ScrollNotification scrollInfo) {
+        if (scrollInfo.metrics.pixels >= scrollInfo.metrics.maxScrollExtent - 250) {
+          _loadMoreItems();
+        }
+        return false;
+      },
+      child: SingleChildScrollView(
+        controller: _scrollController,
+        padding: const EdgeInsets.all(20),
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Header Bar with Save Action
@@ -582,9 +634,25 @@ class _VendorMarketplaceSettingsViewState
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              'Item Dual-Pricing & Visibility Matrix',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            Row(
+                              children: [
+                                const Text(
+                                  'Item Dual-Pricing & Visibility Matrix',
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue.withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    '${pagedItems.length} of $totalCount items',
+                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blue),
+                                  ),
+                                ),
+                              ],
                             ),
                             Text(
                               'Directly edit Retail (B2C) & Wholesale (B2B) rates below. Stored separately from Item Master.',
@@ -616,7 +684,10 @@ class _VendorMarketplaceSettingsViewState
                                       const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
                                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                                 ),
-                                onChanged: (val) => setState(() => _searchQuery = val),
+                                onChanged: (val) => setState(() {
+                                  _searchQuery = val;
+                                  _visibleCount = 20;
+                                }),
                               ),
                             ),
                           ],
@@ -645,7 +716,7 @@ class _VendorMarketplaceSettingsViewState
                           DataColumn(label: Text('Min Order (MOQ)', style: TextStyle(fontWeight: FontWeight.bold))),
                           DataColumn(label: Text('Public Listed', style: TextStyle(fontWeight: FontWeight.bold))),
                         ],
-                        rows: filteredItems.map((it) {
+                        rows: pagedItems.map((it) {
                           final override = _itemOverrides[it.id] ?? {};
                           final isListed = override['is_listed'] ?? (_listAllItems ? true : false);
 
@@ -770,6 +841,56 @@ class _VendorMarketplaceSettingsViewState
                         }).toList(),
                       ),
                     ),
+                    if (totalCount > 20) ...[
+                      const SizedBox(height: 14),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          if (_isLoadingMore) ...[
+                            const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Loading more (${pagedItems.length} of $totalCount)...',
+                              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                            ),
+                          ] else if (pagedItems.length < totalCount) ...[
+                            Text(
+                              'Showing ${pagedItems.length} of $totalCount items',
+                              style: TextStyle(
+                                  fontSize: 12, color: Colors.grey[600], fontWeight: FontWeight.w500),
+                            ),
+                            const SizedBox(width: 10),
+                            OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                              ),
+                              icon: const Icon(Icons.arrow_downward_rounded, size: 14),
+                              label: const Text('Load Next 20', style: TextStyle(fontSize: 11)),
+                              onPressed: _loadMoreItems,
+                            ),
+                          ] else ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                'All $totalCount items loaded',
+                                style: const TextStyle(
+                                    fontSize: 11.5, color: Colors.green, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -777,6 +898,7 @@ class _VendorMarketplaceSettingsViewState
           ],
         ],
       ),
+    ),
     );
   }
 }

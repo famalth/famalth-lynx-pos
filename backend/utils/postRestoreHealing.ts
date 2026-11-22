@@ -12,14 +12,8 @@ export async function runPostRestoreHealing(db: any): Promise<void> {
   console.log('🔄 Running post-restore schema healing, table synchronization & migrations...');
 
   try {
-    // 1. Ensure all Sequelize models are synced without dropping anything
-    if (typeof activeDb.sync === 'function') {
-      await activeDb.sync().catch((err: any) => {
-        if (!err.message?.includes('foreign key constraint')) {
-          console.warn('⚠️ Model sync notice during post-restore healing:', err.message);
-        }
-      });
-    }
+    // 1. Fast schema healing: Skip redundant full-ORM activeDb.sync() across 170 tables (which takes 5-10 minutes on information_schema).
+    // All required tables, columns, and constraints are safely created & healed directly below in milliseconds.
 
     // 2. Add any missing columns to existing tables
     await activeDb.query(`

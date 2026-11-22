@@ -144,13 +144,19 @@ const requestMigrationOtp = async (req, res) => {
   try {
     const rawOutletCode = String(req.body.outlet_code || "").trim();
     const scope = String(req.body.scope || "").trim().toUpperCase();
-    const isAllScope = scope === "ALL" || rawOutletCode.toUpperCase() === "ALL";
-    const outletCode = isAllScope ? "ALL" : rawOutletCode.toUpperCase();
+    if (scope === "ALL" || rawOutletCode.toUpperCase() === "ALL") {
+      return res.status(400).json({
+        success: false,
+        message: "Bulk migration of all outlets is not permitted. Outlets must be migrated individually one-by-one."
+      });
+    }
+    const outletCode = rawOutletCode.toUpperCase();
+    const isAllScope = false;
     const db = req.propertyDb;
     if (!db) {
       return res.status(500).json({ success: false, message: "Database connection not available." });
     }
-    if (!isAllScope && !outletCode) {
+    if (!outletCode) {
       return res.status(400).json({ success: false, message: "Outlet Code is required to request migration security OTP." });
     }
     let targetEmail = "";
@@ -256,13 +262,19 @@ const verifyMigrationOtp = async (req, res) => {
   try {
     const rawOutletCode = String(req.body.outlet_code || "").trim();
     const scope = String(req.body.scope || "").trim().toUpperCase();
-    const isAllScope = scope === "ALL" || rawOutletCode.toUpperCase() === "ALL";
-    const outletCode = isAllScope ? "ALL" : rawOutletCode.toUpperCase();
+    if (scope === "ALL" || rawOutletCode.toUpperCase() === "ALL") {
+      return res.status(400).json({
+        success: false,
+        message: "Bulk migration of all outlets is not permitted. Outlets must be migrated individually one-by-one."
+      });
+    }
+    const outletCode = rawOutletCode.toUpperCase();
+    const isAllScope = false;
     const otp = String(req.body.otp || "").trim();
     if (!otp) {
       return res.status(400).json({ success: false, message: "Security OTP is required." });
     }
-    const storeKey = isAllScope ? "ALL" : outletCode;
+    const storeKey = outletCode;
     const store = readMigrationOtpStore();
     pruneMigrationOtps(store);
     const record = store[storeKey];
@@ -419,8 +431,21 @@ async function resetAllDatabaseSequences(db) {
 const exportBundle = async (req, res) => {
   try {
     const reqScope = String(req.body?.scope || "").toUpperCase();
-    const isAllScope = reqScope === "ALL" || req.body?.outlet_code === "ALL";
-    const outletCode = isAllScope ? "ALL" : req.user?.outlet_code || req.outlet_code || req.body.outlet_code;
+    const rawOutlet = String(req.body?.outlet_code || req.user?.outlet_code || req.outlet_code || "").trim();
+    if (reqScope === "ALL" || rawOutlet.toUpperCase() === "ALL") {
+      return res.status(400).json({
+        success: false,
+        message: "Bulk migration of all outlets is not permitted. Outlets must be migrated individually one-by-one."
+      });
+    }
+    if (!rawOutlet) {
+      return res.status(400).json({
+        success: false,
+        message: "Outlet Code is required to export store migration bundle."
+      });
+    }
+    const outletCode = rawOutlet.toUpperCase();
+    const isAllScope = false;
     const db = req.propertyDb;
     if (!db) {
       return res.status(500).json({ success: false, message: "Database connection not available." });
@@ -688,6 +713,92 @@ const exportBundle = async (req, res) => {
     });
   }
 };
+async function syncMigratedOutletLicenseToExpired(db, outletCode, bundle) {
+  try {
+    const initMasterModels = require("../../models/master").default || require("../../models/master");
+    const { MasterTenant, MasterOutlet, MasterLicense } = initMasterModels(db);
+    const { invalidateLicenseCache } = require("./licenseManager");
+    const clientCode = String(outletCode || "").toUpperCase().trim();
+    if (!clientCode || clientCode === "ALL") return;
+
+    let tenant = await MasterTenant.findOne({ where: { client_code: clientCode } });
+    if (!tenant) {
+      tenant = await MasterTenant.create({
+        client_code: clientCode,
+        legal_name: bundle?.outletRecord?.outlet_name || `Store ${clientCode}`,
+        trade_name: bundle?.outletRecord?.outlet_name || `Store ${clientCode}`,
+        contact_email: bundle?.outletRecord?.contact_email || `admin_${clientCode.toLowerCase()}@retailpos.cloud`,
+        contact_phone: String(bundle?.outletRecord?.contact_phone || "0000000000"),
+        status: "ACTIVE",
+        custom_metadata: {
+          migrated_from_offline: true,
+          migrated_at: (/* @__PURE__ */ new Date()).toISOString(),
+          cloud_license_status: "EXPIRED_PENDING_CONSOLE_ACTIVATION"
+        }
+      });
+    } else {
+      const meta = tenant.custom_metadata || {};
+      meta.migrated_from_offline = true;
+      meta.migrated_at = (/* @__PURE__ */ new Date()).toISOString();
+      meta.cloud_license_status = "EXPIRED_PENDING_CONSOLE_ACTIVATION";
+      tenant.custom_metadata = meta;
+      await tenant.save();
+    }
+
+    const tenantId = tenant.id || tenant.get?.("id");
+
+    let masterOutlet = await MasterOutlet.findOne({ where: { outlet_code: clientCode } });
+    if (!masterOutlet) {
+      masterOutlet = await MasterOutlet.create({
+        tenant_id: tenantId,
+        outlet_code: clientCode,
+        outlet_name: bundle?.outletRecord?.outlet_name || `${clientCode} Main`,
+        outlet_type: "RETAIL",
+        is_active: true,
+        is_kill_switched: false,
+        last_ping_at: /* @__PURE__ */ new Date()
+      });
+    } else {
+      masterOutlet.tenant_id = tenantId;
+      masterOutlet.is_active = true;
+      masterOutlet.is_kill_switched = false;
+      await masterOutlet.save();
+    }
+
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    let license = await MasterLicense.findOne({ where: { tenant_id: tenantId } });
+    if (!license) {
+      license = await MasterLicense.create({
+        tenant_id: tenantId,
+        license_key: `LIC-CLOUD-${clientCode}-${Date.now().toString(36).toUpperCase()}`,
+        tier_name: "CLOUD_PENDING_ACTIVATION",
+        max_outlets: 1,
+        max_terminals: 3,
+        valid_from: yesterday,
+        valid_till: yesterday,
+        warning_zone_days: 0,
+        grace_period_days: 0,
+        subscription_amount: 4999,
+        tax_percentage: 18,
+        payment_status: "UNPAID",
+        is_perpetual: false,
+        status: "EXPIRED"
+      });
+    } else {
+      license.valid_till = yesterday;
+      license.status = "EXPIRED";
+      license.payment_status = "UNPAID";
+      license.warning_zone_days = 0;
+      license.grace_period_days = 0;
+      await license.save();
+    }
+
+    invalidateLicenseCache(clientCode);
+    console.log(`🔒 [MIGRATION] Outlet ${clientCode} migrated to Cloud. License set to EXPIRED pending Console activation.`);
+  } catch (licSyncErr) {
+    console.warn(`[MIGRATION] Master license sync notice: ${licSyncErr.message}`);
+  }
+}
 const importBundle = async (req, res) => {
   try {
     const { bundle, mode = "MERGE_OUTLET", target_outlet_code, admin_password } = req.body;
@@ -698,9 +809,17 @@ const importBundle = async (req, res) => {
     if (!db) {
       return res.status(500).json({ success: false, message: "Target cloud database connection error." });
     }
-    const outletCode = (target_outlet_code || bundle.source_outlet_code || "DEFAULT").toUpperCase().trim();
+    const reqScope = String(req.body?.scope || bundle.scope || "").toUpperCase();
+    const rawOutlet = String(target_outlet_code || bundle.source_outlet_code || "").trim();
+    if (reqScope === "ALL" || rawOutlet.toUpperCase() === "ALL") {
+      return res.status(400).json({
+        success: false,
+        message: "Bulk migration of all outlets is not permitted. Outlets must be migrated individually one-by-one."
+      });
+    }
+    const outletCode = (rawOutlet || "DEFAULT").toUpperCase().trim();
     const encBase64 = bundle.database_enc_base64;
-    const isAllScope = bundle.scope === "ALL" || req.body?.scope === "ALL" || outletCode === "ALL";
+    const isAllScope = false;
     if (bundle.tables && typeof bundle.tables === "object") {
       console.log(`[UNIVERSAL MIGRATION IMPORT] Starting zero-loss database restore (scope: ${isAllScope ? "ALL" : "OUTLET"})...`);
       const [targetTableRows] = await db.query(`
@@ -1097,12 +1216,15 @@ const importBundle = async (req, res) => {
         outlet_id: primaryAdmin2?.outlet_id || 1
       };
       const token2 = (0, import_jwt.sign)(tokenPayload2, { expiresIn: "7d" });
+      await syncMigratedOutletLicenseToExpired(db, outletCode, bundle);
       return res.status(200).json({
         success: true,
-        message: `Universal zero-loss database migration completed successfully across all ${Object.keys(bundle.tables).length} tables!`,
+        message: `Store for outlet '${outletCode}' migrated to Cloud successfully across all ${Object.keys(bundle.tables).length} tables! Online license is EXPIRED pending activation via Console.`,
         outlet_code: outletCode,
         token: token2,
         user: tokenPayload2,
+        license_status: "EXPIRED",
+        license_message: "Offline license does not transfer to Cloud. Online subscription is EXPIRED and must be activated via Console.",
         stats: bundle.stats || {}
       });
     }
@@ -1125,13 +1247,16 @@ const importBundle = async (req, res) => {
         outlet_id: adminUser?.outlet_id || 1
       };
       const token2 = (0, import_jwt.sign)(tokenPayload2, { expiresIn: "7d" });
+      await syncMigratedOutletLicenseToExpired(db, outletCode, bundle);
       return res.status(200).json({
         success: true,
-        message: "Full store database restored and synchronized with cloud successfully!",
+        message: "Full store database restored and synchronized with cloud successfully! Online license is EXPIRED pending activation via Console.",
         mode: "RESTORE_DB",
         outlet_code: outletCode,
         token: token2,
         user: tokenPayload2,
+        license_status: "EXPIRED",
+        license_message: "Offline license does not transfer to Cloud. Online subscription is EXPIRED and must be activated via Console.",
         stats: bundle.stats || {}
       });
     }
@@ -1820,12 +1945,15 @@ const importBundle = async (req, res) => {
       outlet_id: targetOutletId
     };
     const token = (0, import_jwt.sign)(tokenPayload, { expiresIn: "7d" });
+    await syncMigratedOutletLicenseToExpired(db, outletCode, bundle);
     return res.status(200).json({
       success: true,
-      message: `Store for outlet '${outletCode}' successfully migrated with relational ID translation across all tables!`,
+      message: `Store for outlet '${outletCode}' successfully migrated with relational ID translation across all tables! Online license is EXPIRED pending activation via Console.`,
       outlet_code: outletCode,
       token,
       user: tokenPayload,
+      license_status: "EXPIRED",
+      license_message: "Offline license does not transfer to Cloud. Online subscription is EXPIRED and must be activated via Console.",
       stats: bundle.stats || {
         products: bundle.items ? bundle.items.length : 0,
         customers: bundle.customers ? bundle.customers.length : 0,

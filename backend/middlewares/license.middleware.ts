@@ -46,6 +46,26 @@ export function license(requiredModule?: string) {
     try {
       const isCloudMode = !!(process.env.IS_CLOUD === 'true' || process.env.DATABASE_URL || process.env.DB_HOST);
       if (isCloudMode) {
+        const outletCode = req.user?.outlet_code || (req as any).outlet_code || req.headers['x-outlet-code'];
+        if (outletCode) {
+          const { verifyLicenseOnline } = require('../controllers/public/licenseManager');
+          verifyLicenseOnline(String(outletCode)).then((licCheck: any) => {
+            if (licCheck && licCheck.license_status === 'EXPIRED') {
+              return res.status(403).json({
+                success: false,
+                code: 'LICENSE_EXPIRED',
+                license_status: 'EXPIRED',
+                message: licCheck.message || 'System license expired. Cloud subscription requires activation by administrator via Console.'
+              });
+            }
+            (req as any).license = { allowed_mode: 'ONLINE', valid_till: licCheck?.valid_till || '2099-12-31', modules: ['INVENTORY', 'REPORTS', 'ADMIN', 'PURCHASE', 'SUPPLIER', 'ACCOUNTING', 'ANALYTICS', 'DELIVERY', 'FINANCE', 'NOTIFICATIONS'] };
+            next();
+          }).catch(() => {
+            (req as any).license = { allowed_mode: 'ONLINE', valid_till: '2099-12-31', modules: ['INVENTORY', 'REPORTS', 'ADMIN', 'PURCHASE', 'SUPPLIER', 'ACCOUNTING', 'ANALYTICS', 'DELIVERY', 'FINANCE', 'NOTIFICATIONS'] };
+            next();
+          });
+          return;
+        }
         (req as any).license = { allowed_mode: 'ONLINE', valid_till: '2099-12-31', modules: ['INVENTORY', 'REPORTS', 'ADMIN', 'PURCHASE', 'SUPPLIER', 'ACCOUNTING', 'ANALYTICS', 'DELIVERY', 'FINANCE', 'NOTIFICATIONS'] };
         return next();
       }

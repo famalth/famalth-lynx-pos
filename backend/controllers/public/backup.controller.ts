@@ -79,6 +79,11 @@ exports.toggleBackup = async (req: any, res: any) => {
             ).catch(() => {});
         } catch (_) {}
 
+        try {
+            const { BackupManagementController } = require("../backup/backupManagement.controller");
+            BackupManagementController.invalidateStatsCache();
+        } catch (_) {}
+
         return res.status(200).json({
             success: true,
             message: enabled ? "Cloud backup enabled" : "Cloud backup disabled"
