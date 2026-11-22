@@ -1513,9 +1513,9 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
 
   Future<void> _handleLocalFambakRestore() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
-        allowedExtensions: const ['fambak', 'posbak', 'enc', 'zip'],
+        allowedExtensions: const ['fambak', 'posbak'],
         withData: true,
       );
       if (result == null || result.files.isEmpty) return;
