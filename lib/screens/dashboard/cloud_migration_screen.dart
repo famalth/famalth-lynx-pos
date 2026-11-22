@@ -191,10 +191,14 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
         // --- PATH A: OFFLINE TO CLOUD (RELATIONAL ID TRANSLATION) ---
         setState(() {
           _currentStep = MigrationStep.exporting;
-          _statusMessage = "Packaging local products, customers, transactions and settings...";
+          _statusMessage = "Packaging local products, customers, transactions and settings for outlet $outletCode...";
         });
 
-        final exportRes = await CloudMigrationService.exportLocalStoreBundle(scope: _migrationScope, otp: otp);
+        final exportRes = await CloudMigrationService.exportLocalStoreBundle(
+          outletCode: outletCode,
+          scope: _migrationScope,
+          otp: otp,
+        );
         if (exportRes['success'] != true || exportRes['bundle'] == null) {
           setState(() {
             _currentStep = MigrationStep.failed;
@@ -573,12 +577,54 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
         TextField(
           controller: _outletCodeCtrl,
           decoration: InputDecoration(
-            labelText: isOfflineMode ? 'Target Outlet Code (Optional)' : 'Source Cloud Outlet Code (Required)',
-            hintText: 'e.g. NYC_STORE',
+            labelText: isOfflineMode
+                ? 'Outlet Code to Migrate (Offline ➔ Cloud)'
+                : 'Outlet Code to Migrate (Cloud ➔ Offline)',
+            hintText: 'e.g. OUTLET202611102255',
             prefixIcon: const Icon(Icons.storefront_rounded),
             border: const OutlineInputBorder(),
+            helperText: 'Each outlet is migrated separately. Other linked outlets will remain safe and untouched.',
           ),
+          onChanged: (_) => setState(() {}),
         ),
+        if (AppConfig.outlets.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                'Linked Outlets:',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.grey[400] : Colors.grey[700],
+                ),
+              ),
+              ...AppConfig.outlets.map((code) {
+                final isSelected = _outletCodeCtrl.text.trim() == code;
+                return ChoiceChip(
+                  label: Text(
+                    code,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    ),
+                  ),
+                  selected: isSelected,
+                  onSelected: (selected) {
+                    if (selected) {
+                      setState(() {
+                        _outletCodeCtrl.text = code;
+                      });
+                    }
+                  },
+                );
+              }),
+            ],
+          ),
+        ],
         const SizedBox(height: 16),
 
         // Admin Password

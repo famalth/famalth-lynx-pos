@@ -124,11 +124,17 @@ class CloudMigrationService {
   }
 
   /// Package and export all local store data from the offline backend
-  static Future<Map<String, dynamic>> exportLocalStoreBundle({String scope = 'OUTLET', String? otp}) async {
+  static Future<Map<String, dynamic>> exportLocalStoreBundle({
+    String? outletCode,
+    String scope = 'OUTLET',
+    String? otp,
+  }) async {
     try {
-      final outletCode = await TokenStorage.getOutletCode() ?? '';
+      final resolvedCode = (outletCode != null && outletCode.trim().isNotEmpty)
+          ? outletCode.trim()
+          : (await TokenStorage.getOutletCode() ?? '');
       final res = await ApiClient.post('/api/public/migration/export-bundle', {
-        'outlet_code': outletCode,
+        'outlet_code': resolvedCode,
         'scope': 'OUTLET',
         if (otp != null && otp.isNotEmpty) 'otp': otp,
       });
