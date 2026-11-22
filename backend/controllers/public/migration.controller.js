@@ -532,14 +532,21 @@ const importBundle = async (req, res) => {
             });
             if (!existingOutlet) {
                 const srcOutlet = bundle.outletRecord || {};
+                const defaultPinHash = srcOutlet.recovery_pin_hash || await bcryptjs_1.default.hash("1234", 10);
                 existingOutlet = await db.models.outlets.create({
                     outlet_code: outletCode,
                     outlet_name: srcOutlet.outlet_name || outletCode,
+                    outlet_type: srcOutlet.outlet_type || 'RETAIL',
+                    business_module: srcOutlet.business_module || 'ALL',
+                    recovery_pin_hash: defaultPinHash,
+                    tax_id: srcOutlet.tax_id || 'TAX_DEFAULT',
                     address: srcOutlet.address || '',
-                    contact_phone: srcOutlet.contact_phone || '',
-                    contact_email: srcOutlet.contact_email || '',
+                    contact_phone: srcOutlet.contact_phone || '0000000000',
+                    contact_email: srcOutlet.contact_email || 'admin@retailpos.com',
                     is_active: true,
-                    business_module: srcOutlet.business_module || 'ALL'
+                    supervisor_pin: srcOutlet.supervisor_pin || '1234',
+                    supervisor_pin_type: srcOutlet.supervisor_pin_type || 'STATIC',
+                    outlet_role: srcOutlet.outlet_role || 'BRANCH'
                 });
             }
             targetOutletId = existingOutlet.id;
@@ -605,6 +612,19 @@ const importBundle = async (req, res) => {
                     defaults: numData
                 });
             }
+        }
+        // Property Info Sync
+        if (bundle.propertyInfo && db.models.property_info) {
+            try {
+                const { id, ...pData } = bundle.propertyInfo;
+                pData.outlet_id = targetOutletId;
+                const existingPropInfo = await db.models.property_info.findOne({ where: { outlet_id: targetOutletId } });
+                if (existingPropInfo) {
+                    await existingPropInfo.update(pData);
+                } else {
+                    await db.models.property_info.create(pData);
+                }
+            } catch (_) {}
         }
         // 4. Tax Groups Translation
         if (Array.isArray(bundle.taxGroups) && db.models.tax_groups) {
