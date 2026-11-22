@@ -130,54 +130,69 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Accounting Outlet Scope Filter Bar
-              if (_allOutlets.length > 1) ...[
-                Card(
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                  color: Colors.white,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.storefront_outlined, color: primaryColor),
-                        const SizedBox(width: 12),
-                        const Text(
-                          'Accounting Scope:',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<int?>(
-                              isExpanded: true,
-                              value: (_selectedOutletId == null || _allOutlets.any((o) => o['id'] == _selectedOutletId))
-                                  ? _selectedOutletId
-                                  : null,
-                              hint: const Text('All Linked Outlets (Combined Accounting)'),
-                              items: [
-                                const DropdownMenuItem<int?>(
-                                  value: null,
-                                  child: Text('🌐 All Outlets (Combined Enterprise Accounting)', style: TextStyle(fontWeight: FontWeight.bold)),
-                                ),
-                                ..._allOutlets.map<DropdownMenuItem<int?>>((outlet) {
-                                  return DropdownMenuItem<int?>(
-                                    value: outlet['id'],
-                                    child: Text('🏬 ${outlet['outlet_name']} (${outlet['outlet_code']})'),
-                                  );
-                                }).toList(),
-                              ],
-                              onChanged: (val) {
-                                setState(() => _selectedOutletId = val);
-                              },
+              Builder(
+                builder: (_) {
+                  final seenOutletIds = <int>{};
+                  final uniqueOutlets = <Map<String, dynamic>>[];
+                  for (final raw in _allOutlets) {
+                    if (raw is Map) {
+                      final m = Map<String, dynamic>.from(raw);
+                      final id = int.tryParse('${m['id']}');
+                      if (id != null && seenOutletIds.add(id)) {
+                        uniqueOutlets.add(m);
+                      }
+                    }
+                  }
+
+                  if (uniqueOutlets.length <= 1) return const SizedBox.shrink();
+
+                  return Card(
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    color: Colors.white,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.storefront_outlined, color: primaryColor),
+                          const SizedBox(width: 12),
+                          const Text(
+                            'Accounting Scope:',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<int?>(
+                                isExpanded: true,
+                                value: (_selectedOutletId == null || uniqueOutlets.any((o) => o['id'] == _selectedOutletId))
+                                    ? _selectedOutletId
+                                    : null,
+                                hint: const Text('All Linked Outlets (Combined Accounting)'),
+                                items: [
+                                  const DropdownMenuItem<int?>(
+                                    value: null,
+                                    child: Text('🌐 All Outlets (Combined Enterprise Accounting)', style: TextStyle(fontWeight: FontWeight.bold)),
+                                  ),
+                                  ...uniqueOutlets.map<DropdownMenuItem<int?>>((outlet) {
+                                    return DropdownMenuItem<int?>(
+                                      value: outlet['id'],
+                                      child: Text('🏬 ${outlet['outlet_name']} (${outlet['outlet_code']})'),
+                                    );
+                                  }).toList(),
+                                ],
+                                onChanged: (val) {
+                                  setState(() => _selectedOutletId = val);
+                                },
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
+                  );
+                },
+              ),
 
               // Welcome Banner
               Container(

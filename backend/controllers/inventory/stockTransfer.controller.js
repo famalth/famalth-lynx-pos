@@ -452,6 +452,13 @@ const getOutletsHierarchy = async (req, res) => {
                 return true;
             return false;
         });
+        const seenAllowedIds = new Set();
+        const dedupedAllowedOutlets = allowedOutletsForSession.filter((o) => {
+            const id = Number(o.id);
+            if (!id || seenAllowedIds.has(id)) return false;
+            seenAllowedIds.add(id);
+            return true;
+        });
         const masterOutlets = outlets.filter((o) => o.is_master);
         let shareContactInfo = true;
         if (models.system_settings) {
@@ -468,7 +475,7 @@ const getOutletsHierarchy = async (req, res) => {
             data: {
                 current_outlet: currentOutlet,
                 master_outlet: masterOutlet,
-                all_outlets: allowedOutletsForSession,
+                all_outlets: dedupedAllowedOutlets,
                 master_outlets: masterOutlets,
                 child_outlets: childOutletsForCurrent,
                 linked_child_outlets: childOutletsForCurrent,

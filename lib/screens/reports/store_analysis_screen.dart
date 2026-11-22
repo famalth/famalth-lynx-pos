@@ -101,7 +101,19 @@ class _StoreAnalysisScreenState extends State<StoreAnalysisScreen> {
 
   Widget _buildOutletScopeSelector() {
     final outlets = (_hierarchyData?['all_outlets'] as List?) ?? [];
-    if (outlets.length <= 1) return const SizedBox.shrink();
+    final seenOutletIds = <int>{};
+    final uniqueOutlets = <Map<String, dynamic>>[];
+    for (final raw in outlets) {
+      if (raw is Map) {
+        final m = Map<String, dynamic>.from(raw);
+        final id = int.tryParse('${m['id']}');
+        if (id != null && seenOutletIds.add(id)) {
+          uniqueOutlets.add(m);
+        }
+      }
+    }
+
+    if (uniqueOutlets.length <= 1) return const SizedBox.shrink();
 
     return Card(
       elevation: 0,
@@ -120,7 +132,7 @@ class _StoreAnalysisScreenState extends State<StoreAnalysisScreen> {
               child: DropdownButtonHideUnderline(
                 child: DropdownButton<int?>(
                   isExpanded: true,
-                  value: (_selectedOutletId == -1 || outlets.any((o) => o['id'] == _selectedOutletId))
+                  value: (_selectedOutletId == -1 || uniqueOutlets.any((o) => o['id'] == _selectedOutletId))
                       ? _selectedOutletId
                       : -1,
                   items: [
@@ -128,7 +140,7 @@ class _StoreAnalysisScreenState extends State<StoreAnalysisScreen> {
                       value: -1,
                       child: Text('🌐 All Linked Outlets (Combined Store Analytics)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                     ),
-                    ...outlets.map<DropdownMenuItem<int?>>((o) {
+                    ...uniqueOutlets.map<DropdownMenuItem<int?>>((o) {
                       return DropdownMenuItem<int?>(
                         value: o['id'],
                         child: Text('🏬 ${o['outlet_name']} (${o['outlet_code']})', style: const TextStyle(fontSize: 13)),

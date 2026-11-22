@@ -2029,7 +2029,8 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
           children: [
             const Icon(Icons.calendar_today_rounded, size: 15, color: Color(0xFF0284C7)),
             const SizedBox(width: 6),
-            Flexible(
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 160),
               child: Text(
                 _fromDate.year == _toDate.year && _fromDate.month == _toDate.month && _fromDate.day == _toDate.day
                     ? '${_datePresetLabel != 'Custom' ? '$_datePresetLabel: ' : ''}${DateFormat('dd MMM yyyy').format(_fromDate)}'
@@ -2046,6 +2047,21 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
       ),
     );
 
+    final seenDoctorFilterIds = <int>{};
+    final uniqueClinicDoctors = <Map<String, dynamic>>[];
+    for (final raw in _clinicDoctors) {
+      if (raw is Map) {
+        final m = Map<String, dynamic>.from(raw);
+        final id = int.tryParse('${m['id']}');
+        if (id != null && seenDoctorFilterIds.add(id)) {
+          uniqueClinicDoctors.add(m);
+        }
+      }
+    }
+    final effectiveDoctorFilterId = uniqueClinicDoctors.any((d) => d['id'] == _selectedDoctorFilterId)
+        ? _selectedDoctorFilterId
+        : null;
+
     final doctorDropdownWidget = Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
       decoration: BoxDecoration(
@@ -2056,7 +2072,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
       child: DropdownButtonHideUnderline(
         child: DropdownButton<int?>(
           isExpanded: true,
-          value: _clinicDoctors.any((d) => d['id'] == _selectedDoctorFilterId) ? _selectedDoctorFilterId : null,
+          value: effectiveDoctorFilterId,
           icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF64748B)),
           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0F172A)),
           items: [
@@ -2071,7 +2087,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
                 ],
               ),
             ),
-            ..._clinicDoctors.map((doc) {
+            ...uniqueClinicDoctors.map((doc) {
               final docId = doc['id'] as int?;
               final dName = (doc['full_name'] ?? 'Doctor').toString();
               final spec = (doc['speciality'] ?? '').toString();
@@ -2097,8 +2113,8 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
               if (val == null) {
                 _selectedDoctorFilter = 'ALL';
               } else {
-                final match = _clinicDoctors.firstWhere((d) => d['id'] == val, orElse: () => null);
-                _selectedDoctorFilter = match != null ? (match['full_name'] ?? '').toString() : 'ALL';
+                final match = uniqueClinicDoctors.firstWhere((d) => d['id'] == val, orElse: () => {});
+                _selectedDoctorFilter = match.isNotEmpty ? (match['full_name'] ?? '').toString() : 'ALL';
               }
             });
             _fetchAppointments();
@@ -2872,43 +2888,62 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
                 child: Row(
                   children: [
                     // Doctor Filter Dropdown (backed by Doctor ID)
-                    Container(
-                      height: 36,
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFFCBD5E1)),
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<int?>(
-                          value: _clinicDoctors.any((d) => d['id'] == _selectedDoctorFilterId) ? _selectedDoctorFilterId : null,
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                          icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF0284C7)),
-                          items: [
-                            const DropdownMenuItem<int?>(value: null, child: Text('👨‍⚕️ All Doctors')),
-                            ..._clinicDoctors.map((d) {
-                              final docId = d['id'] as int?;
-                              final docName = (d['full_name'] ?? 'Doctor').toString();
-                              return DropdownMenuItem<int?>(
-                                value: docId,
-                                child: Text(_formatDoctorTitle(docName)),
-                              );
-                            }),
-                          ],
-                          onChanged: (val) {
-                            setState(() {
-                              _selectedDoctorFilterId = val;
-                              if (val == null) {
-                                _selectedDoctorFilter = 'ALL';
-                              } else {
-                                final match = _clinicDoctors.firstWhere((d) => d['id'] == val, orElse: () => null);
-                                _selectedDoctorFilter = match != null ? (match['full_name'] ?? '').toString() : 'ALL';
-                              }
-                            });
-                          },
-                        ),
-                      ),
+                    Builder(
+                      builder: (_) {
+                        final seenDeskDoctorIds = <int>{};
+                        final uniqueDeskDoctors = <Map<String, dynamic>>[];
+                        for (final raw in _clinicDoctors) {
+                          if (raw is Map) {
+                            final m = Map<String, dynamic>.from(raw);
+                            final id = int.tryParse('${m['id']}');
+                            if (id != null && seenDeskDoctorIds.add(id)) {
+                              uniqueDeskDoctors.add(m);
+                            }
+                          }
+                        }
+                        final effectiveDeskDocId = uniqueDeskDoctors.any((d) => d['id'] == _selectedDoctorFilterId)
+                            ? _selectedDoctorFilterId
+                            : null;
+
+                        return Container(
+                          height: 36,
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFFCBD5E1)),
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<int?>(
+                              value: effectiveDeskDocId,
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                              icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF0284C7)),
+                              items: [
+                                const DropdownMenuItem<int?>(value: null, child: Text('👨‍⚕️ All Doctors')),
+                                ...uniqueDeskDoctors.map((d) {
+                                  final docId = d['id'] as int?;
+                                  final docName = (d['full_name'] ?? 'Doctor').toString();
+                                  return DropdownMenuItem<int?>(
+                                    value: docId,
+                                    child: Text(_formatDoctorTitle(docName)),
+                                  );
+                                }),
+                              ],
+                              onChanged: (val) {
+                                setState(() {
+                                  _selectedDoctorFilterId = val;
+                                  if (val == null) {
+                                    _selectedDoctorFilter = 'ALL';
+                                  } else {
+                                    final match = uniqueDeskDoctors.firstWhere((d) => d['id'] == val, orElse: () => {});
+                                    _selectedDoctorFilter = match.isNotEmpty ? (match['full_name'] ?? '').toString() : 'ALL';
+                                  }
+                                });
+                              },
+                            ),
+                          ),
+                        );
+                      },
                     ),
 
                     if (isDoctorUser || _loggedInDoctorName.isNotEmpty) ...[

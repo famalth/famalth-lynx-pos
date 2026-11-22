@@ -896,7 +896,14 @@ const getClinicDoctors = async (req, res) => {
         }
         // Enrich with stats: patients attended, fees collected by mode, medicine referral sales
         const results = [];
-        for (const d of doctors) {
+        const seenDoctorIds = new Set();
+        const dedupedDoctors = doctors.filter((d) => {
+            const id = Number(d.id);
+            if (!id || seenDoctorIds.has(id)) return false;
+            seenDoctorIds.add(id);
+            return true;
+        });
+        for (const d of dedupedDoctors) {
             const rawName = (d.full_name || d.username).trim();
             const cleanName = rawName.replace(/^Dr\.?\s+/i, '').trim();
             const appointments = await req.propertyDb.models.clinic_appointments.findAll({

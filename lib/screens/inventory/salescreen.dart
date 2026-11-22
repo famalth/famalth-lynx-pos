@@ -797,7 +797,9 @@ class _SaleScreenState extends State<SaleScreen> {
       final sources = await ctrl.listSaleSources();
       final activeSources = sources
           .where((e) => e['is_active'] == true)
-          .map((e) => e['name'].toString())
+          .map((e) => e['name'].toString().trim())
+          .where((name) => name.isNotEmpty)
+          .toSet()
           .toList();
       if (activeSources.isNotEmpty) {
         setState(() {
@@ -815,7 +817,9 @@ class _SaleScreenState extends State<SaleScreen> {
       final methods = await ctrl.listPaymentMethods();
       final activeMethods = methods
           .where((e) => e['is_active'] == true)
-          .map((e) => e['name'].toString().toUpperCase())
+          .map((e) => e['name'].toString().trim().toUpperCase())
+          .where((name) => name.isNotEmpty)
+          .toSet()
           .toList();
       if (activeMethods.isNotEmpty) {
         setState(() {
@@ -6169,27 +6173,40 @@ class _SaleScreenState extends State<SaleScreen> {
                         ),
                       ],
                       const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        value: _availableSaleSources.contains(_selectedSaleSource)
-                            ? _selectedSaleSource
-                            : (_availableSaleSources.isNotEmpty ? _availableSaleSources.first : 'Store'),
-                        decoration: const InputDecoration(
-                          labelText: 'Sale Source / Channel',
-                          border: OutlineInputBorder(),
-                        ),
-                        items: _availableSaleSources
-                            .map(
-                              (src) => DropdownMenuItem(
-                                value: src,
-                                child: Text(src),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (value) {
-                          setDialogState(() {
-                            _selectedSaleSource = value ?? 'Store';
-                          });
-                          setState(() {});
+                      Builder(
+                        builder: (_) {
+                          final uniqueSources = _availableSaleSources
+                              .map((s) => s.trim())
+                              .where((s) => s.isNotEmpty)
+                              .toSet()
+                              .toList();
+                          final effectiveSource = uniqueSources.contains(_selectedSaleSource)
+                              ? _selectedSaleSource
+                              : (uniqueSources.contains('Store') ? 'Store' : (uniqueSources.isNotEmpty ? uniqueSources.first : 'Store'));
+                          if (!uniqueSources.contains(effectiveSource)) {
+                            uniqueSources.add(effectiveSource);
+                          }
+                          return DropdownButtonFormField<String>(
+                            value: effectiveSource,
+                            decoration: const InputDecoration(
+                              labelText: 'Sale Source / Channel',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: uniqueSources
+                                .map(
+                                  (src) => DropdownMenuItem(
+                                    value: src,
+                                    child: Text(src),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (value) {
+                              setDialogState(() {
+                                _selectedSaleSource = value ?? 'Store';
+                              });
+                              setState(() {});
+                            },
+                          );
                         },
                       ),
                       const SizedBox(height: 16),
@@ -6526,34 +6543,41 @@ class _SaleScreenState extends State<SaleScreen> {
                           child: Row(
                             children: [
                               Expanded(
-                                child: DropdownButtonFormField<String>(
-                                  initialValue: [..._availablePaymentMethods, 'CASH ON DELIVERY'].contains(line.method.toUpperCase())
-                                      ? line.method.toUpperCase()
-                                      : _availablePaymentMethods.first,
-                                  items: [
-                                    ..._availablePaymentMethods,
-                                    if (_orderType == 'DELIVERY' && !_availablePaymentMethods.contains('CASH ON DELIVERY')) 'CASH ON DELIVERY'
-                                  ]
-                                      .map(
-                                        (method) => DropdownMenuItem(
-                                          value: method,
-                                          child: Text(method),
-                                        ),
-                                      )
-                                      .toList(),
-                                  onChanged: (value) {
-                                    setDialogState(() {
-                                      line.method = value ?? 'CASH';
-                                      if (line.method == 'CASH ON DELIVERY') {
-                                        line.amountCtrl.text = '';
-                                      }
-                                      if (readLineAmount(line) <= 0) {
-                                        autoBalanceCash();
-                                      }
-                                    });
+                                child: Builder(
+                                  builder: (_) {
+                                    final uniqueMethods = [
+                                      ..._availablePaymentMethods.map((m) => m.trim().toUpperCase()),
+                                      if (_orderType == 'DELIVERY' && !_availablePaymentMethods.contains('CASH ON DELIVERY')) 'CASH ON DELIVERY'
+                                    ].where((m) => m.isNotEmpty).toSet().toList();
+                                    final effMethod = uniqueMethods.contains(line.method.toUpperCase())
+                                        ? line.method.toUpperCase()
+                                        : (uniqueMethods.isNotEmpty ? uniqueMethods.first : 'CASH');
+                                    if (!uniqueMethods.contains(effMethod)) uniqueMethods.add(effMethod);
+                                    return DropdownButtonFormField<String>(
+                                      value: effMethod,
+                                      items: uniqueMethods
+                                          .map(
+                                            (method) => DropdownMenuItem(
+                                              value: method,
+                                              child: Text(method),
+                                            ),
+                                          )
+                                          .toList(),
+                                      onChanged: (value) {
+                                        setDialogState(() {
+                                          line.method = value ?? 'CASH';
+                                          if (line.method == 'CASH ON DELIVERY') {
+                                            line.amountCtrl.text = '';
+                                          }
+                                          if (readLineAmount(line) <= 0) {
+                                            autoBalanceCash();
+                                          }
+                                        });
+                                      },
+                                      decoration:
+                                          const InputDecoration(labelText: 'Mode'),
+                                    );
                                   },
-                                  decoration:
-                                      const InputDecoration(labelText: 'Mode'),
                                 ),
                               ),
                               const SizedBox(width: 10),
@@ -14923,47 +14947,73 @@ class _SaleScreenState extends State<SaleScreen> {
               ),
               SizedBox(
                 width: 150,
-                child: DropdownButtonFormField<String>(
-                  key: ValueKey('paymentMode-$_paymentMode'),
-                  value: _availablePaymentMethods.contains(_paymentMode.toUpperCase()) ? _paymentMode.toUpperCase() : _availablePaymentMethods.first,
-                  items: _availablePaymentMethods
-                      .map(
-                        (method) => DropdownMenuItem(
-                          value: method,
-                          child: Text(method),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) {
-                    setState(() {
-                      _paymentMode = value ?? 'CASH';
-                      if (_paymentMode == 'CREDIT') {
-                        _amountPaid.text = '0';
-                      }
-                    });
+                child: Builder(
+                  builder: (_) {
+                    final uniqueMethods = _availablePaymentMethods
+                        .map((m) => m.trim().toUpperCase())
+                        .where((m) => m.isNotEmpty)
+                        .toSet()
+                        .toList();
+                    final effMode = uniqueMethods.contains(_paymentMode.toUpperCase())
+                        ? _paymentMode.toUpperCase()
+                        : (uniqueMethods.isNotEmpty ? uniqueMethods.first : 'CASH');
+                    if (!uniqueMethods.contains(effMode)) uniqueMethods.add(effMode);
+                    return DropdownButtonFormField<String>(
+                      key: ValueKey('paymentMode-$effMode'),
+                      value: effMode,
+                      items: uniqueMethods
+                          .map(
+                            (method) => DropdownMenuItem(
+                              value: method,
+                              child: Text(method),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        setState(() {
+                          _paymentMode = value ?? 'CASH';
+                          if (_paymentMode == 'CREDIT') {
+                            _amountPaid.text = '0';
+                          }
+                        });
+                      },
+                      decoration: const InputDecoration(labelText: 'Payment'),
+                    );
                   },
-                  decoration: const InputDecoration(labelText: 'Payment'),
                 ),
               ),
               SizedBox(
                 width: 150,
-                child: DropdownButtonFormField<String>(
-                  key: ValueKey('saleSource-$_selectedSaleSource'),
-                  value: _availableSaleSources.contains(_selectedSaleSource) ? _selectedSaleSource : _availableSaleSources.first,
-                  items: _availableSaleSources
-                      .map(
-                        (src) => DropdownMenuItem(
-                          value: src,
-                          child: Text(src),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedSaleSource = value ?? 'Store';
-                    });
+                child: Builder(
+                  builder: (_) {
+                    final uniqueSources = _availableSaleSources
+                        .map((s) => s.trim())
+                        .where((s) => s.isNotEmpty)
+                        .toSet()
+                        .toList();
+                    final effSource = uniqueSources.contains(_selectedSaleSource)
+                        ? _selectedSaleSource
+                        : (uniqueSources.contains('Store') ? 'Store' : (uniqueSources.isNotEmpty ? uniqueSources.first : 'Store'));
+                    if (!uniqueSources.contains(effSource)) uniqueSources.add(effSource);
+                    return DropdownButtonFormField<String>(
+                      key: ValueKey('saleSource-$effSource'),
+                      value: effSource,
+                      items: uniqueSources
+                          .map(
+                            (src) => DropdownMenuItem(
+                              value: src,
+                              child: Text(src),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        setState(() {
+                          _selectedSaleSource = value ?? 'Store';
+                        });
+                      },
+                      decoration: const InputDecoration(labelText: 'Sale Source'),
+                    );
                   },
-                  decoration: const InputDecoration(labelText: 'Sale Source'),
                 ),
               ),
               _compactField(_amountPaid, 'Amount Paid', width: 130),

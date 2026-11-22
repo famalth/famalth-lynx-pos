@@ -852,27 +852,46 @@ class _NightAuditScreenState extends State<NightAuditScreen>
                             borderRadius: BorderRadius.circular(8),
                             color: Colors.white,
                           ),
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<int>(
-                              isExpanded: true,
-                              value: selectedCashierId,
-                              items: unclosedCashiers.map<DropdownMenuItem<int>>((c) {
-                                final cId = int.tryParse(c['id']?.toString() ?? '') ?? 0;
-                                final name = c['name'] ?? 'User #$cId';
-                                final bCount = c['billCount'] ?? 1;
-                                return DropdownMenuItem<int>(
-                                  value: cId,
-                                  child: Text('$name ($bCount bill${bCount > 1 ? 's' : ''})'),
-                                );
-                              }).toList(),
-                              onChanged: (val) {
-                                if (val != null) {
-                                  setDialogState(() {
-                                    selectedCashierId = val;
-                                  });
+                          child: Builder(
+                            builder: (_) {
+                              final seenCIds = <int>{};
+                              final uniqueCashiers = <Map<String, dynamic>>[];
+                              for (final raw in unclosedCashiers) {
+                                if (raw is Map) {
+                                  final m = Map<String, dynamic>.from(raw);
+                                  final id = int.tryParse(m['id']?.toString() ?? '');
+                                  if (id != null && seenCIds.add(id)) {
+                                    uniqueCashiers.add(m);
+                                  }
                                 }
-                              },
-                            ),
+                              }
+                              final effCashierId = uniqueCashiers.any((c) => int.tryParse(c['id']?.toString() ?? '') == selectedCashierId)
+                                  ? selectedCashierId
+                                  : (uniqueCashiers.isNotEmpty ? int.tryParse(uniqueCashiers.first['id']?.toString() ?? '') : null);
+
+                              return DropdownButtonHideUnderline(
+                                child: DropdownButton<int>(
+                                  isExpanded: true,
+                                  value: effCashierId,
+                                  items: uniqueCashiers.map<DropdownMenuItem<int>>((c) {
+                                    final cId = int.tryParse(c['id']?.toString() ?? '') ?? 0;
+                                    final name = c['name'] ?? 'User #$cId';
+                                    final bCount = c['billCount'] ?? 1;
+                                    return DropdownMenuItem<int>(
+                                      value: cId,
+                                      child: Text('$name ($bCount bill${bCount > 1 ? 's' : ''})'),
+                                    );
+                                  }).toList(),
+                                  onChanged: (val) {
+                                    if (val != null) {
+                                      setDialogState(() {
+                                        selectedCashierId = val;
+                                      });
+                                    }
+                                  },
+                                ),
+                              );
+                            },
                           ),
                         ),
                         const SizedBox(height: 14),

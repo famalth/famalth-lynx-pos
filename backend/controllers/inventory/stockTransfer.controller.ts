@@ -505,6 +505,15 @@ export const getOutletsHierarchy = async (req: Request, res: Response) => {
             return false;
         });
 
+        // Deduplicate allowed outlets strictly by ID
+        const seenAllowedIds = new Set<number>();
+        const dedupedAllowedOutlets = allowedOutletsForSession.filter((o: any) => {
+            const id = Number(o.id);
+            if (!id || seenAllowedIds.has(id)) return false;
+            seenAllowedIds.add(id);
+            return true;
+        });
+
         const masterOutlets = outlets.filter((o: any) => o.is_master);
 
         let shareContactInfo = true;
@@ -522,7 +531,7 @@ export const getOutletsHierarchy = async (req: Request, res: Response) => {
             data: {
                 current_outlet: currentOutlet,
                 master_outlet: masterOutlet,
-                all_outlets: allowedOutletsForSession,
+                all_outlets: dedupedAllowedOutlets,
                 master_outlets: masterOutlets,
                 child_outlets: childOutletsForCurrent,
                 linked_child_outlets: childOutletsForCurrent,
