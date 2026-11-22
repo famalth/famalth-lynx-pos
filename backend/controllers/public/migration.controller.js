@@ -304,6 +304,48 @@ async function insertRowsBatch(db, tableName, rows, targetColumns, columnMetadat
   }
   return inserted;
 }
+function sortTablesTopologically(tableNames, fkEdges) {
+  const adj = new Map();
+  const inDegree = new Map();
+  for (const t of tableNames) {
+    adj.set(t, new Set());
+    inDegree.set(t, 0);
+  }
+  for (const edge of fkEdges) {
+    const child = edge.child_table;
+    const parent = edge.parent_table;
+    if (adj.has(parent) && adj.has(child)) {
+      if (!adj.get(parent).has(child)) {
+        adj.get(parent).add(child);
+        inDegree.set(child, (inDegree.get(child) || 0) + 1);
+      }
+    }
+  }
+  const queue = [];
+  for (const t of tableNames) {
+    if ((inDegree.get(t) || 0) === 0) {
+      queue.push(t);
+    }
+  }
+  const sorted = [];
+  while (queue.length > 0) {
+    const curr = queue.shift();
+    sorted.push(curr);
+    const neighbors = adj.get(curr);
+    if (neighbors) {
+      for (const neighbor of neighbors) {
+        inDegree.set(neighbor, (inDegree.get(neighbor) || 1) - 1);
+        if (inDegree.get(neighbor) === 0) {
+          queue.push(neighbor);
+        }
+      }
+    }
+  }
+  for (const t of tableNames) {
+    if (!sorted.includes(t)) sorted.push(t);
+  }
+  return sorted;
+}
 async function resetAllDatabaseSequences(db) {
   try {
     const [seqMappings] = await db.query(`
@@ -690,18 +732,45 @@ const importBundle = async (req, res) => {
           }
         }
       }
-      await db.query("SET session_replication_role = 'replica';");
+      let orderedTableNames = [...targetTableNames];
+      try {
+        const [fkRows] = await db.query(`
+            SELECT 
+                tc.table_name AS child_table,
+                ccu.table_name AS parent_table
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.constraint_column_usage ccu 
+                ON tc.constraint_name = ccu.constraint_name 
+                AND tc.constraint_schema = ccu.constraint_schema
+            WHERE tc.constraint_type = 'FOREIGN KEY' 
+              AND tc.table_schema = 'public'
+              AND tc.table_name != ccu.table_name;
+        `);
+        if (Array.isArray(fkRows) && fkRows.length > 0) {
+          orderedTableNames = sortTablesTopologically(targetTableNames, fkRows);
+        }
+      } catch (_) {}
+
+      let sessionRoleBypassed = false;
+      try {
+        await db.query("SET session_replication_role = 'replica';");
+        sessionRoleBypassed = true;
+      } catch (repErr) {
+        console.warn(`[MIGRATION] Non-superuser cloud database (session_replication_role restricted): ${repErr.message}. Utilizing topological dependency order.`);
+      }
+
       try {
         let targetOutletId2 = 1;
         if (isAllScope || mode === "RESTORE_DB") {
           console.log(`[UNIVERSAL IMPORT] Cleanly purging all ${targetTableNames.length} tables for full enterprise restore...`);
-          for (const tName of targetTableNames) {
+          for (const tName of orderedTableNames.slice().reverse()) {
             try {
               await db.query(`TRUNCATE TABLE "${tName}" CASCADE;`);
             } catch (_) {
             }
           }
-          for (const [tName, rows] of Object.entries(bundle.tables)) {
+          for (const tName of orderedTableNames) {
+            const rows = bundle.tables[tName];
             if (!targetTableNames.includes(tName) || !Array.isArray(rows) || rows.length === 0) continue;
             const tCols = targetColsMap.get(tName) || [];
             await insertRowsBatch(db, tName, rows, tCols, targetColMetaMap.get(tName));
@@ -740,7 +809,7 @@ const importBundle = async (req, res) => {
               if (newOut && newOut.length > 0) targetOutletId2 = newOut[0].id;
             }
           }
-          for (const tName of targetTableNames) {
+          for (const tName of orderedTableNames.slice().reverse()) {
             const tCols = targetColsMap.get(tName) || [];
             if (tCols.includes("outlet_id") && tName !== "outlets") {
               try {
@@ -749,7 +818,8 @@ const importBundle = async (req, res) => {
               }
             }
           }
-          for (const [tName, rows] of Object.entries(bundle.tables)) {
+          for (const tName of orderedTableNames) {
+            const rows = bundle.tables[tName];
             if (!targetTableNames.includes(tName) || !Array.isArray(rows) || rows.length === 0) continue;
             const tCols = targetColsMap.get(tName) || [];
             const hasOutletId = tCols.includes("outlet_id") && tName !== "outlets";
@@ -767,7 +837,12 @@ const importBundle = async (req, res) => {
           }
         }
       } finally {
-        await db.query("SET session_replication_role = 'origin';");
+        if (sessionRoleBypassed) {
+          try {
+            await db.query("SET session_replication_role = 'origin';");
+          } catch (_) {
+          }
+        }
       }
       await resetAllDatabaseSequences(db);
       let primaryAdmin2 = null;

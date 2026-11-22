@@ -342,6 +342,59 @@ async function insertRowsBatch(
 }
 
 /**
+ * Topologically sorts tables so parent tables (with PKs) are processed before child tables (with FKs)
+ */
+function sortTablesTopologically(tableNames: string[], fkEdges: any[]): string[] {
+    const adj = new Map<string, Set<string>>();
+    const inDegree = new Map<string, number>();
+
+    for (const t of tableNames) {
+        adj.set(t, new Set());
+        inDegree.set(t, 0);
+    }
+
+    for (const edge of fkEdges) {
+        const child = edge.child_table;
+        const parent = edge.parent_table;
+        if (adj.has(parent) && adj.has(child)) {
+            if (!adj.get(parent)!.has(child)) {
+                adj.get(parent)!.add(child);
+                inDegree.set(child, (inDegree.get(child) || 0) + 1);
+            }
+        }
+    }
+
+    const queue: string[] = [];
+    for (const t of tableNames) {
+        if ((inDegree.get(t) || 0) === 0) {
+            queue.push(t);
+        }
+    }
+
+    const sorted: string[] = [];
+    while (queue.length > 0) {
+        const curr = queue.shift()!;
+        sorted.push(curr);
+
+        const neighbors = adj.get(curr);
+        if (neighbors) {
+            for (const neighbor of neighbors) {
+                inDegree.set(neighbor, (inDegree.get(neighbor) || 1) - 1);
+                if (inDegree.get(neighbor) === 0) {
+                    queue.push(neighbor);
+                }
+            }
+        }
+    }
+
+    for (const t of tableNames) {
+        if (!sorted.includes(t)) sorted.push(t);
+    }
+
+    return sorted;
+}
+
+/**
  * Resynchronize all database sequences in public schema safely using pg_depend
  */
 async function resetAllDatabaseSequences(db: any) {
@@ -785,23 +838,50 @@ export const importBundle = async (req: Request, res: Response) => {
                 }
             }
 
-            // Temporarily bypass foreign key constraints during batch ingestion
-            await db.query("SET session_replication_role = 'replica';");
+            // Resolve topological table order so parent records are inserted before child records
+            let orderedTableNames = [...targetTableNames];
+            try {
+                const [fkRows] = await db.query(`
+                    SELECT 
+                        tc.table_name AS child_table,
+                        ccu.table_name AS parent_table
+                    FROM information_schema.table_constraints tc
+                    JOIN information_schema.constraint_column_usage ccu 
+                        ON tc.constraint_name = ccu.constraint_name 
+                        AND tc.constraint_schema = ccu.constraint_schema
+                    WHERE tc.constraint_type = 'FOREIGN KEY' 
+                      AND tc.table_schema = 'public'
+                      AND tc.table_name != ccu.table_name;
+                `);
+                if (Array.isArray(fkRows) && fkRows.length > 0) {
+                    orderedTableNames = sortTablesTopologically(targetTableNames, fkRows);
+                }
+            } catch (_) {}
+
+            // Temporarily bypass foreign key constraints if superuser permitted
+            let sessionRoleBypassed = false;
+            try {
+                await db.query("SET session_replication_role = 'replica';");
+                sessionRoleBypassed = true;
+            } catch (repErr: any) {
+                console.warn(`[MIGRATION] Non-superuser cloud database (session_replication_role restricted): ${repErr.message}. Utilizing topological dependency order.`);
+            }
 
             try {
                 let targetOutletId = 1;
 
                 if (isAllScope || mode === "RESTORE_DB") {
-                    // 1. Clean truncate of all public tables
+                    // 1. Clean truncate of all public tables in reverse topological order (children first)
                     console.log(`[UNIVERSAL IMPORT] Cleanly purging all ${targetTableNames.length} tables for full enterprise restore...`);
-                    for (const tName of targetTableNames) {
+                    for (const tName of orderedTableNames.slice().reverse()) {
                         try {
                             await db.query(`TRUNCATE TABLE "${tName}" CASCADE;`);
                         } catch (_) {}
                     }
 
-                    // 2. Insert all tables verbatim
-                    for (const [tName, rows] of Object.entries(bundle.tables) as [string, any[]]) {
+                    // 2. Insert all tables in topological order (parents first)
+                    for (const tName of orderedTableNames) {
+                        const rows = bundle.tables[tName];
                         if (!targetTableNames.includes(tName) || !Array.isArray(rows) || rows.length === 0) continue;
                         const tCols = targetColsMap.get(tName) || [];
                         await insertRowsBatch(db, tName, rows, tCols, targetColMetaMap.get(tName));
@@ -844,8 +924,8 @@ export const importBundle = async (req: Request, res: Response) => {
                         }
                     }
 
-                    // 2. Delete existing outlet data to prevent collisions
-                    for (const tName of targetTableNames) {
+                    // 2. Delete existing outlet data in reverse order (children first) to prevent FK conflicts
+                    for (const tName of orderedTableNames.slice().reverse()) {
                         const tCols = targetColsMap.get(tName) || [];
                         if (tCols.includes('outlet_id') && tName !== 'outlets') {
                             try {
@@ -854,8 +934,9 @@ export const importBundle = async (req: Request, res: Response) => {
                         }
                     }
 
-                    // 3. Ingest every table with full column fidelity
-                    for (const [tName, rows] of Object.entries(bundle.tables) as [string, any[]]) {
+                    // 3. Ingest every table in topological order (parents first) with full column fidelity
+                    for (const tName of orderedTableNames) {
+                        const rows = bundle.tables[tName];
                         if (!targetTableNames.includes(tName) || !Array.isArray(rows) || rows.length === 0) continue;
                         const tCols = targetColsMap.get(tName) || [];
 
@@ -880,8 +961,12 @@ export const importBundle = async (req: Request, res: Response) => {
                 }
 
             } finally {
-                // Restore standard foreign key validation
-                await db.query("SET session_replication_role = 'origin';");
+                // Restore standard foreign key validation if bypassed
+                if (sessionRoleBypassed) {
+                    try {
+                        await db.query("SET session_replication_role = 'origin';");
+                    } catch (_) {}
+                }
             }
 
             // Resynchronize all database sequences
