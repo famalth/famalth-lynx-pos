@@ -963,8 +963,9 @@ const importBundle = async (req, res) => {
               const [newOut] = await db.query(`
                                 INSERT INTO "outlets" (
                                     outlet_code, outlet_name, outlet_type, business_module, recovery_pin_hash,
-                                    tax_id, contact_phone, contact_email, is_active, supervisor_pin, supervisor_pin_type, outlet_role
-                                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id;
+                                    tax_id, contact_phone, contact_email, is_active, supervisor_pin, supervisor_pin_type, outlet_role,
+                                    created_at, updated_at
+                                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW()) RETURNING id;
                             `, {
                 bind: [
                   outletCode,

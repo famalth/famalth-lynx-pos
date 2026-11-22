@@ -47,9 +47,13 @@ export const dbMiddleware = async (req: Request, res: Response, next: NextFuncti
           ALTER TABLE email_configurations ADD COLUMN IF NOT EXISTS resend_api_key TEXT NULL;
           ALTER TABLE outlets ADD COLUMN IF NOT EXISTS supervisor_pin VARCHAR(100) DEFAULT '1234';
           ALTER TABLE outlets ADD COLUMN IF NOT EXISTS supervisor_pin_type VARCHAR(50) DEFAULT 'STATIC';
+          ALTER TABLE outlets ALTER COLUMN created_at SET DEFAULT NOW();
+          ALTER TABLE outlets ALTER COLUMN updated_at SET DEFAULT NOW();
           ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_code VARCHAR(100) DEFAULT NULL;
           ALTER TABLE users ADD COLUMN IF NOT EXISTS show_in_quick_login BOOLEAN DEFAULT FALSE;
           ALTER TABLE users ALTER COLUMN show_in_quick_login SET DEFAULT FALSE;
+          ALTER TABLE users ALTER COLUMN created_at SET DEFAULT NOW();
+          ALTER TABLE users ALTER COLUMN updated_at SET DEFAULT NOW();
 
           -- HRMS Punches & Devices
           ALTER TABLE hr_attendance_punches ADD COLUMN IF NOT EXISTS device_id VARCHAR(255);
