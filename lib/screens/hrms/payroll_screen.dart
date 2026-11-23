@@ -46,6 +46,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
 
   // Penalties State
   List<Map<String, dynamic>> _penaltiesList = [];
+  List<Map<String, dynamic>> _arrearsList = [];
   List<Map<String, dynamic>> _employeesList = [];
 
   // Reports Tab State
@@ -395,6 +396,17 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
         if (pRes['success'] == true) {
           setState(() {
             _penaltiesList = List<Map<String, dynamic>>.from(pRes['data'] ?? []);
+          });
+        }
+        final bRes = await ApiClient.get('/api/hrms/payroll/bonuses');
+        if (bRes['success'] == true) {
+          final allBon = List<Map<String, dynamic>>.from(bRes['data'] ?? []);
+          setState(() {
+            _arrearsList = allBon.where((b) {
+              final r = (b['reason'] ?? '').toString().toLowerCase();
+              final t = (b['type'] ?? b['bonus_type'] ?? '').toString().toLowerCase();
+              return r.contains('arrear') || t.contains('arrear');
+            }).toList();
           });
         }
       } else if (_tabController.index == 6) {
@@ -1138,21 +1150,30 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                   if (bd != null) {
                     bd.forEach((k, v) {
                       if (k == 'attendance_analytics' || k == 'payment_status' || k == 'payment_method') return;
-                      final kLower = k.toLowerCase();
+                      final kLower = k.toLowerCase().trim();
+                      // Exclude components that already have dedicated columns to prevent duplicate columns
+                      if (kLower.contains('loan') ||
+                          kLower.contains('penalt') ||
+                          kLower.contains('shortage') ||
+                          kLower.contains('fine') ||
+                          kLower.contains('arrear') ||
+                          kLower.contains('commission') ||
+                          kLower.contains('bonus') ||
+                          kLower.contains('basic')) {
+                        return;
+                      }
                       final isDeduct = kLower.contains('deduct') || kLower.contains('pf') || kLower.contains('esi') || 
                           kLower.contains('tds') || kLower.contains('tcs') || kLower.contains('tax') || 
-                          kLower.contains('shortage') || kLower.contains('penalty') || kLower.contains('loan') || 
-                          kLower.contains('fine') || kLower.contains('loss');
+                          kLower.contains('loss') || kLower.contains('provident');
                       if (isDeduct) {
                         dynamicDeductionNames.add(k);
-                      } else if (!kLower.contains('basic')) {
+                      } else {
                         dynamicEarningNames.add(k);
                       }
                     });
                   }
                 }
                 if (dynamicEarningNames.isEmpty) dynamicEarningNames.addAll(['HRA', 'DA']);
-                if (dynamicDeductionNames.isEmpty) dynamicDeductionNames.addAll(['TDS', 'EPF', 'ESI']);
                 final sortedEarnings = dynamicEarningNames.toList()..sort();
                 final sortedDeductions = dynamicDeductionNames.toList()..sort();
 
@@ -1222,7 +1243,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                   final emiPenalties = loan + penalties;
                   
                   final bonus = double.tryParse(row['bonuses']?.toString() ?? '0') ?? 0.0;
-                  final deductions = double.tryParse(row['statutory_deductions']?.toString() ?? '0') ?? 0.0;
+                  final statutoryDeductions = double.tryParse(row['statutory_deductions']?.toString() ?? '0') ?? 0.0;
                   final net = double.tryParse(row['net_pay']?.toString() ?? '0') ?? 0.0;
                   
                   final paidDays = double.tryParse(row['salary_days']?.toString() ?? '0') ?? 0.0;
@@ -1255,6 +1276,11 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
 
                   final unpaidLeaves = double.tryParse(row['unpaid_leave']?.toString() ?? analytics['unpaid_leave_count']?.toString() ?? '0') ?? 0.0;
                   final unpaidLeaveDed = double.tryParse(row['unpaid_leave_deduction_amount']?.toString() ?? analytics['unpaid_leave_deduction_amount']?.toString() ?? '0') ?? 0.0;
+
+                  final rawTotalDed = double.tryParse(row['total_deductions']?.toString() ?? '');
+                  final totalDeductionsVal = (rawTotalDed != null && rawTotalDed > 0)
+                      ? rawTotalDed
+                      : (loan + penalties + statutoryDeductions + lessHoursDed + unpaidLeaveDed);
 
                   final paymentStatus = breakdown?['payment_status']?.toString() ?? 'Unpaid';
                   
@@ -1306,7 +1332,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                       final val = double.tryParse(breakdown?[c]?.toString() ?? '0') ?? 0.0;
                       return DataCell(Text(CurrencyService.format(val), style: const TextStyle(color: Color(0xFFDC2626))));
                     }),
-                    DataCell(Text(CurrencyService.format(deductions), style: const TextStyle(color: Color(0xFFDC2626)))),
+                    DataCell(Text(CurrencyService.format(totalDeductionsVal), style: const TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.bold))),
                     DataCell(Text(paidDays.toStringAsFixed(1))),
                     DataCell(Text('${workHours.toStringAsFixed(1)} hrs')),
                     DataCell(Text('${otHours.toStringAsFixed(1)} hrs')),
@@ -2078,6 +2104,12 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
       return emp != null && emp['office_id']?.toString() == _selectedApprovalsOfficeId;
     }).toList();
 
+    final filteredArrears = _arrearsList.where((a) {
+      if (_selectedApprovalsOfficeId == 'all') return true;
+      final emp = a['employee'];
+      return emp == null || emp['office_id']?.toString() == _selectedApprovalsOfficeId;
+    }).toList();
+
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 12),
       children: [
@@ -2279,6 +2311,83 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                                   tooltip: 'Delete Penalty',
                                 )
                               : const Text('Deducted', style: TextStyle(color: Color(0xFF059669), fontSize: 12)),
+                        ),
+                      ]);
+                    }).toList(),
+                  ),
+                ),
+        ),
+        const SizedBox(height: 16),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Arrears & Adjustments Log (${filteredArrears.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E3A5F))),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF059669),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                ),
+                icon: const Icon(Icons.add, color: Colors.white, size: 14),
+                label: const Text('Add Arrear', style: TextStyle(color: Colors.white, fontSize: 11)),
+                onPressed: _showAddArrearDialog,
+              ),
+            ],
+          ),
+        ),
+        _card(
+          padding: EdgeInsets.zero,
+          child: filteredArrears.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('No arrears recorded.', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)),
+                )
+              : SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: DataTable(
+                    headingRowColor: WidgetStateProperty.all(const Color(0xFFF9FAFB)),
+                    columns: const [
+                      DataColumn(label: Text('Employee', style: TextStyle(fontWeight: FontWeight.bold))),
+                      DataColumn(label: Text('Type / Reason', style: TextStyle(fontWeight: FontWeight.bold))),
+                      DataColumn(label: Text('Amount', style: TextStyle(fontWeight: FontWeight.bold))),
+                      DataColumn(label: Text('Payment Month', style: TextStyle(fontWeight: FontWeight.bold))),
+                      DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
+                      DataColumn(label: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold))),
+                    ],
+                    rows: filteredArrears.map((arr) {
+                      final emp = arr['employee'] ?? {};
+                      final name = emp['full_name']?.toString() ?? 'Employee #${arr['employee_id']}';
+                      final amt = double.tryParse(arr['amount']?.toString() ?? '0') ?? 0;
+                      final reason = arr['reason']?.toString() ?? 'Salary Arrear';
+                      final month = arr['payment_month']?.toString() ?? '—';
+                      final aStatus = arr['status']?.toString() ?? 'Pending Approval';
+                      final isPending = aStatus.toLowerCase().contains('pending');
+
+                      return DataRow(cells: [
+                        DataCell(Text(name, style: const TextStyle(fontWeight: FontWeight.w600))),
+                        DataCell(Text(reason)),
+                        DataCell(Text(CurrencyService.format(amt), style: const TextStyle(color: Color(0xFF059669), fontWeight: FontWeight.bold))),
+                        DataCell(Text(month)),
+                        DataCell(_buildStatusChip(aStatus)),
+                        DataCell(
+                          isPending
+                              ? Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.check_circle_outline, color: Color(0xFF059669), size: 20),
+                                      onPressed: () => _approveBonus(arr['id'] as int),
+                                      tooltip: 'Approve Arrear',
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.delete_outline, color: Color(0xFFDC2626), size: 18),
+                                      onPressed: () => _rejectBonus(arr['id'] as int),
+                                      tooltip: 'Delete / Reject Arrear',
+                                    ),
+                                  ],
+                                )
+                              : const Text('Approved', style: TextStyle(color: Color(0xFF059669), fontSize: 12)),
                         ),
                       ]);
                     }).toList(),

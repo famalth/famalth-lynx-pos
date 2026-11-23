@@ -75,7 +75,21 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
 
   List<Map<String, dynamic>> _parseList(dynamic res) {
     final d = res['data'];
-    if (d is List) return d.cast<Map<String, dynamic>>();
+    if (d is List) {
+      final list = d.cast<Map<String, dynamic>>();
+      final seen = <String>{};
+      final unique = <Map<String, dynamic>>[];
+      for (final item in list) {
+        final code = (item['office_code'] ?? item['code'] ?? '').toString().trim().toLowerCase();
+        final name = (item['office_name'] ?? item['name'] ?? item['title'] ?? '').toString().trim().toLowerCase();
+        final id = item['id']?.toString() ?? '';
+        final key = code.isNotEmpty ? '$code--$name' : (name.isNotEmpty ? name : id);
+        if (key.isNotEmpty && seen.contains(key)) continue;
+        if (key.isNotEmpty) seen.add(key);
+        unique.add(item);
+      }
+      return unique;
+    }
     return [];
   }
 

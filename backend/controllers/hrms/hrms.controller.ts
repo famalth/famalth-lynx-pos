@@ -37,7 +37,14 @@ exports.getSalaryComponents = async (req, res) => {
       },
       order: [['id', 'ASC']]
     });
-    return res.json({ success: true, data });
+    const seenComp = new Set<string>();
+    const unique = data.filter((item: any) => {
+      const k = (item.name || '').toLowerCase().trim();
+      if (!k || seenComp.has(k)) return false;
+      seenComp.add(k);
+      return true;
+    });
+    return res.json({ success: true, data: unique });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -101,7 +108,14 @@ exports.getPayStructures = async (req, res) => {
       ],
       order: [['id', 'ASC']]
     });
-    return res.json({ success: true, data });
+    const seenComp = new Set<string>();
+    const unique = data.filter((item: any) => {
+      const k = (item.name || '').toLowerCase().trim();
+      if (!k || seenComp.has(k)) return false;
+      seenComp.add(k);
+      return true;
+    });
+    return res.json({ success: true, data: unique });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -149,7 +163,14 @@ exports.getLeaveTypes = async (req, res) => {
       },
       order: [['id', 'ASC']]
     });
-    return res.json({ success: true, data });
+    const seenComp = new Set<string>();
+    const unique = data.filter((item: any) => {
+      const k = (item.name || '').toLowerCase().trim();
+      if (!k || seenComp.has(k)) return false;
+      seenComp.add(k);
+      return true;
+    });
+    return res.json({ success: true, data: unique });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -185,7 +206,14 @@ exports.getShifts = async (req, res) => {
       },
       order: [['id', 'ASC']]
     });
-    return res.json({ success: true, data });
+    const seenComp = new Set<string>();
+    const unique = data.filter((item: any) => {
+      const k = (item.name || '').toLowerCase().trim();
+      if (!k || seenComp.has(k)) return false;
+      seenComp.add(k);
+      return true;
+    });
+    return res.json({ success: true, data: unique });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -225,7 +253,14 @@ exports.getDesignations = async (req, res) => {
       },
       order: [['id', 'ASC']]
     });
-    return res.json({ success: true, data });
+    const seenComp = new Set<string>();
+    const unique = data.filter((item: any) => {
+      const k = (item.name || '').toLowerCase().trim();
+      if (!k || seenComp.has(k)) return false;
+      seenComp.add(k);
+      return true;
+    });
+    return res.json({ success: true, data: unique });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -270,7 +305,14 @@ exports.getEmployees = async (req, res) => {
       ],
       order: [['id', 'ASC']]
     });
-    return res.json({ success: true, data });
+    const seenComp = new Set<string>();
+    const unique = data.filter((item: any) => {
+      const k = (item.name || '').toLowerCase().trim();
+      if (!k || seenComp.has(k)) return false;
+      seenComp.add(k);
+      return true;
+    });
+    return res.json({ success: true, data: unique });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -383,6 +425,24 @@ exports.createEmployee = async (req, res) => {
     });
     if (existing) {
       return res.status(400).json({ success: false, message: `Employee code '${empCode}' is already in use by another employee.` });
+    }
+
+    // Validate unique contact_email if provided
+    const contactEmail = (employeeData.contact_email || '').toString().trim();
+    if (contactEmail) {
+      const existingEmail = await hr_employees.findOne({
+        where: {
+          contact_email: { [Op.iLike]: contactEmail },
+          outlet_id: req.user.outlet_id,
+          status: { [Op.ne]: 'Terminated' }
+        }
+      });
+      if (existingEmail) {
+        return res.status(400).json({
+          success: false,
+          message: `The email '${contactEmail}' is already assigned to employee '${existingEmail.full_name}' (${existingEmail.employee_code}). Each employee must have a unique email address, or sign in using their unique Employee Code.`
+        });
+      }
     }
 
     // Resolve Office (Mandatory)
@@ -504,6 +564,24 @@ exports.updateEmployee = async (req, res) => {
       }
     }
 
+    if (employeeData.contact_email && String(employeeData.contact_email).trim() !== '') {
+      const emailTrim = String(employeeData.contact_email).trim();
+      const existingEmail = await hr_employees.findOne({
+        where: {
+          contact_email: { [Op.iLike]: emailTrim },
+          outlet_id: req.user.outlet_id,
+          id: { [Op.ne]: req.params.id },
+          status: { [Op.ne]: 'Terminated' }
+        }
+      });
+      if (existingEmail) {
+        return res.status(400).json({
+          success: false,
+          message: `The email '${emailTrim}' is already assigned to employee '${existingEmail.full_name}' (${existingEmail.employee_code}). Each employee must have a unique email address, or sign in using their unique Employee Code.`
+        });
+      }
+    }
+
     if (employeeData.password && String(employeeData.password).trim() !== '') {
       const bcryptModule = require('bcryptjs');
       employeeData.password_hash = await bcryptModule.hash(String(employeeData.password).trim(), 10);
@@ -553,17 +631,27 @@ exports.updateEmployee = async (req, res) => {
 
 exports.terminateEmployee = async (req, res) => {
   try {
-    const { hr_employees } = req.propertyDb.models;
+    const { hr_employees, hr_attendance_punches } = req.propertyDb.models;
     const { terminated_date, termination_reason } = req.body;
+    const termDate = terminated_date || moment().format('YYYY-MM-DD');
     const [updated] = await hr_employees.update({
       status: 'Terminated',
-      terminated_date,
-      termination_reason
+      terminated_date: termDate,
+      termination_reason: termination_reason || 'Employment Terminated'
     }, {
       where: { id: req.params.id, outlet_id: req.user.outlet_id }
     });
     if (!updated) return res.status(404).json({ success: false, message: 'Not found' });
-    return res.json({ success: true, message: 'Employee terminated' });
+
+    // Clean up any attendance punches on or after termination date
+    await hr_attendance_punches.destroy({
+      where: {
+        employee_id: req.params.id,
+        punch_date: { [Op.gte]: termDate }
+      }
+    });
+
+    return res.json({ success: true, message: 'Employee terminated and subsequent attendance records cleared.' });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -678,7 +766,7 @@ exports.recalculateLeaveBalances = recalculateLeaveBalances;
 exports.getAttendance = async (req, res) => {
   try {
     const { hr_attendance_punches, hr_employees, hr_offices } = req.propertyDb.models;
-    const { employee_id, month, office_id, punch_date, date } = req.query; // month format YYYY-MM
+    const { employee_id, month, office_id, punch_date, date, include_terminated } = req.query; // month format YYYY-MM
     const where: any = { outlet_id: req.user.outlet_id };
     
     if (employee_id) where.employee_id = employee_id;
@@ -696,10 +784,21 @@ exports.getAttendance = async (req, res) => {
       where.punch_date = { [Op.between]: [startDate, endDate] };
     }
     
+    const empWhere: any = {};
+    if (include_terminated !== 'true') {
+      empWhere.status = { [Op.ne]: 'Terminated' };
+    }
+
     const data = await hr_attendance_punches.findAll({
       where,
       include: [
-        { model: hr_employees, as: 'employee', required: false, attributes: ['id', 'employee_code', 'full_name', 'contact_email', 'mobile', 'office_id'] },
+        { 
+          model: hr_employees, 
+          as: 'employee', 
+          required: true, 
+          where: empWhere,
+          attributes: ['id', 'employee_code', 'full_name', 'contact_email', 'mobile', 'office_id', 'status', 'terminated_date'] 
+        },
         { model: hr_offices, as: 'office', required: false, attributes: ['id', 'office_code', 'office_name', 'radius_meters', 'latitude', 'longitude'] }
       ],
       order: [['punch_date', 'DESC'], ['id', 'DESC']]
@@ -739,6 +838,9 @@ exports.punchIn = async (req, res) => {
     const now = moment().toDate();
 
     const empRecord = await hr_employees.findByPk(employee_id);
+    if (!empRecord || empRecord.status === 'Terminated' || (empRecord.terminated_date && today >= empRecord.terminated_date)) {
+      return res.status(400).json({ success: false, message: 'Cannot mark attendance: employee is terminated or inactive.' });
+    }
     const resolvedOfficeId = req.body.office_id || empRecord?.office_id || null;
     
     const [punch, created] = await hr_attendance_punches.findOrCreate({
@@ -815,6 +917,10 @@ exports.punchOut = async (req, res) => {
       include: [{ model: hr_shifts, as: 'shift' }]
     });
 
+    if (!employee || employee.status === 'Terminated' || (employee.terminated_date && today >= employee.terminated_date)) {
+      return res.status(400).json({ success: false, message: 'Cannot mark punch-out: employee is terminated or inactive.' });
+    }
+
     punch.punch_out = now;
     
     const start = moment(punch.punch_in);
@@ -883,9 +989,12 @@ exports.manualAttendance = async (req, res) => {
     }
 
     let resolvedOfficeId = office_id;
-    if (!resolvedOfficeId && employee_id) {
+    if (employee_id) {
       const emp = await hr_employees.findByPk(employee_id);
-      resolvedOfficeId = emp?.office_id || null;
+      if (!emp || emp.status === 'Terminated' || (emp.terminated_date && punch_date >= emp.terminated_date)) {
+        return res.status(400).json({ success: false, message: 'Cannot edit or record attendance: employee is terminated or inactive.' });
+      }
+      if (!resolvedOfficeId) resolvedOfficeId = emp?.office_id || null;
     }
     
     let computedHours = 0;

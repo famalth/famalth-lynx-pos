@@ -502,22 +502,40 @@ class ApiClient {
           cleanPath.contains('/auth/quick-users') ||
           cleanPath.contains('/auth/request-owner-setup-otp') ||
           cleanPath.contains('/auth/forgot-password') ||
-          cleanPath.contains('/auth/recover-username');
+          cleanPath.contains('/auth/recover-username') ||
+          cleanPath.contains('employee-auth') ||
+          cleanPath.contains('/login') ||
+          cleanPath.contains('/auth/');
 
       final lowerMsg = errorMessage.toLowerCase();
       final lowerCode = errorCode.toLowerCase();
 
-      final bool isSessionExpired = response.statusCode == 401 ||
-          lowerCode == 'session_expired' ||
-          lowerCode == 'invalid_token' ||
-          lowerCode == 'token_expired' ||
-          lowerCode == 'control_plane_unauthorized' ||
-          lowerMsg.contains('session expired') ||
-          lowerMsg.contains('token expired') ||
-          lowerMsg.contains('jwt expired') ||
-          lowerMsg.contains('no token provided') ||
-          lowerMsg.contains('unauthorized staff request') ||
-          (response.statusCode == 403 && (lowerMsg.contains('session') || lowerMsg.contains('token')));
+      final bool isCredentialsError = lowerMsg.contains('password') ||
+          lowerMsg.contains('credential') ||
+          lowerMsg.contains('invalid pin') ||
+          lowerMsg.contains('incorrect pin') ||
+          lowerMsg.contains('user not found') ||
+          lowerMsg.contains('invalid user') ||
+          lowerMsg.contains('inactive account') ||
+          lowerMsg.contains('outlet code is required') ||
+          lowerMsg.contains('invalid or inactive outlet') ||
+          lowerMsg.contains('role not authorized') ||
+          lowerCode == 'invalid_credentials' ||
+          lowerCode == 'wrong_password';
+
+      final bool isSessionExpired = !isAuthLoginPath &&
+          !isCredentialsError &&
+          (response.statusCode == 401 ||
+              lowerCode == 'session_expired' ||
+              lowerCode == 'invalid_token' ||
+              lowerCode == 'token_expired' ||
+              lowerCode == 'control_plane_unauthorized' ||
+              lowerMsg.contains('session expired') ||
+              lowerMsg.contains('token expired') ||
+              lowerMsg.contains('jwt expired') ||
+              lowerMsg.contains('no token provided') ||
+              lowerMsg.contains('unauthorized staff request') ||
+              (response.statusCode == 403 && (lowerMsg.contains('session') || lowerMsg.contains('token'))));
 
       final bool isLicenseExpired = response.statusCode == 403 &&
           (lowerCode == 'license_expired' ||

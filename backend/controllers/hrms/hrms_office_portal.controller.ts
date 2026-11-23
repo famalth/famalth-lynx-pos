@@ -137,8 +137,20 @@ exports.getOffices = async (req, res) => {
       order: [['id', 'ASC']]
     });
 
+    // Deduplicate offices by code and name
+    const seenCodes = new Set<string>();
+    const uniqueOffices = offices.filter((off: any) => {
+      const codeKey = (off.office_code || '').toLowerCase().trim();
+      const nameKey = (off.office_name || '').toLowerCase().trim();
+      const combo = `${codeKey}__${nameKey}`;
+      if (seenCodes.has(combo) || (codeKey && seenCodes.has(codeKey))) return false;
+      seenCodes.add(combo);
+      if (codeKey) seenCodes.add(codeKey);
+      return true;
+    });
+
     // Attach count of active employees in each office
-    const result = await Promise.all(offices.map(async (off) => {
+    const result = await Promise.all(uniqueOffices.map(async (off: any) => {
       const plain = off.toJSON ? off.toJSON() : off;
       const empCount = await hr_employees.count({
         where: { office_id: off.id, status: 'Active', outlet_id }
@@ -298,9 +310,36 @@ exports.employeeLogin = async (req: any, res: any) => {
       return res.status(401).json({ success: false, message: 'Employee not found or inactive account.' });
     }
 
+    // Prioritize direct employee_code match if cleanUsername corresponds to employee_code
+    let candidates = employees;
+    const exactCode = employees.filter((e: any) => e.employee_code && e.employee_code.toLowerCase() === cleanUsername);
+    if (exactCode.length > 0) {
+      candidates = exactCode;
+    } else if (employees.length > 1) {
+      // Multiple employees share this email address:
+      const matchedByPw: any[] = [];
+      for (const emp of employees) {
+        if (emp.password_hash) {
+          const ok = await bcrypt.compare(password, emp.password_hash);
+          if (ok) matchedByPw.push(emp);
+        } else if (password === '123456' || password.toLowerCase() === emp.employee_code.toLowerCase()) {
+          matchedByPw.push(emp);
+        }
+      }
+      if (matchedByPw.length > 1) {
+        return res.status(409).json({
+          success: false,
+          message: 'Multiple employee accounts share this email address. Please log in using your unique Employee Code (e.g. EMP-0001).'
+        });
+      }
+      if (matchedByPw.length === 1) {
+        candidates = matchedByPw;
+      }
+    }
+
     // Match password across employee record(s)
     let matchedEmployee: any = null;
-    for (const emp of employees) {
+    for (const emp of candidates) {
       if (emp.password_hash) {
         const matches = await bcrypt.compare(password, emp.password_hash);
         if (matches) {

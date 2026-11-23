@@ -288,6 +288,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
 
     final query = _searchCtrl.text.toLowerCase().trim();
     final filteredEmployees = _employeesList.where((emp) {
+      final status = (emp['status'] ?? '').toString().toLowerCase().trim();
+      if (status == 'terminated' || status == 'inactive' || emp['is_active'] == false) return false;
       if (_selectedOffice != 'All' && emp['office_id']?.toString() != _selectedOffice) return false;
       final name = (emp['full_name'] ?? '').toString().toLowerCase();
       final code = (emp['employee_code'] ?? '').toString().toLowerCase();
@@ -581,14 +583,16 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
 
   Widget _buildAttendanceLogTab() {
     final filteredPunches = _attendancePunches.where((p) {
+      final emp = _employeesList.firstWhere(
+        (e) => e['id']?.toString() == p['employee_id']?.toString(),
+        orElse: () => {},
+      );
+      final status = (emp['status'] ?? p['employee']?['status'] ?? '').toString().toLowerCase().trim();
+      if (status == 'terminated' || status == 'inactive' || emp['is_active'] == false) return false;
       if (_selectedEmployee != 'All' && p['employee_id']?.toString() != _selectedEmployee) {
         return false;
       }
       if (_selectedOffice != 'All') {
-        final emp = _employeesList.firstWhere(
-          (e) => e['id']?.toString() == p['employee_id']?.toString(),
-          orElse: () => {},
-        );
         final offId = p['office_id']?.toString() ?? emp['office_id']?.toString();
         if (offId != _selectedOffice) return false;
       }
@@ -634,7 +638,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                     isExpanded: true,
                     items: [
                       const DropdownMenuItem<String>(value: 'All', child: Text('👤 All Employees')),
-                      ..._employeesList.map((e) => DropdownMenuItem<String>(
+                      ..._employeesList.where((e) => (e['status'] ?? '').toString().toLowerCase() != 'terminated').map((e) => DropdownMenuItem<String>(
                             value: e['id'].toString(),
                             child: Text('${e['full_name']} (${e['employee_code']})'),
                           )),
