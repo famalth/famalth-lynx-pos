@@ -2,7 +2,6 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getNextNumber = void 0;
 const numberingHelper = require('../controllers/inventory/numberingSettingsV2.controller');
-
 const getNextNumber = async (db, outlet_id, module, transaction) => {
     try {
         const allocated = await numberingHelper.allocateNextNumber({
@@ -14,8 +13,8 @@ const getNextNumber = async (db, outlet_id, module, transaction) => {
         if (allocated && allocated.number) {
             return allocated.number;
         }
-    } catch (_) {}
-
+    }
+    catch (_) { }
     const queryOptions = {
         where: { outlet_id, module }
     };
@@ -25,7 +24,6 @@ const getNextNumber = async (db, outlet_id, module, transaction) => {
             queryOptions.lock = transaction.LOCK.UPDATE;
         }
     }
-
     const setting = await db.models.numbering_settings.findOne(queryOptions);
     if (!setting)
         throw new Error(`Numbering not configured for module ${module}`);

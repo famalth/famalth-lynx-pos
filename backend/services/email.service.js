@@ -111,7 +111,8 @@ async function sendMail({ db, outlet_id, to, subject, text, html, attachments })
         if (!db || !db.models) {
             try {
                 db = require('../db/models/index');
-            } catch (e) {}
+            }
+            catch (e) { }
         }
         if (db && db.models && db.models.email_configurations) {
             if (outlet_id) {

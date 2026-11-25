@@ -306,12 +306,18 @@ async function executeNightAudit(propertyDb, outletId, userId, options = {}) {
             const changeAmount = parseFloat(sale.change_amount || 0);
             const normalizeAuditMethod = (methodName) => {
                 const m = String(methodName || '').trim().toUpperCase();
-                if (!m) return 'CASH';
-                if (m === 'CASH' || m.includes('CASH')) return 'CASH';
-                if (m === 'CARD' || m.includes('CARD') || m.includes('DEBIT') || m.includes('CREDIT_CARD') || m.includes('POS')) return 'CARD';
-                if (m === 'UPI' || m.includes('UPI') || m.includes('QR') || m.includes('GPAY') || m.includes('GOOGLE') || m.includes('PHONEPE') || m.includes('PAYTM') || m.includes('BHIM') || m.includes('ONLINE') || m.includes('SCAN') || m.includes('WALLET') || m.includes('NETBANKING')) return 'UPI';
-                if (m === 'ROOM' || m.includes('ROOM')) return 'ROOM_POSTING';
-                if (m === 'CREDIT' || m.includes('CREDIT') || m.includes('DUE') || m.includes('PAY_LATER') || m.includes('PAY_AT_CLINIC')) return 'CREDIT';
+                if (!m)
+                    return 'CASH';
+                if (m === 'CASH' || m.includes('CASH'))
+                    return 'CASH';
+                if (m === 'CARD' || m.includes('CARD') || m.includes('DEBIT') || m.includes('CREDIT_CARD') || m.includes('POS'))
+                    return 'CARD';
+                if (m === 'UPI' || m.includes('UPI') || m.includes('QR') || m.includes('GPAY') || m.includes('GOOGLE') || m.includes('PHONEPE') || m.includes('PAYTM') || m.includes('BHIM') || m.includes('ONLINE') || m.includes('SCAN') || m.includes('WALLET') || m.includes('NETBANKING'))
+                    return 'UPI';
+                if (m === 'ROOM' || m.includes('ROOM'))
+                    return 'ROOM_POSTING';
+                if (m === 'CREDIT' || m.includes('CREDIT') || m.includes('DUE') || m.includes('PAY_LATER') || m.includes('PAY_AT_CLINIC'))
+                    return 'CREDIT';
                 return 'OTHER';
             };
             if (paymentRef.startsWith('POSPAY:')) {
@@ -326,16 +332,21 @@ async function executeNightAudit(propertyDb, outletId, userId, options = {}) {
                                 paymentBreakdown.CASH += netCash;
                                 cashExpected += netCash;
                             }
-                            else if (m === 'CARD')
+                            else if (m === 'CARD') {
                                 paymentBreakdown.CARD += amt;
-                            else if (m === 'UPI')
+                            }
+                            else if (m === 'UPI') {
                                 paymentBreakdown.UPI += amt;
-                            else if (m === 'ROOM_POSTING')
+                            }
+                            else if (m === 'ROOM_POSTING') {
                                 paymentBreakdown.ROOM_POSTING += amt;
-                            else if (m === 'CREDIT')
+                            }
+                            else if (m === 'CREDIT') {
                                 paymentBreakdown.CREDIT += amt;
-                            else
+                            }
+                            else {
                                 paymentBreakdown.OTHER += amt;
+                            }
                         }
                         return;
                     }

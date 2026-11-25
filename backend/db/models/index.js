@@ -342,9 +342,10 @@ function applyOutletFilter(options, outletId, isInclude = false) {
     if (options.bypassOutletFilter)
         return;
     const rawModel = options.model;
-    const modelName = ((rawModel?.name || rawModel?.tableName || '')).toLowerCase();
+    const modelName = (rawModel?.name || rawModel?.tableName || '').toLowerCase();
     const isSharedMaster = SHARED_MASTER_TABLES.has(modelName);
     if (isInclude && isSharedMaster) {
+        // Do not force outlet filter on shared master includes (they are linked via FK)
         return;
     }
     if (rawModel && rawModel.rawAttributes && rawModel.rawAttributes.outlet_id) {

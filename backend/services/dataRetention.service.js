@@ -44,9 +44,10 @@ exports.RETENTION_TABLES = [
     { table: 'delivery_challan_items', module: 'INVENTORY', isChild: true, parentTable: 'delivery_challan_headers', parentFk: 'challan_id' },
     { table: 'delivery_challan_headers', module: 'INVENTORY', dateColumn: 'created_at' },
     // 6. Milk Subscriptions
-    { table: 'milk_subscription_consumptions', module: 'SALES', dateColumn: 'created_at' },
-    { table: 'milk_subscription_settlements', module: 'SALES', dateColumn: 'created_at' },
-    { table: 'milk_subscription_schemes', module: 'SALES', dateColumn: 'created_at' },
+    { table: 'milk_subscription_consumptions', module: 'SALES', isChild: true, parentTable: 'milk_subscriptions', parentFk: 'subscription_id' },
+    { table: 'milk_subscription_items', module: 'SALES', isChild: true, parentTable: 'milk_subscriptions', parentFk: 'subscription_id' },
+    { table: 'milk_subscription_schemes', module: 'SALES', isChild: true, parentTable: 'milk_subscriptions', parentFk: 'subscription_id' },
+    { table: 'milk_subscription_settlements', module: 'SALES', isChild: true, parentTable: 'milk_subscriptions', parentFk: 'subscription_id' },
     { table: 'milk_subscriptions', module: 'SALES', dateColumn: 'created_at' },
     // 7. HRMS Transactional Tables
     { table: 'hr_loan_transactions', module: 'HRMS', isChild: true, parentTable: 'hr_loans', parentFk: 'loan_id' },
@@ -157,6 +158,24 @@ class DataRetentionService {
      * Counts how many records will be deleted without touching the database.
      */
     static async previewRetentionPurge(activeDb, options) {
+        let resolvedOutletId = Number(options.outletId || 0);
+        let resolvedOutletCode = String(options.outletCode || '').trim();
+        if (resolvedOutletCode && !resolvedOutletId) {
+            try {
+                const [oRow] = await activeDb.query(`SELECT id, outlet_code FROM outlets WHERE outlet_code = :code LIMIT 1;`, { replacements: { code: resolvedOutletCode }, type: sequelize_1.QueryTypes.SELECT });
+                if (oRow?.id) {
+                    resolvedOutletId = Number(oRow.id);
+                    resolvedOutletCode = String(oRow.outlet_code || resolvedOutletCode);
+                }
+            }
+            catch (_) { }
+        }
+        if (!resolvedOutletId)
+            resolvedOutletId = 1;
+        if (!resolvedOutletCode)
+            resolvedOutletCode = `OUT_${resolvedOutletId}`;
+        options.outletId = resolvedOutletId;
+        options.outletCode = resolvedOutletCode;
         const selectedTables = this.getSelectedTables(options.modules);
         const breakdown = [];
         let totalMatchingRecords = 0;
@@ -205,8 +224,33 @@ class DataRetentionService {
      */
     static async executeRetentionPurge(activeDb, options) {
         const isAllOutlets = options.allOutlets === true;
-        const outletId = Number(options.outletId || 1);
-        const outletCode = options.outletCode || `OUT_${outletId}`;
+        let outletId = Number(options.outletId || 0);
+        let outletCode = String(options.outletCode || '').trim();
+        if (outletCode) {
+            try {
+                const [oRow] = await activeDb.query(`SELECT id, outlet_code FROM outlets WHERE outlet_code = :code LIMIT 1;`, { replacements: { code: outletCode }, type: sequelize_1.QueryTypes.SELECT });
+                if (oRow && oRow.id) {
+                    outletId = Number(oRow.id);
+                    outletCode = String(oRow.outlet_code || outletCode);
+                }
+            }
+            catch (_) { }
+        }
+        else if (outletId) {
+            try {
+                const [oRow] = await activeDb.query(`SELECT id, outlet_code FROM outlets WHERE id = :id LIMIT 1;`, { replacements: { id: outletId }, type: sequelize_1.QueryTypes.SELECT });
+                if (oRow && oRow.outlet_code) {
+                    outletCode = String(oRow.outlet_code);
+                }
+            }
+            catch (_) { }
+        }
+        if (!outletId)
+            outletId = 1;
+        if (!outletCode)
+            outletCode = `OUT_${outletId}`;
+        options.outletId = outletId;
+        options.outletCode = outletCode;
         // STEP 1: Mandatory / Optional Safety Backup Snapshot
         let backupResult = null;
         if (options.createBackupFirst !== false) {

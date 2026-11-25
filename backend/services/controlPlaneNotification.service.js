@@ -7,7 +7,7 @@ exports.ControlPlaneNotificationService = void 0;
 const emailService_1 = require("../modules/emailService");
 const subscriptionInvoicePdf_service_1 = require("./subscriptionInvoicePdf.service");
 const master_1 = __importDefault(require("../models/master"));
-const { getBaseUrl } = require("../utils/urlHelper");
+const urlHelper_1 = require("../utils/urlHelper");
 class ControlPlaneNotificationService {
     /**
      * Helper to format currency
@@ -277,7 +277,7 @@ class ControlPlaneNotificationService {
                     contentType: 'application/pdf',
                 });
             }
-            const appBaseUrl = getBaseUrl();
+            const appBaseUrl = (0, urlHelper_1.getBaseUrl)();
             const downloadUrl = `${appBaseUrl}/api/v1/control-plane/invoices/download/${tenant.id}`;
             const subject = `Upcoming License Renewal & Tax Invoice - ${clientName} (${invNum})`;
             const html = `
@@ -623,7 +623,7 @@ class ControlPlaneNotificationService {
                     contentType: 'application/pdf',
                 });
             }
-            const appBaseUrl = getBaseUrl();
+            const appBaseUrl = (0, urlHelper_1.getBaseUrl)();
             const downloadUrl = `${appBaseUrl}/api/v1/control-plane/invoices/download/${tenant.id}`;
             const subject = `Payment Received — License Increased by +${numDays} Days - ${clientName} (${clientCode})`;
             const html = `

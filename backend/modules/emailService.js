@@ -251,8 +251,7 @@ async function sendViaResendApi(apiKey, to, subject, htmlContent, attachments) {
         req.end();
     });
 }
-const { getBaseUrl } = require('../utils/urlHelper');
-
+const urlHelper_1 = require("../utils/urlHelper");
 /**
  * Injects Google-style unsubscribe footer and Famalth Lynx branding into every email
  * Product Name: Famalth Lynx
@@ -260,7 +259,7 @@ const { getBaseUrl } = require('../utils/urlHelper');
  * Address: Dehradun, Uttarakhand 248001
  */
 function injectFamalthLynxFooter(htmlContent, recipientEmail) {
-    const appBaseUrl = getBaseUrl();
+    const appBaseUrl = (0, urlHelper_1.getBaseUrl)();
     const emailParam = encodeURIComponent(recipientEmail || '');
     const unsubscribeUrl = `${appBaseUrl}/api/v1/unsubscribe?email=${emailParam}`;
     // Prevent duplicate injection

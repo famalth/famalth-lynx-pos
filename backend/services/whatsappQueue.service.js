@@ -5,7 +5,7 @@ exports.processQueue = processQueue;
 const sequelize_1 = require("sequelize");
 const crypto_util_1 = require("../utils/crypto.util");
 const whatsapp_service_1 = require("./whatsapp.service");
-const { getBaseUrl } = require("../utils/urlHelper");
+const urlHelper_1 = require("../utils/urlHelper");
 /**
  * Automatically queue an invoice checkout alert (Utility message)
  */
@@ -141,7 +141,7 @@ async function processQueue(db) {
             if (template.header_type === 'DOCUMENT' && log.variables_mapped?.sale_id) {
                 const saleId = log.variables_mapped.sale_id;
                 const saleNo = log.variables_mapped.sale_no || 'Invoice';
-                const pdfUrl = `${getBaseUrl()}/api/public/sales/${saleId}/pdf`;
+                const pdfUrl = `${(0, urlHelper_1.getBaseUrl)()}/api/public/sales/${saleId}/pdf`;
                 components.push({
                     type: 'header',
                     parameters: [

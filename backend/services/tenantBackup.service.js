@@ -1614,17 +1614,22 @@ class TenantBackupService {
                     for (const row of scopedRows) {
                         const rowCopy = { ...row };
                         if ('outlet_id' in rowCopy) {
+                            // If it's a shared master with global outlet 1 or null, preserve it or adapt to dest
                             if (hrSharedMasterSet.has(tbl) && (rowCopy.outlet_id === 1 || rowCopy.outlet_id === null)) {
-                                // keep global master intact
-                            } else {
+                                // keep global master as is
+                            }
+                            else {
                                 rowCopy.outlet_id = destOutletId;
                             }
                         }
                         if ('outlet_code' in rowCopy)
                             rowCopy.outlet_code = destOutletCode;
+                        // If restoring employee, nullify dangling foreign keys to avoid PostgreSQL constraint violations
                         if (tbl === 'hr_employees') {
-                            if (rowCopy.level1_approver_id) rowCopy.level1_approver_id = null;
-                            if (rowCopy.level2_approver_id) rowCopy.level2_approver_id = null;
+                            if (rowCopy.level1_approver_id)
+                                rowCopy.level1_approver_id = null;
+                            if (rowCopy.level2_approver_id)
+                                rowCopy.level2_approver_id = null;
                         }
                         const cols = Object.keys(rowCopy).filter(c => !validColMap || validColMap.has(c));
                         if (cols.length === 0)

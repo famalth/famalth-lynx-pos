@@ -8,6 +8,7 @@ exports.generateSubscriptionInvoicePdf = generateSubscriptionInvoicePdf;
 const pdfkit_1 = __importDefault(require("pdfkit"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
+const licensorBilling_service_1 = __importDefault(require("./licensorBilling.service"));
 function resolveCurrencySymbol(currency, explicitSym) {
     if (explicitSym && explicitSym.trim().length > 0)
         return explicitSym.trim();
@@ -102,21 +103,52 @@ function generateSubscriptionInvoicePdf(data) {
             // Invoice number directly below title
             y += 34;
             doc.fillColor('#5F6368').fontSize(8.5).font(fontRegular).text(`Invoice number: ${data.invoiceNumber}`, leftX, y);
-            // Top Right: Licensor Entity Details (Right aligned, Google style)
+            const activeLicensor = {
+                ...licensorBilling_service_1.default.getConfig(),
+                ...(data.licensor || {}),
+            };
+            // Top Right: Licensor Entity Details (Right aligned)
             let entityY = 48;
-            doc.fillColor('#202124').fontSize(8.5).font(fontBold).text('Famalth Technologies', rightX, entityY, { align: 'right', width: rightW });
+            const licensorName = activeLicensor.companyName || 'Famalth Technologies';
+            doc.fillColor('#202124').fontSize(8.5).font(fontBold).text(licensorName, rightX, entityY, { align: 'right', width: rightW });
             entityY += 12;
             doc.fillColor('#5F6368').fontSize(8).font(fontRegular);
-            doc.text('Famalth Lynx Enterprise Retail Platform', rightX, entityY, { align: 'right', width: rightW });
-            entityY += 11;
-            doc.text('Dehradun, Uttarakhand 248001', rightX, entityY, { align: 'right', width: rightW });
-            entityY += 11;
-            doc.text('India', rightX, entityY, { align: 'right', width: rightW });
-            entityY += 11;
-            const licensorTaxId = country.toLowerCase().includes('india') ? 'GSTIN: 07AAAAF1234A1Z5' : 'Corporate Tax ID: 82-4910284';
-            doc.text(`${licensorTaxId} • CIN: U72900DL2022PTC123456`, rightX, entityY, { align: 'right', width: rightW });
-            entityY += 11;
-            doc.text('enterprise@famalth.com | www.famalth.com', rightX, entityY, { align: 'right', width: rightW });
+            if (activeLicensor.brandSubtitle) {
+                doc.text(activeLicensor.brandSubtitle, rightX, entityY, { align: 'right', width: rightW });
+                entityY += 11;
+            }
+            if (activeLicensor.address) {
+                doc.text(activeLicensor.address, rightX, entityY, { align: 'right', width: rightW });
+                entityY += 11;
+            }
+            if (activeLicensor.cityStatePin && activeLicensor.cityStatePin !== activeLicensor.address) {
+                doc.text(activeLicensor.cityStatePin, rightX, entityY, { align: 'right', width: rightW });
+                entityY += 11;
+            }
+            if (activeLicensor.country) {
+                doc.text(activeLicensor.country, rightX, entityY, { align: 'right', width: rightW });
+                entityY += 11;
+            }
+            const licTaxParts = [];
+            if (activeLicensor.taxIdentifier)
+                licTaxParts.push(activeLicensor.taxIdentifier);
+            if (activeLicensor.cin)
+                licTaxParts.push(activeLicensor.cin.startsWith('CIN:') ? activeLicensor.cin : `CIN: ${activeLicensor.cin}`);
+            if (licTaxParts.length > 0) {
+                doc.text(licTaxParts.join(' • '), rightX, entityY, { align: 'right', width: rightW });
+                entityY += 11;
+            }
+            const licContactParts = [];
+            if (activeLicensor.contactEmail)
+                licContactParts.push(activeLicensor.contactEmail);
+            if (activeLicensor.contactPhone)
+                licContactParts.push(activeLicensor.contactPhone);
+            if (activeLicensor.website)
+                licContactParts.push(activeLicensor.website);
+            if (licContactParts.length > 0) {
+                doc.text(licContactParts.join(' | '), rightX, entityY, { align: 'right', width: rightW });
+                entityY += 11;
+            }
             // =========================================================================
             // 2. BILL TO & FINANCIAL SUMMARY (Side by Side, Google Style)
             // =========================================================================
@@ -251,16 +283,29 @@ function generateSubscriptionInvoicePdf(data) {
                 doc.text(`Thank you for your payment. Settlement confirmed via electronic payment gateway on ${paidStr}.`, leftX, noticeY, { width: contentW });
             }
             else {
-                doc.text(`You will be automatically charged for any amount due on ${dueStr}. Please remit through authorized banking channels.`, leftX, noticeY, { width: contentW });
+                const bankInfoParts = [];
+                if (activeLicensor.bankName)
+                    bankInfoParts.push(`Bank: ${activeLicensor.bankName}`);
+                if (activeLicensor.accountNumber)
+                    bankInfoParts.push(`A/C: ${activeLicensor.accountNumber}`);
+                if (activeLicensor.ifscSwift)
+                    bankInfoParts.push(`IFSC/SWIFT: ${activeLicensor.ifscSwift}`);
+                if (activeLicensor.upiId)
+                    bankInfoParts.push(`UPI: ${activeLicensor.upiId}`);
+                const remitMsg = bankInfoParts.length > 0
+                    ? `Please remit payment to: ${bankInfoParts.join(' | ')}. Amount due by ${dueStr}.`
+                    : `You will be automatically charged for any amount due on ${dueStr}. Please remit through authorized banking channels.`;
+                doc.text(remitMsg, leftX, noticeY, { width: contentW });
             }
             noticeY += 16;
             doc.fillColor('#70757A').fontSize(7.5).text(`License Security Hash: ${data.tenant.clientCode}-ENTERPRISE-TOKEN-VERIFIED • Cloud Telemetry & Automated Backups Included`, leftX, noticeY, { width: contentW });
             // =========================================================================
-            // 5. FOOTER (Google Page Numbering & Legal Footer)
+            // 5. FOOTER (Clean Page Numbering & Legal Footer)
             // =========================================================================
             const footerY = 780;
             doc.rect(leftX, footerY, contentW, 0.6).fill('#DADCE0');
-            doc.fillColor('#70757A').fontSize(7.5).font(fontRegular).text('Famalth Technologies Inc. • Corporate Head Office: New Delhi / NY • Electronic Digitally Certified Invoice', leftX, footerY + 8);
+            const footerLicensorLegal = `${licensorName} • ${activeLicensor.address || activeLicensor.cityStatePin || 'Corporate Head Office'} • Electronic Digitally Certified Invoice`;
+            doc.fillColor('#70757A').fontSize(7.5).font(fontRegular).text(footerLicensorLegal, leftX, footerY + 8);
             doc.fillColor('#70757A').fontSize(8).font(fontRegular).text('Page 1 of 1', leftX, footerY + 8, { align: 'right', width: contentW });
             doc.end();
         }

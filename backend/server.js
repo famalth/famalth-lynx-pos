@@ -744,22 +744,7 @@ app.use('/api/driver', require('./routes/transport.routes'));
 // Google-style Unsubscribe Landing Route
 const { renderUnsubscribePage } = require('./controllers/public/unsubscribe.controller');
 app.get(['/unsubscribe', '/api/v1/unsubscribe', '/api/unsubscribe'], renderUnsubscribePage);
-// Customer Self-Ordering Dining Portal & Mobile Web App fallback
-const { renderDiningWebPortal } = require('./controllers/restaurant/diningWeb.controller');
-app.get(['/dining.html', '/table.html', '/menu.html'], renderDiningWebPortal);
-app.get(['/dining', '/table', '/menu'], (req, res, next) => {
-    // If explicit html mode is requested or web SPA build does not exist, render server-side HTML
-    if (req.query.mode === 'html' || !fs_1.default.existsSync(path_1.default.join(webBuildPath, 'index.html'))) {
-        return renderDiningWebPortal(req, res);
-    }
-    // Otherwise serve Flutter Web app so TableDiningScreen handles full OTP verification & dining flow
-    return res.sendFile(path_1.default.join(webBuildPath, 'index.html'));
-});
-// Dedicated Truck Driver Portal route
-app.get(['/driver', '/driver/*', '/transport-driver'], (req, res) => {
-    return res.sendFile(path_1.default.join(webBuildPath, 'index.html'));
-});
-// Web SPA static file serving (Only active if public/ directory exists)
+// Web SPA static file serving candidate paths
 const candidatePaths = [
     path_1.default.join(rootDir, 'public'),
     path_1.default.join(rootDir, 'backend', 'public'),
@@ -776,6 +761,21 @@ for (const p of candidatePaths) {
         break;
     }
 }
+// Customer Self-Ordering Dining Portal & Mobile Web App fallback
+const { renderDiningWebPortal } = require('./controllers/restaurant/diningWeb.controller');
+app.get(['/dining.html', '/table.html', '/menu.html'], renderDiningWebPortal);
+app.get(['/dining', '/table', '/menu'], (req, res, next) => {
+    // If explicit html mode is requested or web SPA build does not exist, render server-side HTML
+    if (req.query.mode === 'html' || !fs_1.default.existsSync(path_1.default.join(webBuildPath, 'index.html'))) {
+        return renderDiningWebPortal(req, res);
+    }
+    // Otherwise serve Flutter Web app so TableDiningScreen handles full OTP verification & dining flow
+    return res.sendFile(path_1.default.join(webBuildPath, 'index.html'));
+});
+// Dedicated Truck Driver Portal route
+app.get(['/driver', '/driver{/*path}', '/transport-driver'], (req, res) => {
+    return res.sendFile(path_1.default.join(webBuildPath, 'index.html'));
+});
 if (fs_1.default.existsSync(webBuildPath)) {
     app.use(express_1.default.static(webBuildPath));
     app.use((req, res, next) => {
