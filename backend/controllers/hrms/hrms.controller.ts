@@ -900,11 +900,22 @@ exports.punchOut = async (req, res) => {
     }
 
     const today = moment().format('YYYY-MM-DD');
+    const yesterday = moment().subtract(1, 'days').format('YYYY-MM-DD');
     const now = moment().toDate();
     
-    const punch = await hr_attendance_punches.findOne({
+    let punch = await hr_attendance_punches.findOne({
       where: { employee_id, punch_date: today, outlet_id: req.user.outlet_id }
     });
+    
+    // Check overnight open punch from yesterday if no open punch today
+    if (!punch || !punch.punch_in || punch.punch_out) {
+      const yPunch = await hr_attendance_punches.findOne({
+        where: { employee_id, punch_date: yesterday, outlet_id: req.user.outlet_id, punch_out: null }
+      });
+      if (yPunch && yPunch.punch_in) {
+        punch = yPunch;
+      }
+    }
     
     if (!punch || !punch.punch_in) {
       return res.status(400).json({ success: false, message: 'Must punch in first' });
@@ -925,15 +936,16 @@ exports.punchOut = async (req, res) => {
     
     const start = moment(punch.punch_in);
     const end = moment(now);
-    const workedMinutes = end.diff(start, 'minutes');
+    let workedMinutes = end.diff(start, 'minutes');
+    if (workedMinutes < 0) workedMinutes += 24 * 60;
     punch.hours_worked = parseFloat((workedMinutes / 60).toFixed(2));
     
     if (employee && employee.shift) {
       const shift = employee.shift;
       
-      const shiftStartStr = `${today} ${shift.start_time}`;
+      const shiftStartStr = `${punch.punch_date} ${shift.start_time}`;
       const shiftStart = moment(shiftStartStr, 'YYYY-MM-DD HH:mm:ss');
-      const shiftEndStr = `${today} ${shift.end_time}`;
+      const shiftEndStr = `${punch.punch_date} ${shift.end_time}`;
       const shiftEnd = moment(shiftEndStr, 'YYYY-MM-DD HH:mm:ss');
       
       let shiftDurationMins = shiftEnd.diff(shiftStart, 'minutes');
@@ -941,13 +953,17 @@ exports.punchOut = async (req, res) => {
       
       const shiftDurationHours = shiftDurationMins / 60;
 
+      // If punch-in is within 5 hours of shift start, calculate lateness;
+      // otherwise, employee worked cross-shift (e.g. night-shift employee working daytime), so lateness = 0
+      const startDiffMins = Math.abs(start.diff(shiftStart, 'minutes'));
       const graceLimit = shiftStart.clone().add(shift.grace_period_mins || 0, 'minutes');
-      if (start.isAfter(graceLimit)) {
+      if (startDiffMins <= 300 && start.isAfter(graceLimit)) {
         punch.lateness_mins = start.diff(shiftStart, 'minutes');
       } else {
         punch.lateness_mins = 0;
       }
       
+      // Calculate overtime: any hours worked beyond shift duration count as overtime
       if (punch.hours_worked > shiftDurationHours) {
         punch.overtime_hours = parseFloat((punch.hours_worked - shiftDurationHours).toFixed(2));
       } else {
@@ -956,7 +972,7 @@ exports.punchOut = async (req, res) => {
       
       if (punch.hours_worked < shiftDurationHours / 2) {
         punch.status = 'Absent';
-      } else if (punch.hours_worked < shiftDurationHours) {
+      } else if (punch.hours_worked < (shiftDurationHours - 1.0)) {
         punch.status = 'Half-Day';
       } else {
         punch.status = 'Present';
@@ -1700,6 +1716,7 @@ const activeDaysInPeriod = calcEnd.diff(calcStart, 'days') + 1;
       }
 
       let empBonuses = 0;
+      let empArrears = 0;
       if (hr_arrears && !salaryOverrideZero) {
         const arrs = await hr_arrears.findAll({
           where: {
@@ -1709,7 +1726,15 @@ const activeDaysInPeriod = calcEnd.diff(calcStart, 'days') + 1;
             outlet_id: req.user.outlet_id
           }
         });
-        empBonuses = arrs.reduce((sum, a) => sum + parseFloat(a.amount || 0), 0);
+        for (const a of arrs) {
+          const r = (a.reason || '').toLowerCase();
+          const amt = parseFloat(a.amount || 0);
+          if (r.includes('arrear')) {
+            empArrears += amt;
+          } else {
+            empBonuses += amt;
+          }
+        }
       }
 
       const hourlyRate = base / divisor / empWorkingHoursPerDay;
@@ -1806,6 +1831,12 @@ const activeDaysInPeriod = calcEnd.diff(calcStart, 'days') + 1;
       if (penalties > 0) {
         breakdown['Disciplinary Penalties & Shortages'] = penalties;
       }
+      if (empArrears > 0) {
+        breakdown['Arrear'] = empArrears;
+      }
+      if (empBonuses > 0) {
+        breakdown['Bonus'] = empBonuses;
+      }
 
       const absent_deduction_amount = salaryOverrideZero ? 0 : ((base / divisor) * absentDays);
 
@@ -1835,7 +1866,7 @@ const activeDaysInPeriod = calcEnd.diff(calcStart, 'days') + 1;
         gross_earnings = prorated_salary;
       }
 
-      const gross = gross_earnings + commissions + overtimePay + empBonuses;
+      const gross = gross_earnings + commissions + overtimePay + empBonuses + empArrears;
       const total_deductions = loan_deduction + penalties + extraDeductions + less_hours_debit;
       const net = gross - total_deductions;
 
@@ -1849,7 +1880,7 @@ const activeDaysInPeriod = calcEnd.diff(calcStart, 'days') + 1;
         unpaid_leave_deduction_amount,
         salary_days: prorated_salary_days, 
         prorated_salary,
-        commissions, bonuses: empBonuses, arrears: 0,
+        commissions, bonuses: empBonuses, arrears: empArrears,
         overtime_pay: overtimePay,
         earned_comp_offs: 0,
         gross_pay: gross,
@@ -2064,7 +2095,7 @@ exports.runPayroll = async (req, res) => {
         }
       }
 
-      if (d.bonuses > 0 && hr_arrears) {
+      if (((d.bonuses && d.bonuses > 0) || (d.arrears && d.arrears > 0)) && hr_arrears) {
         await hr_arrears.update(
           { status: 'Paid' },
           { where: { employee_id: d.employee_id, payment_month: { [Op.lte]: pay_period }, status: { [Op.in]: ['Pending', 'Pending Approval', 'Approved'] }, outlet_id: req.user.outlet_id } }
@@ -3070,15 +3101,25 @@ exports.getApprovals = async (req: any, res: any) => {
       order: [['id', 'DESC']]
     });
 
-    const bonuses = await hr_arrears.findAll({
+    const pendingArrearsAndBonuses = await hr_arrears.findAll({
       where: { ...outletWhere, status: 'Pending Approval' },
       include: [{ model: hr_employees, as: 'employee', required: false, attributes: ['id', 'full_name', 'employee_code', 'office_id'] }],
       order: [['id', 'DESC']]
     });
+
+    const bonuses = pendingArrearsAndBonuses.filter((b: any) => {
+      const r = (b.reason || '').toLowerCase();
+      return !r.includes('arrear');
+    });
+
+    const arrears = pendingArrearsAndBonuses.filter((b: any) => {
+      const r = (b.reason || '').toLowerCase();
+      return r.includes('arrear');
+    });
     
     return res.json({
       success: true,
-      data: { leaves, loans, revisions, bonuses }
+      data: { leaves, loans, revisions, bonuses, arrears }
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -3177,7 +3218,7 @@ exports.approveBonus = async (req, res) => {
     
     // Check if it is an instant payment or a monthly payroll cycle payout
     const isInstant = bon.reason && bon.reason.includes('(Instant)');
-    bon.status = isInstant ? 'Paid' : 'Pending';
+    bon.status = isInstant ? 'Paid' : 'Approved';
     await bon.save();
 
     if (isInstant) {
@@ -3643,7 +3684,10 @@ exports.bulkImportAttendance = async (req: any, res: any) => {
       }
 
       if (punchInDate && punchOutDate) {
-        const diffMs = punchOutDate.getTime() - punchInDate.getTime();
+        let diffMs = punchOutDate.getTime() - punchInDate.getTime();
+        if (diffMs < 0) {
+          diffMs += 24 * 60 * 60 * 1000;
+        }
         hoursWorked = Math.max(0, parseFloat((diffMs / (1000 * 60 * 60)).toFixed(2)));
       }
 
@@ -3658,8 +3702,13 @@ exports.bulkImportAttendance = async (req: any, res: any) => {
       if (matchedEmp.shift && matchedEmp.shift.start_time) {
         const shiftStart = moment(`${punchDate} ${matchedEmp.shift.start_time}`, 'YYYY-MM-DD HH:mm:ss');
         const inMoment = moment(punchInDate);
-        if (inMoment.isAfter(shiftStart)) {
+        const startDiffMins = Math.abs(inMoment.diff(shiftStart, 'minutes'));
+        // If punch-in is within 5 hours of shift start, calculate lateness;
+        // otherwise, employee worked cross-shift (e.g. night-shift employee working daytime), so lateness = 0
+        if (startDiffMins <= 300 && inMoment.isAfter(shiftStart)) {
           latenessMins = inMoment.diff(shiftStart, 'minutes');
+        } else {
+          latenessMins = 0;
         }
         if (matchedEmp.shift.end_time) {
           const shiftEnd = moment(`${punchDate} ${matchedEmp.shift.end_time}`, 'YYYY-MM-DD HH:mm:ss');

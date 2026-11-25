@@ -75,9 +75,30 @@ class _RecurringExpensesScreenState extends State<RecurringExpensesScreen> {
             tooltip: 'Refresh Schedulers',
             onPressed: () => ctrl.loadRecurringExpenses(),
           ),
+          const SizedBox(width: 4),
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF008060),
+              side: const BorderSide(color: Color(0xFF008060)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () async {
+              final res = await ctrl.triggerDueRecurringExpenses();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(res['message'] ?? 'Due recurring expenses processed & debited into ledger!'),
+                    backgroundColor: res['success'] == true ? const Color(0xFF008060) : Colors.red,
+                  ),
+                );
+              }
+            },
+            icon: const Icon(Icons.play_circle_outline, size: 18),
+            label: const Text('Run Due Now', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
           const SizedBox(width: 8),
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
             child: FilledButton.icon(
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFF008060),

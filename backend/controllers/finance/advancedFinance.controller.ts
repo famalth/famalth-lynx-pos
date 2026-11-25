@@ -2987,15 +2987,14 @@ exports.getCustomerLedger = async (req, res) => {
 
             const sameDateRepaymentTotal = sameDateRepayments.reduce((sum, p) => sum + toAmount(p.amount), 0);
             const isSettled = !isCreditSale ? balDue <= 0.01 : (repaymentTotal >= netAmount - 0.01 || (balDue <= 0.01 && repaymentTotal > 0.009));
+            const nonRepaymentPaid = Math.max(0, netAmount - balDue - repaymentTotal);
             let sameDateCredit = 0;
             if (String(sale.payment_mode || '').toUpperCase() === 'SUBSCRIPTION') {
                 sameDateCredit = netAmount;
             } else if (isCreditSale) {
                 sameDateCredit = Math.min(netAmount, sameDateRepaymentTotal);
-            } else if (isSettled) {
-                sameDateCredit = netAmount;
             } else {
-                sameDateCredit = Math.min(netAmount, Math.max(0, netAmount - balDue));
+                sameDateCredit = Math.min(netAmount, nonRepaymentPaid + sameDateRepaymentTotal);
             }
 
             const advanceRepayments = (sale.repayments || []).filter((p: any) => String(p.payment_mode || '').toUpperCase() === 'ADVANCE');
@@ -3651,6 +3650,16 @@ exports.deleteRecurringExpense = async (req, res) => {
         const { id } = req.params;
         await req.propertyDb.models.recurring_expenses.destroy({ where: { id, outlet_id } });
         res.json({ success: true, message: 'Deleted successfully' });
+    } catch (e) {
+        res.status(500).json({ success: false, message: e.message });
+    }
+};
+
+exports.runDueRecurringExpenses = async (req, res) => {
+    try {
+        const { processRecurringExpenses } = require('../../jobs/recurringExpensesJob');
+        await processRecurringExpenses(req.propertyDb);
+        res.json({ success: true, message: 'Due recurring expenses processed and debited in ledger successfully!' });
     } catch (e) {
         res.status(500).json({ success: false, message: e.message });
     }

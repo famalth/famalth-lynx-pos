@@ -41,6 +41,7 @@ router.get('/payment-flow', advancedCtrl.getPaymentFlowReport);
 
 // Recurring Expenses Endpoints
 router.get('/recurring-expenses', advancedCtrl.getRecurringExpenses);
+router.post('/recurring-expenses/run-due', advancedCtrl.runDueRecurringExpenses);
 router.post('/recurring-expenses', advancedCtrl.createRecurringExpense);
 router.put('/recurring-expenses/:id', advancedCtrl.updateRecurringExpense);
 router.delete('/recurring-expenses/:id', advancedCtrl.deleteRecurringExpense);

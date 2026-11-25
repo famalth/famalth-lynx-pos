@@ -1128,17 +1128,28 @@ export const placeCustomerDiningOrder = async (req: Request, res: Response) => {
         let totalAmount = 0;
         for (const item of items) {
             const qty = Number(item.qty || item.quantity || 1);
-            const price = Number(item.price || item.selling_price || 0);
+            const price = Number(item.price || item.selling_price || item.rate || 0);
             totalAmount += (qty * price);
+
+            let itemName = (item.item_name || item.name || '').toString().trim();
+            if (!itemName && (item.item_id || item.id) && (req as any).propertyDb.models.item_master) {
+                const dbItm = await (req as any).propertyDb.models.item_master.findByPk(item.item_id || item.id, { transaction: t });
+                if (dbItm && dbItm.item_name) {
+                    itemName = dbItm.item_name;
+                }
+            }
+            if (!itemName) {
+                itemName = `Item #${item.item_id || item.id || 'N/A'}`;
+            }
 
             await (req as any).propertyDb.models.kot_items.create({
                 outlet_id,
                 kot_header_id: kotHeader.id,
                 item_id: item.item_id || item.id,
-                item_name: item.item_name,
+                item_name: itemName,
                 qty: qty,
                 status: 'New',
-                item_remark: item.special_note || item.item_remark || '',
+                item_remark: item.special_note || item.item_remark || item.notes || '',
                 modifier_details: item.modifiers || [],
                 kitchen_station_id: item.kitchen_station_id || null
             }, { transaction: t });

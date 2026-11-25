@@ -129,17 +129,26 @@ exports.getGstSummary = async (req: any, res: any) => {
         let totalInvoices = 0;
         let cancelledCount = 0;
 
+        const isExcludedSale = (no: string) => {
+            const sn = String(no || '').trim().toUpperCase();
+            return sn.startsWith('APPT-') || sn.startsWith('TOKEN-') || sn.startsWith('DRAFT-') || sn.startsWith('HOLD-');
+        };
+
+        const outwardTaxSales = sales.filter((s: any) => !isExcludedSale(s.sale_no));
+        if (outwardTaxSales.length > 0) {
+            minInvoiceNo = outwardTaxSales[0].sale_no || `INV-${outwardTaxSales[0].id}`;
+            maxInvoiceNo = outwardTaxSales[outwardTaxSales.length - 1].sale_no || `INV-${outwardTaxSales[outwardTaxSales.length - 1].id}`;
+        }
+
         let totalOutwardTaxable = 0;
         let totalOutwardCgst = 0;
         let totalOutwardSgst = 0;
         let totalOutwardIgst = 0;
         let totalOutwardCess = 0;
 
-        sales.forEach((s: any) => {
+        outwardTaxSales.forEach((s: any) => {
             totalInvoices++;
             const saleNo = s.sale_no || `INV-${s.id}`;
-            if (!minInvoiceNo || saleNo < minInvoiceNo) minInvoiceNo = saleNo;
-            if (!maxInvoiceNo || saleNo > maxInvoiceNo) maxInvoiceNo = saleNo;
 
             const gstin = String(s.customer_gstin || '').trim().toUpperCase();
             const netAmt = Number(s.net_amount || 0);
@@ -464,7 +473,14 @@ exports.exportGstr1Json = async (req: any, res: any) => {
         const b2csMap: { [rate: string]: any } = {};
         const hsnMap: { [code: string]: any } = {};
 
-        sales.forEach((s: any) => {
+        const isExcludedSale = (no: string) => {
+            const sn = String(no || '').trim().toUpperCase();
+            return sn.startsWith('APPT-') || sn.startsWith('TOKEN-') || sn.startsWith('DRAFT-') || sn.startsWith('HOLD-');
+        };
+
+        const outwardTaxSales = sales.filter((s: any) => !isExcludedSale(s.sale_no));
+
+        outwardTaxSales.forEach((s: any) => {
             const custGstin = String(s.customer_gstin || '').trim().toUpperCase();
             const invNo = s.sale_no || `INV-${s.id}`;
             const invDate = s.sale_date ? new Date(s.sale_date).toLocaleDateString('en-GB') : '01/01/2026';
@@ -569,11 +585,11 @@ exports.exportGstr1Json = async (req: any, res: any) => {
                         docs: [
                             {
                                 num: 1,
-                                from: sales.length > 0 ? (sales[0].sale_no || '1') : '1',
-                                to: sales.length > 0 ? (sales[sales.length - 1].sale_no || String(sales.length)) : '1',
-                                totnum: sales.length,
+                                from: outwardTaxSales.length > 0 ? (outwardTaxSales[0].sale_no || '1') : '1',
+                                to: outwardTaxSales.length > 0 ? (outwardTaxSales[outwardTaxSales.length - 1].sale_no || String(outwardTaxSales.length)) : '1',
+                                totnum: outwardTaxSales.length,
                                 canc: 0,
-                                net_issue: sales.length
+                                net_issue: outwardTaxSales.length
                             }
                         ]
                     }
@@ -671,7 +687,14 @@ exports.getItrSummary = async (req: any, res: any) => {
         let cashTurnover = 0;
         let totalTurnover = 0;
 
-        sales.forEach((s: any) => {
+        const isExcludedSale = (no: string) => {
+            const sn = String(no || '').trim().toUpperCase();
+            return sn.startsWith('APPT-') || sn.startsWith('TOKEN-') || sn.startsWith('DRAFT-') || sn.startsWith('HOLD-');
+        };
+
+        const outwardTaxSales = sales.filter((s: any) => !isExcludedSale(s.sale_no));
+
+        outwardTaxSales.forEach((s: any) => {
             const amt = Number(s.net_amount || 0);
             totalTurnover += amt;
             const mode = String(s.payment_mode || 'CASH').toUpperCase();
@@ -967,7 +990,14 @@ exports.exportItr4Json = async (req: any, res: any) => {
         let cashTurnover = 0;
         let totalTurnover = 0;
 
-        sales.forEach((s: any) => {
+        const isExcludedSale = (no: string) => {
+            const sn = String(no || '').trim().toUpperCase();
+            return sn.startsWith('APPT-') || sn.startsWith('TOKEN-') || sn.startsWith('DRAFT-') || sn.startsWith('HOLD-');
+        };
+
+        const outwardTaxSales = sales.filter((s: any) => !isExcludedSale(s.sale_no));
+
+        outwardTaxSales.forEach((s: any) => {
             const amt = Number(s.net_amount || 0);
             totalTurnover += amt;
             if (String(s.payment_mode || 'CASH').toUpperCase() === 'CASH') {

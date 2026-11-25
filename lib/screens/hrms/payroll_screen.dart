@@ -386,11 +386,17 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
         }
       } else if (_tabController.index == 5) {
         final res = await ApiClient.get('/api/hrms/payroll/approvals');
+        final rawBonuses = List<Map<String, dynamic>>.from(res['data']?['bonuses'] ?? []);
         setState(() {
           _leaveApprovals = List<Map<String, dynamic>>.from(res['data']?['leaves'] ?? []);
           _loanApprovals = List<Map<String, dynamic>>.from(res['data']?['loans'] ?? []);
           _revisionApprovals = List<Map<String, dynamic>>.from(res['data']?['revisions'] ?? []);
-          _bonusApprovals = List<Map<String, dynamic>>.from(res['data']?['bonuses'] ?? []);
+          // Separate true bonuses from arrears so an arrear is never shown under both bonus and arrear approvals
+          _bonusApprovals = rawBonuses.where((b) {
+            final r = (b['reason'] ?? '').toString().toLowerCase();
+            final t = (b['type'] ?? b['bonus_type'] ?? '').toString().toLowerCase();
+            return !r.contains('arrear') && !t.contains('arrear');
+          }).toList();
         });
         final pRes = await ApiClient.get('/api/hrms/penalties');
         if (pRes['success'] == true) {
@@ -2455,7 +2461,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
         ),
         _card(
           padding: EdgeInsets.zero,
-          child: _bonusApprovals.isEmpty
+          child: filteredBonuses.isEmpty
               ? const Padding(
                   padding: EdgeInsets.all(16),
                   child: Text('No pending bonuses / rewards.', style: TextStyle(color: Colors.grey, fontSize: 13)),
@@ -2471,7 +2477,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                       DataColumn(label: Text('Payout Month', style: TextStyle(fontWeight: FontWeight.bold))),
                       DataColumn(label: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold))),
                     ],
-                    rows: _bonusApprovals.map((bon) {
+                    rows: filteredBonuses.map((bon) {
                       final emp = bon['employee'] ?? {};
                       final name = emp['full_name']?.toString() ?? '—';
                       final amt = double.tryParse(bon['amount']?.toString() ?? '0') ?? 0;

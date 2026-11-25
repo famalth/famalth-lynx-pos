@@ -98,6 +98,11 @@ android {
             applicationId "com.retailpos.employee"
             resValue "string", "app_name", "Staff Attendance"
         }
+        driver {
+            dimension "default"
+            applicationId "com.retailpos.driver"
+            resValue "string", "app_name", "Truck Driver"
+        }
     }
 
     buildTypes {

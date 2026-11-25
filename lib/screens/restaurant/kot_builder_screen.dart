@@ -1472,6 +1472,13 @@ class _KotBuilderScreenState extends State<KotBuilderScreen> {
           return;
         }
 
+        final String ncRemarks = widget.isNcOrder
+            ? 'NC: ${widget.ncDepartment ?? "Complimentary"}${widget.ncGuestName?.isNotEmpty == true ? " (${widget.ncGuestName})" : ""}'
+            : (widget.isTakeaway ? 'Takeaway Order' : 'App Order');
+        final String? ncCustomer = widget.isNcOrder
+            ? (widget.ncGuestName?.isNotEmpty == true ? widget.ncGuestName : widget.ncDepartment)
+            : null;
+
         final kotData = {
           'table_id': widget.isTakeaway ? null : widget.table['id'],
           'service_type': widget.isTakeaway ? 'Takeaway' : 'Dine In',
@@ -1480,7 +1487,8 @@ class _KotBuilderScreenState extends State<KotBuilderScreen> {
           'status': 'p',
           'waiter_id': widget.table['waiter_id'] ?? 1,
           'captain_id': widget.table['captain_id'] ?? 1,
-          'remarks': widget.isTakeaway ? 'Takeaway Order' : 'App Order',
+          'remarks': ncRemarks,
+          if (ncCustomer != null && ncCustomer.isNotEmpty) 'customer_name': ncCustomer,
           'items': addedItems,
         };
 

@@ -42,6 +42,7 @@ import 'controllers/transport/transport_controller.dart';
 import 'screens/dining/table_dining_screen.dart';
 import 'screens/control_plane/control_plane_login_screen.dart';
 import 'screens/clinic/public_appointment_booking_screen.dart';
+import 'screens/transport/driver_portal_screen.dart';
 
 final GlobalKey<ScaffoldMessengerState> globalSnackbarKey =
     GlobalKey<ScaffoldMessengerState>();
@@ -453,6 +454,16 @@ class MyApp extends StatelessWidget {
               initialOutletId: outletId,
               initialDoctorName: doctorName,
             ),
+          );
+        }
+        if (uri != null &&
+            (uri.path == '/driver' ||
+             uri.path == '/driver-portal' ||
+             uri.path == '/transport-driver' ||
+             uri.path.startsWith('/driver') ||
+             uri.path.startsWith('/transport-driver'))) {
+          return MaterialPageRoute(
+            builder: (_) => const DriverPortalScreen(),
           );
         }
         return null;

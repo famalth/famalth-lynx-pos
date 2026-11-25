@@ -624,6 +624,22 @@ class RestaurantController extends ChangeNotifier {
     }
   }
 
+  Future<Map<String, dynamic>> triggerDueRecurringExpenses() async {
+    loading = true;
+    notifyListeners();
+    try {
+      final res = await ApiClient.post('${ApiEndpoints.recurringExpenses}/run-due', {});
+      await loadRecurringExpenses();
+      return res;
+    } catch (e) {
+      debugPrint('Error triggering due recurring expenses: $e');
+      return {'success': false, 'message': e.toString()};
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
   // ==========================================
   // DELIVERY CHALLAN CRUD
   // ==========================================

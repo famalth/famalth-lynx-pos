@@ -4,6 +4,9 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
+import '../../core/api/api_client.dart';
+import '../../core/api/endpoints.dart';
+import '../../models/inventory/item_model.dart';
 import '../../controllers/inventory/item_controller.dart';
 import '../../controllers/restaurant/restaurant_controller.dart';
 import '../../controllers/transport/transport_controller.dart';
@@ -49,6 +52,8 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
     super.dispose();
   }
 
+  List<Map<String, dynamic>> _registeredCustomers = [];
+
   Future<void> _loadData() async {
     final restCtrl = Provider.of<RestaurantController>(context, listen: false);
     final transportCtrl = Provider.of<TransportController>(context, listen: false);
@@ -59,10 +64,20 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
       transportCtrl.loadDrivers(),
       transportCtrl.loadActiveTrips(),
       _itemController.load(),
+      _loadRegisteredCustomers(),
     ]);
     if (mounted) {
       setState(() => _isInit = true);
     }
+  }
+
+  Future<void> _loadRegisteredCustomers() async {
+    try {
+      final res = await ApiClient.get(ApiEndpoints.salesCustomers, silent: true);
+      if (res['success'] == true && res['data'] is List) {
+        _registeredCustomers = List<Map<String, dynamic>>.from(res['data']);
+      }
+    } catch (_) {}
   }
 
   List<dynamic> _getFilteredChallans(List<dynamic> list) {
@@ -934,14 +949,15 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
   // TAB 4: DISPATCH MANIFEST & MULTI-CHALLAN GROUPING PER TRUCK
   // =========================================================================
   Widget _buildDispatchManifestTab(List<dynamic> allChallans, TransportController transportCtrl) {
-    // Only pending/unassigned challans can be grouped
+    // Only pending/unassigned challans can be grouped into new dispatch
     final pendingChallans = allChallans.where((c) {
       final delStatus = (c['delivery_status'] ?? 'PENDING').toString().toUpperCase();
-      return delStatus != 'DELIVERED' && c['status'] != 'Converted_To_Sale';
+      final hasTrip = (c['trip_id'] != null && c['trip_id'].toString().trim().isNotEmpty);
+      return delStatus != 'DELIVERED' && delStatus != 'IN_TRANSIT' && !hasTrip && c['status'] != 'Converted_To_Sale';
     }).toList();
 
-    final availableVehicles = transportCtrl.vehicles.where((v) => (v['status'] ?? 'AVAILABLE') == 'AVAILABLE').toList();
-    final availableDrivers = transportCtrl.drivers.where((d) => (d['status'] ?? 'AVAILABLE') == 'AVAILABLE').toList();
+    final fleetVehicles = transportCtrl.vehicles.where((v) => (v['status'] ?? 'AVAILABLE') != 'MAINTENANCE').toList();
+    final fleetDrivers = transportCtrl.drivers.where((d) => (d['status'] ?? 'AVAILABLE') != 'TERMINATED' && (d['status'] ?? 'AVAILABLE') != 'INACTIVE').toList();
     final activeTrips = transportCtrl.activeTrips;
 
     return SingleChildScrollView(
@@ -987,13 +1003,28 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                             isDense: true,
                             prefixIcon: Icon(Icons.rv_hookup, size: 20),
                           ),
-                          items: availableVehicles.map<DropdownMenuItem<int>>((v) {
+                          items: fleetVehicles.map<DropdownMenuItem<int>>((v) {
+                            final isAvailable = (v['status'] ?? 'AVAILABLE') == 'AVAILABLE';
                             return DropdownMenuItem<int>(
                               value: v['id'],
-                              child: Text('${v['vehicle_number']} (${v['vehicle_type']} - ${v['capacity_tonnage']} ${v['capacity_unit']})'),
+                              child: Text(
+                                '${v['vehicle_number']} (${v['vehicle_type']} • ${isAvailable ? 'Available' : 'On Trip: Add Consignment'})',
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             );
                           }).toList(),
-                          onChanged: (val) => setState(() => _tripVehicleId = val),
+                          onChanged: (val) {
+                            setState(() {
+                              _tripVehicleId = val;
+                              // If vehicle is already on trip, auto-select its current driver
+                              if (val != null) {
+                                final selectedVehicle = fleetVehicles.firstWhere((v) => v['id'] == val, orElse: () => {});
+                                if (selectedVehicle['current_driver_id'] != null) {
+                                  _tripDriverId = selectedVehicle['current_driver_id'];
+                                }
+                              }
+                            });
+                          },
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -1008,10 +1039,14 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                             isDense: true,
                             prefixIcon: Icon(Icons.person_pin, size: 20),
                           ),
-                          items: availableDrivers.map<DropdownMenuItem<int>>((d) {
+                          items: fleetDrivers.map<DropdownMenuItem<int>>((d) {
+                            final isAvailable = (d['status'] ?? 'AVAILABLE') == 'AVAILABLE';
                             return DropdownMenuItem<int>(
                               value: d['id'],
-                              child: Text('${d['driver_name']} (Ph: ${d['phone']})'),
+                              child: Text(
+                                '${d['driver_name']} (Ph: ${d['phone']} • ${isAvailable ? 'Available' : 'On Trip'})',
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             );
                           }).toList(),
                           onChanged: (val) => setState(() => _tripDriverId = val),
@@ -1205,6 +1240,20 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                                     'Driver: ${driver['driver_name'] ?? 'Assigned'} (Ph: ${driver['phone'] ?? 'N/A'})',
                                     style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
                                   ),
+                                  if (driver['last_location_address'] != null || driver['last_latitude'] != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 4.0),
+                                      child: Row(
+                                        children: [
+                                          const Icon(Icons.location_on, size: 14, color: Colors.green),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            'Live GPS: ${driver['last_location_address'] ?? "${driver['last_latitude']}, ${driver['last_longitude']}"}',
+                                            style: TextStyle(fontSize: 11, color: Colors.green.shade800, fontWeight: FontWeight.w600),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
                                 ],
                               ),
                             ],
@@ -1728,113 +1777,350 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
   void _openDriverDialog({Map<String, dynamic>? existing}) {
     final nameCtrl = TextEditingController(text: existing?['driver_name'] ?? '');
     final phoneCtrl = TextEditingController(text: existing?['phone'] ?? '');
+    final emailCtrl = TextEditingController(text: existing?['email'] ?? '');
+    final passwordCtrl = TextEditingController();
     final dlCtrl = TextEditingController(text: existing?['license_number'] ?? '');
     final addressCtrl = TextEditingController(text: existing?['address'] ?? '');
+    String status = existing?['status'] ?? 'AVAILABLE';
 
     showDialog(
       context: context,
       builder: (dialogCtx) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          title: Row(
-            children: [
-              const Icon(Icons.badge, color: Color(0xFF008060)),
-              const SizedBox(width: 8),
-              Text(existing == null ? 'Add Driver Profile' : 'Edit Driver Profile'),
-            ],
-          ),
-          content: SizedBox(
-            width: 440,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              title: Row(
                 children: [
-                  TextField(
-                    controller: nameCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Driver Full Name *',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: phoneCtrl,
-                    keyboardType: TextInputType.phone,
-                    decoration: const InputDecoration(
-                      labelText: 'Driver Mobile Phone Number *',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: dlCtrl,
-                    textCapitalization: TextCapitalization.characters,
-                    decoration: const InputDecoration(
-                      labelText: 'Driving License (DL) Number',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: addressCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Address / Emergency Contact Details',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                  ),
+                  const Icon(Icons.badge, color: Color(0xFF008060)),
+                  const SizedBox(width: 8),
+                  Text(existing == null ? 'Add Driver Profile' : 'Edit Driver Profile'),
                 ],
               ),
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
-            FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF008060)),
-              onPressed: () async {
-                if (nameCtrl.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Driver Name is required')));
-                  return;
-                }
-                if (phoneCtrl.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Phone Number is required')));
-                  return;
-                }
+              content: SizedBox(
+                width: 460,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: nameCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Driver Full Name *',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: phoneCtrl,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(
+                          labelText: 'Mobile Phone Number (Login ID) *',
+                          hintText: 'e.g. 9876543210',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: emailCtrl,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: const InputDecoration(
+                          labelText: 'Driver Email ID (Login & OTP Reset)',
+                          hintText: 'driver@company.com',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: passwordCtrl,
+                        obscureText: true,
+                        decoration: InputDecoration(
+                          labelText: existing == null ? 'Initial App Password *' : 'Update Password (Optional)',
+                          hintText: existing == null ? 'Default: 123456' : 'Leave empty to keep current',
+                          border: const OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: status,
+                        decoration: const InputDecoration(
+                          labelText: 'Driver Status',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'AVAILABLE', child: Text('AVAILABLE (Active on fleet)')),
+                          DropdownMenuItem(value: 'BOOKED', child: Text('BOOKED (On active trip)')),
+                          DropdownMenuItem(value: 'ON_LEAVE', child: Text('ON LEAVE')),
+                          DropdownMenuItem(value: 'INACTIVE', child: Text('INACTIVE (Auto-logout driver app)')),
+                          DropdownMenuItem(value: 'TERMINATED', child: Text('TERMINATED (Block app access)')),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) setDialogState(() => status = val);
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: dlCtrl,
+                        textCapitalization: TextCapitalization.characters,
+                        decoration: const InputDecoration(
+                          labelText: 'Driving License (DL) Number',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: addressCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Address / Emergency Contact Details',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
+                FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: const Color(0xFF008060)),
+                  onPressed: () async {
+                    if (nameCtrl.text.trim().isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Driver Name is required')));
+                      return;
+                    }
+                    if (phoneCtrl.text.trim().isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Phone Number is required')));
+                      return;
+                    }
 
-                final transportCtrl = Provider.of<TransportController>(context, listen: false);
-                bool ok = false;
-                if (existing == null) {
-                  ok = await transportCtrl.addDriver(
-                    driverName: nameCtrl.text.trim(),
-                    phone: phoneCtrl.text.trim(),
-                    licenseNumber: dlCtrl.text.trim(),
-                    address: addressCtrl.text.trim(),
-                  );
-                } else {
-                  ok = await transportCtrl.updateDriver(existing['id'], {
-                    'driver_name': nameCtrl.text.trim(),
-                    'phone': phoneCtrl.text.trim(),
-                    'license_number': dlCtrl.text.trim(),
-                    'address': addressCtrl.text.trim(),
-                  });
-                }
+                    final transportCtrl = Provider.of<TransportController>(context, listen: false);
+                    bool ok = false;
+                    if (existing == null) {
+                      ok = await transportCtrl.addDriver(
+                        driverName: nameCtrl.text.trim(),
+                        phone: phoneCtrl.text.trim(),
+                        email: emailCtrl.text.trim(),
+                        password: passwordCtrl.text.trim().isNotEmpty ? passwordCtrl.text.trim() : '123456',
+                        licenseNumber: dlCtrl.text.trim(),
+                        address: addressCtrl.text.trim(),
+                        status: status,
+                      );
+                    } else {
+                      final Map<String, dynamic> updateData = {
+                        'driver_name': nameCtrl.text.trim(),
+                        'phone': phoneCtrl.text.trim(),
+                        'email': emailCtrl.text.trim(),
+                        'license_number': dlCtrl.text.trim(),
+                        'address': addressCtrl.text.trim(),
+                        'status': status,
+                      };
+                      if (passwordCtrl.text.trim().isNotEmpty) {
+                        updateData['password'] = passwordCtrl.text.trim();
+                      }
+                      ok = await transportCtrl.updateDriver(existing['id'], updateData);
+                    }
 
-                if (ok && context.mounted) {
-                  Navigator.pop(dialogCtx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(existing == null ? 'Driver profile created successfully!' : 'Driver profile updated!'),
-                      backgroundColor: const Color(0xFF008060),
+                    if (ok && context.mounted) {
+                      Navigator.pop(dialogCtx);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(existing == null ? 'Driver profile created successfully!' : 'Driver profile updated!'),
+                          backgroundColor: const Color(0xFF008060),
+                        ),
+                      );
+                    }
+                  },
+                  child: Text(existing == null ? 'Save Driver' : 'Update Driver'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // =========================================================================
+  // DIALOG: SEARCH & SELECT MULTIPLE CATALOG ITEMS
+  // =========================================================================
+  void _openMultiItemPickerDialog(
+    BuildContext context,
+    List<Item> catalogItems,
+    Function(List<Map<String, dynamic>> items) onAddItems,
+  ) {
+    String searchQuery = '';
+    final Map<int, double> selectedQtys = {};
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setPickerState) {
+            final filteredItems = catalogItems.where((it) {
+              if (searchQuery.isEmpty) return true;
+              final q = searchQuery.toLowerCase();
+              final name = it.itemName.toLowerCase();
+              final code = (it.itemCode ?? '').toLowerCase();
+              final barcode = (it.barcode ?? '').toLowerCase();
+              return name.contains(q) || code.contains(q) || barcode.contains(q);
+            }).toList();
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              title: const Row(
+                children: [
+                  Icon(Icons.inventory_2_outlined, color: Color(0xFF008060)),
+                  SizedBox(width: 8),
+                  Text('Search & Add Multiple Items', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              content: SizedBox(
+                width: 620,
+                height: 520,
+                child: Column(
+                  children: [
+                    TextField(
+                      autofocus: true,
+                      decoration: InputDecoration(
+                        hintText: 'Search by item name, item code, or barcode...',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: searchQuery.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: () => setPickerState(() => searchQuery = ''),
+                              )
+                            : null,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        isDense: true,
+                      ),
+                      onChanged: (val) => setPickerState(() => searchQuery = val),
                     ),
-                  );
-                }
-              },
-              child: Text(existing == null ? 'Save Driver' : 'Update Driver'),
-            ),
-          ],
+                    const SizedBox(height: 12),
+                    Expanded(
+                      child: filteredItems.isEmpty
+                          ? const Center(child: Text('No items found matching search', style: TextStyle(color: Colors.grey)))
+                          : ListView.separated(
+                              itemCount: filteredItems.length,
+                              separatorBuilder: (_, __) => const Divider(height: 1),
+                              itemBuilder: (ctx, i) {
+                                final item = filteredItems[i];
+                                final isSelected = selectedQtys.containsKey(item.id);
+                                final qty = selectedQtys[item.id] ?? 1.0;
+
+                                return ListTile(
+                                  dense: true,
+                                  leading: Checkbox(
+                                    value: isSelected,
+                                    activeColor: const Color(0xFF008060),
+                                    onChanged: (val) {
+                                      setPickerState(() {
+                                        if (val == true) {
+                                          selectedQtys[item.id] = 1.0;
+                                        } else {
+                                          selectedQtys.remove(item.id);
+                                        }
+                                      });
+                                    },
+                                  ),
+                                  title: Text(
+                                    item.itemName,
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                  ),
+                                  subtitle: Text(
+                                    'Code: ${item.itemCode ?? 'N/A'} • Unit: ${item.unit} • Rate: ₹${item.rate.toStringAsFixed(2)}',
+                                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                  ),
+                                  trailing: isSelected
+                                      ? SizedBox(
+                                          width: 140,
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              IconButton(
+                                                icon: const Icon(Icons.remove_circle_outline, size: 20, color: Colors.red),
+                                                onPressed: () {
+                                                  setPickerState(() {
+                                                    if (qty > 1) {
+                                                      selectedQtys[item.id] = qty - 1;
+                                                    } else {
+                                                      selectedQtys.remove(item.id);
+                                                    }
+                                                  });
+                                                },
+                                              ),
+                                              Expanded(
+                                                child: Text(
+                                                  '$qty ${item.unit}',
+                                                  textAlign: TextAlign.center,
+                                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                                ),
+                                              ),
+                                              IconButton(
+                                                icon: const Icon(Icons.add_circle_outline, size: 20, color: Color(0xFF008060)),
+                                                onPressed: () {
+                                                  setPickerState(() {
+                                                    selectedQtys[item.id] = qty + 1;
+                                                  });
+                                                },
+                                              ),
+                                            ],
+                                          ),
+                                        )
+                                      : OutlinedButton(
+                                          style: OutlinedButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                            side: const BorderSide(color: Color(0xFF008060)),
+                                          ),
+                                          onPressed: () {
+                                            setPickerState(() {
+                                              selectedQtys[item.id] = 1.0;
+                                            });
+                                          },
+                                          child: const Text('+ Add', style: TextStyle(color: Color(0xFF008060), fontSize: 12)),
+                                        ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(backgroundColor: const Color(0xFF008060)),
+                  onPressed: selectedQtys.isEmpty
+                      ? null
+                      : () {
+                          final List<Map<String, dynamic>> result = [];
+                          selectedQtys.forEach((itemId, qty) {
+                            final it = catalogItems.firstWhere((element) => element.id == itemId);
+                            result.add({
+                              'item_id': it.id,
+                              'item_name': it.itemName,
+                              'unit': it.unit,
+                              'qty': qty,
+                            });
+                          });
+                          onAddItems(result);
+                          Navigator.pop(dialogCtx);
+                        },
+                  icon: const Icon(Icons.playlist_add_check, size: 18),
+                  label: Text('Add Selected (${selectedQtys.length} Items)'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
@@ -1855,8 +2141,8 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
     List<Map<String, dynamic>> lineItems = [];
     final catalogItems = _itemController.list;
     final transportCtrl = Provider.of<TransportController>(mainContext, listen: false);
-    final availableVehicles = transportCtrl.vehicles.where((v) => (v['status'] ?? 'AVAILABLE') == 'AVAILABLE').toList();
-    final availableDrivers = transportCtrl.drivers.where((d) => (d['status'] ?? 'AVAILABLE') == 'AVAILABLE').toList();
+    final availableVehicles = transportCtrl.vehicles.where((v) => (v['status'] ?? 'AVAILABLE') != 'MAINTENANCE').toList();
+    final availableDrivers = transportCtrl.drivers.where((d) => (d['status'] ?? 'AVAILABLE') != 'TERMINATED' && (d['status'] ?? 'AVAILABLE') != 'INACTIVE').toList();
 
     showDialog(
       context: mainContext,
@@ -1873,35 +2159,154 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                 ],
               ),
               content: SizedBox(
-                width: 680,
+                width: 720,
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Customer info
+                      // Customer info with Autocomplete (Case 2)
                       Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Expanded(
-                            child: TextField(
-                              controller: customerNameCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Customer / Retailer Name *',
-                                border: OutlineInputBorder(),
-                                isDense: true,
-                              ),
+                            child: RawAutocomplete<Map<String, dynamic>>(
+                              textEditingController: customerNameCtrl,
+                              focusNode: FocusNode(),
+                              optionsBuilder: (TextEditingValue textEditingValue) {
+                                if (textEditingValue.text.trim().isEmpty) {
+                                  return const Iterable<Map<String, dynamic>>.empty();
+                                }
+                                final q = textEditingValue.text.toLowerCase();
+                                return _registeredCustomers.where((c) {
+                                  final name = (c['customer_name'] ?? c['name'] ?? '').toString().toLowerCase();
+                                  final phone = (c['phone'] ?? c['mobile'] ?? '').toString().toLowerCase();
+                                  return name.contains(q) || phone.contains(q);
+                                });
+                              },
+                              displayStringForOption: (c) => (c['customer_name'] ?? c['name'] ?? '').toString(),
+                              onSelected: (Map<String, dynamic> selection) {
+                                setDialogState(() {
+                                  customerNameCtrl.text = (selection['customer_name'] ?? selection['name'] ?? '').toString();
+                                  final ph = (selection['phone'] ?? selection['mobile'] ?? '').toString();
+                                  if (ph.isNotEmpty) customerPhoneCtrl.text = ph;
+                                  final addr = (selection['address'] ?? selection['shipping_address'] ?? selection['billing_address'] ?? selection['city'] ?? '').toString();
+                                  if (addr.isNotEmpty) destinationCtrl.text = addr;
+                                });
+                              },
+                              fieldViewBuilder: (context, fieldTextEditingController, focusNode, onFieldSubmitted) {
+                                return TextField(
+                                  controller: fieldTextEditingController,
+                                  focusNode: focusNode,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Customer / Retailer Name *',
+                                    hintText: 'Type to search customer...',
+                                    border: OutlineInputBorder(),
+                                    isDense: true,
+                                    prefixIcon: Icon(Icons.person, size: 18),
+                                  ),
+                                );
+                              },
+                              optionsViewBuilder: (context, onSelected, options) {
+                                return Align(
+                                  alignment: Alignment.topLeft,
+                                  child: Material(
+                                    elevation: 4.0,
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: SizedBox(
+                                      width: 340,
+                                      height: options.length > 4 ? 200 : options.length * 52.0,
+                                      child: ListView.builder(
+                                        padding: EdgeInsets.zero,
+                                        itemCount: options.length,
+                                        itemBuilder: (BuildContext context, int index) {
+                                          final c = options.elementAt(index);
+                                          final name = (c['customer_name'] ?? c['name'] ?? '').toString();
+                                          final phone = (c['phone'] ?? c['mobile'] ?? '').toString();
+                                          return ListTile(
+                                            dense: true,
+                                            leading: const Icon(Icons.account_circle, size: 20, color: Color(0xFF008060)),
+                                            title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                            subtitle: Text(phone.isNotEmpty ? 'Ph: $phone' : 'No phone', style: const TextStyle(fontSize: 11)),
+                                            onTap: () => onSelected(c),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
-                            child: TextField(
-                              controller: customerPhoneCtrl,
-                              keyboardType: TextInputType.phone,
-                              decoration: const InputDecoration(
-                                labelText: 'Customer Phone *',
-                                border: OutlineInputBorder(),
-                                isDense: true,
-                              ),
+                            child: RawAutocomplete<Map<String, dynamic>>(
+                              textEditingController: customerPhoneCtrl,
+                              focusNode: FocusNode(),
+                              optionsBuilder: (TextEditingValue textEditingValue) {
+                                if (textEditingValue.text.trim().isEmpty) {
+                                  return const Iterable<Map<String, dynamic>>.empty();
+                                }
+                                final q = textEditingValue.text.toLowerCase();
+                                return _registeredCustomers.where((c) {
+                                  final phone = (c['phone'] ?? c['mobile'] ?? '').toString().toLowerCase();
+                                  final name = (c['customer_name'] ?? c['name'] ?? '').toString().toLowerCase();
+                                  return phone.contains(q) || name.contains(q);
+                                });
+                              },
+                              displayStringForOption: (c) => (c['phone'] ?? c['mobile'] ?? '').toString(),
+                              onSelected: (Map<String, dynamic> selection) {
+                                setDialogState(() {
+                                  customerPhoneCtrl.text = (selection['phone'] ?? selection['mobile'] ?? '').toString();
+                                  final nm = (selection['customer_name'] ?? selection['name'] ?? '').toString();
+                                  if (nm.isNotEmpty) customerNameCtrl.text = nm;
+                                  final addr = (selection['address'] ?? selection['shipping_address'] ?? selection['billing_address'] ?? selection['city'] ?? '').toString();
+                                  if (addr.isNotEmpty) destinationCtrl.text = addr;
+                                });
+                              },
+                              fieldViewBuilder: (context, fieldTextEditingController, focusNode, onFieldSubmitted) {
+                                return TextField(
+                                  controller: fieldTextEditingController,
+                                  focusNode: focusNode,
+                                  keyboardType: TextInputType.phone,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Customer Phone *',
+                                    hintText: 'Type to search phone...',
+                                    border: OutlineInputBorder(),
+                                    isDense: true,
+                                    prefixIcon: Icon(Icons.phone, size: 18),
+                                  ),
+                                );
+                              },
+                              optionsViewBuilder: (context, onSelected, options) {
+                                return Align(
+                                  alignment: Alignment.topLeft,
+                                  child: Material(
+                                    elevation: 4.0,
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: SizedBox(
+                                      width: 340,
+                                      height: options.length > 4 ? 200 : options.length * 52.0,
+                                      child: ListView.builder(
+                                        padding: EdgeInsets.zero,
+                                        itemCount: options.length,
+                                        itemBuilder: (BuildContext context, int index) {
+                                          final c = options.elementAt(index);
+                                          final name = (c['customer_name'] ?? c['name'] ?? '').toString();
+                                          final phone = (c['phone'] ?? c['mobile'] ?? '').toString();
+                                          return ListTile(
+                                            dense: true,
+                                            leading: const Icon(Icons.phone_iphone, size: 20, color: Color(0xFF008060)),
+                                            title: Text(phone, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                            subtitle: Text(name, style: const TextStyle(fontSize: 11)),
+                                            onTap: () => onSelected(c),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
                             ),
                           ),
                         ],
@@ -2004,27 +2409,48 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                       const Divider(),
                       const SizedBox(height: 8),
 
-                      // Items list header
+                      // Items list header with Multi-Add button (Case 3)
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           const Text('Dispatch Line Items', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                          TextButton.icon(
-                            onPressed: () {
-                              if (catalogItems.isNotEmpty) {
-                                final first = catalogItems.first;
-                                setDialogState(() {
-                                  lineItems.add({
-                                    'item_id': first.id,
-                                    'item_name': first.itemName,
-                                    'unit': first.unit,
-                                    'qty': 1.0,
+                          Row(
+                            children: [
+                              OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFF008060),
+                                  side: const BorderSide(color: Color(0xFF008060)),
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                ),
+                                onPressed: () {
+                                  _openMultiItemPickerDialog(mainContext, catalogItems, (newItems) {
+                                    setDialogState(() {
+                                      lineItems.addAll(newItems);
+                                    });
                                   });
-                                });
-                              }
-                            },
-                            icon: const Icon(Icons.add_circle_outline, size: 18),
-                            label: const Text('Add Line Item'),
+                                },
+                                icon: const Icon(Icons.playlist_add, size: 18),
+                                label: const Text('Search & Add Multiple Items'),
+                              ),
+                              const SizedBox(width: 8),
+                              TextButton.icon(
+                                onPressed: () {
+                                  if (catalogItems.isNotEmpty) {
+                                    final first = catalogItems.first;
+                                    setDialogState(() {
+                                      lineItems.add({
+                                        'item_id': first.id,
+                                        'item_name': first.itemName,
+                                        'unit': first.unit,
+                                        'qty': 1.0,
+                                      });
+                                    });
+                                  }
+                                },
+                                icon: const Icon(Icons.add_circle_outline, size: 18),
+                                label: const Text('Add Single'),
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -2040,7 +2466,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                           ),
                           child: const Center(
                             child: Text(
-                              'No line items added yet. Click "+ Add Line Item" above.',
+                              'No line items added yet. Click "+ Search & Add Multiple Items" above.',
                               style: TextStyle(fontSize: 12, color: Colors.grey),
                             ),
                           ),
@@ -2069,12 +2495,12 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                                       items: catalogItems.map((catItem) {
                                         return DropdownMenuItem<int>(
                                           value: catItem.id,
-                                          child: Text('${catItem.itemCode} - ${catItem.itemName}'),
+                                          child: Text('${catItem.itemCode ?? ''} - ${catItem.itemName} (${catItem.unit})'),
                                         );
                                       }).toList(),
                                       onChanged: (val) {
                                         if (val != null) {
-                                          final found = catalogItems.firstWhere((it) => it.id == val);
+                                          final found = catalogItems.firstWhere((it) => it.id == val, orElse: () => catalogItems.first);
                                           setDialogState(() {
                                             row['item_id'] = found.id;
                                             row['item_name'] = found.itemName;
@@ -2142,10 +2568,16 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                     Map<String, dynamic>? selectedVehicleObj;
                     Map<String, dynamic>? selectedDriverObj;
                     if (assignedVehicleId != null) {
-                      selectedVehicleObj = availableVehicles.firstWhere((v) => v['id'] == assignedVehicleId);
+                      selectedVehicleObj = availableVehicles.firstWhere(
+                        (v) => v['id'] == assignedVehicleId,
+                        orElse: () => <String, dynamic>{},
+                      );
                     }
                     if (assignedDriverId != null) {
-                      selectedDriverObj = availableDrivers.firstWhere((d) => d['id'] == assignedDriverId);
+                      selectedDriverObj = availableDrivers.firstWhere(
+                        (d) => d['id'] == assignedDriverId,
+                        orElse: () => <String, dynamic>{},
+                      );
                     }
 
                     Navigator.pop(dialogCtx);

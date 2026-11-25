@@ -488,7 +488,25 @@ class _RestaurantAnalyticsReportsScreenState
         if (kot['table'] is Map && (kot['table']['table_name'] ?? '').toString().trim().isNotEmpty) {
           tableName = kot['table']['table_name'].toString().trim();
         }
-        final String guest = (kot['customer_name'] ?? (tableName.isNotEmpty ? 'Table $tableName' : 'Management NC')).toString();
+
+        final String rawRemarks = (kot['remarks'] ?? kot['notes'] ?? '').toString().trim();
+        final String rawCustomer = (kot['customer_name'] ?? kot['guest_name'] ?? kot['nc_guest_name'] ?? '').toString().trim();
+        final String rawDept = (kot['nc_department'] ?? kot['department'] ?? '').toString().trim();
+
+        String beneficiary = '';
+        if (rawCustomer.isNotEmpty && rawDept.isNotEmpty) {
+          beneficiary = '$rawCustomer ($rawDept)';
+        } else if (rawCustomer.isNotEmpty) {
+          beneficiary = rawCustomer;
+        } else if (rawDept.isNotEmpty) {
+          beneficiary = rawDept;
+        } else if (rawRemarks.isNotEmpty) {
+          beneficiary = rawRemarks;
+        } else if (tableName.isNotEmpty) {
+          beneficiary = 'Table $tableName';
+        } else {
+          beneficiary = 'Management NC';
+        }
 
         double ncTotal = double.tryParse((kot['total_amount'] ?? kot['net_amount'] ?? kot['subtotal_amount'] ?? 0).toString()) ?? 0.0;
         double ncQty = 0;
@@ -506,10 +524,12 @@ class _RestaurantAnalyticsReportsScreenState
             ? DateFormat('dd-MM-yyyy hh:mm a').format(DateTime.parse(rawDate.toString()).toLocal())
             : 'N/A';
 
+        final groupDisplay = beneficiary.isNotEmpty ? '$beneficiary • $dateStr' : dateStr;
+
         list.add(_AggRow(
           name: 'KOT $kotNo',
-          group: dateStr,
-          code: guest,
+          group: groupDisplay,
+          code: beneficiary,
           amount: ncTotal,
           count: 1,
           qty: ncQty,
@@ -524,10 +544,12 @@ class _RestaurantAnalyticsReportsScreenState
           sale.notes.toLowerCase().contains('complimentary');
 
       if (isSaleNc && !seenIds.contains(sale.saleNo)) {
+        final cust = sale.customerName.isNotEmpty ? sale.customerName : (sale.notes.isNotEmpty ? sale.notes : 'Walk-in');
+        final saleDateStr = DateFormat('dd-MM-yyyy hh:mm a').format(sale.saleDate);
         list.add(_AggRow(
           name: sale.saleNo,
-          group: DateFormat('dd-MM-yyyy hh:mm a').format(sale.saleDate),
-          code: sale.customerName.isEmpty ? 'Walk-in' : sale.customerName,
+          group: '$cust • $saleDateStr',
+          code: cust,
           amount: sale.netAmount,
           count: 1,
           qty: sale.totalQty,

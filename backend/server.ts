@@ -763,14 +763,28 @@ app.use('/api/v1/control-plane', require('./routes/control_plane.routes'));
 app.use('/api/clinic', require('./routes/clinic.routes'));
 app.use('/api/backup', require('./routes/backup.routes'));
 app.use('/api/transport', require('./routes/transport.routes'));
+app.use('/api/driver', require('./routes/transport.routes'));
 
 // Google-style Unsubscribe Landing Route
 const { renderUnsubscribePage } = require('./controllers/public/unsubscribe.controller');
 app.get(['/unsubscribe', '/api/v1/unsubscribe', '/api/unsubscribe'], renderUnsubscribePage);
 
-// Customer Self-Ordering Dining Portal & Mobile Web App
+// Customer Self-Ordering Dining Portal & Mobile Web App fallback
 const { renderDiningWebPortal } = require('./controllers/restaurant/diningWeb.controller');
-app.get(['/dining', '/table', '/dining.html', '/table.html', '/menu', '/menu.html'], renderDiningWebPortal);
+app.get(['/dining.html', '/table.html', '/menu.html'], renderDiningWebPortal);
+app.get(['/dining', '/table', '/menu'], (req: Request, res: Response, next: NextFunction) => {
+    // If explicit html mode is requested or web SPA build does not exist, render server-side HTML
+    if (req.query.mode === 'html' || !fs.existsSync(path.join(webBuildPath, 'index.html'))) {
+        return renderDiningWebPortal(req, res);
+    }
+    // Otherwise serve Flutter Web app so TableDiningScreen handles full OTP verification & dining flow
+    return res.sendFile(path.join(webBuildPath, 'index.html'));
+});
+
+// Dedicated Truck Driver Portal route
+app.get(['/driver', '/driver/*', '/transport-driver'], (req: Request, res: Response) => {
+    return res.sendFile(path.join(webBuildPath, 'index.html'));
+});
 
 // Web SPA static file serving (Only active if public/ directory exists)
 const candidatePaths = [
@@ -797,9 +811,6 @@ if (fs.existsSync(webBuildPath)) {
             !req.path.startsWith('/health') && 
             !req.path.startsWith('/uploads') && !req.path.startsWith('/storage') && 
             !req.path.startsWith('/webhooks') &&
-            !req.path.startsWith('/dining') &&
-            !req.path.startsWith('/table') &&
-            !req.path.startsWith('/menu') &&
             !req.path.startsWith('/unsubscribe')) {
             return res.sendFile(path.join(webBuildPath, 'index.html'));
         }

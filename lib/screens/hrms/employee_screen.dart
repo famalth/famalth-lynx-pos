@@ -32,6 +32,21 @@ class _EmployeeScreenState extends State<EmployeeScreen> {
     _loadAll();
   }
 
+  static List<Map<String, dynamic>> _deduplicateMasterList(List<Map<String, dynamic>> list, {String nameKey = 'name', String? codeKey}) {
+    final seen = <String>{};
+    final result = <Map<String, dynamic>>[];
+    for (final item in list) {
+      final id = item['id']?.toString() ?? '';
+      final code = codeKey != null ? (item[codeKey] ?? '').toString().trim().toLowerCase() : '';
+      final name = (item[nameKey] ?? item['name'] ?? item['title'] ?? item['office_name'] ?? '').toString().trim().toLowerCase();
+      final key = code.isNotEmpty ? '$code--$name' : (name.isNotEmpty ? name : id);
+      if (key.isNotEmpty && seen.contains(key)) continue;
+      if (key.isNotEmpty) seen.add(key);
+      result.add(item);
+    }
+    return result;
+  }
+
   Future<void> _loadAll() async {
     setState(() => _isLoading = true);
     try {
@@ -44,10 +59,10 @@ class _EmployeeScreenState extends State<EmployeeScreen> {
       ]);
       setState(() {
         _employees = List<Map<String, dynamic>>.from(results[0]['data'] ?? []);
-        _designations = List<Map<String, dynamic>>.from(results[1]['data'] ?? []);
-        _shifts = List<Map<String, dynamic>>.from(results[2]['data'] ?? []);
-        _payStructures = List<Map<String, dynamic>>.from(results[3]['data'] ?? []);
-        _offices = List<Map<String, dynamic>>.from(results[4]['data'] ?? []);
+        _designations = _deduplicateMasterList(List<Map<String, dynamic>>.from(results[1]['data'] ?? []), nameKey: 'name');
+        _shifts = _deduplicateMasterList(List<Map<String, dynamic>>.from(results[2]['data'] ?? []), nameKey: 'name');
+        _payStructures = _deduplicateMasterList(List<Map<String, dynamic>>.from(results[3]['data'] ?? []), nameKey: 'name');
+        _offices = _deduplicateMasterList(List<Map<String, dynamic>>.from(results[4]['data'] ?? []), nameKey: 'office_name', codeKey: 'office_code');
       });
     } catch (e) {
       // show empty list on error
@@ -695,15 +710,13 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
       }
 
       setState(() {
-        if (loadedDesigs.isNotEmpty) _designations = loadedDesigs;
-        if (loadedShifts.isNotEmpty) _shifts = loadedShifts;
-        if (loadedStructures.isNotEmpty) _payStructures = loadedStructures;
+        if (loadedDesigs.isNotEmpty) _designations = _EmployeeScreenState._deduplicateMasterList(loadedDesigs, nameKey: 'name');
+        if (loadedShifts.isNotEmpty) _shifts = _EmployeeScreenState._deduplicateMasterList(loadedShifts, nameKey: 'name');
+        if (loadedStructures.isNotEmpty) _payStructures = _EmployeeScreenState._deduplicateMasterList(loadedStructures, nameKey: 'name');
         _users        = List<Map<String, dynamic>>.from(results[3]['data'] ?? []);
-        _leaveTypes   = List<Map<String, dynamic>>.from(results[4]['data'] ?? []);
-        _offices      = List<Map<String, dynamic>>.from(results[6]['data'] ?? (widget.initialOffices ?? []));
-        if (_offices.isEmpty && widget.initialOffices != null && widget.initialOffices!.isNotEmpty) {
-          _offices = List<Map<String, dynamic>>.from(widget.initialOffices!);
-        }
+        _leaveTypes   = _EmployeeScreenState._deduplicateMasterList(List<Map<String, dynamic>>.from(results[4]['data'] ?? []), nameKey: 'name');
+        final rawOffices = List<Map<String, dynamic>>.from(results[6]['data'] ?? (widget.initialOffices ?? []));
+        _offices      = _EmployeeScreenState._deduplicateMasterList(rawOffices.isNotEmpty ? rawOffices : (widget.initialOffices ?? []), nameKey: 'office_name', codeKey: 'office_code');
         if (_officeId == null && _offices.isNotEmpty) {
           _officeId = _offices.first['id'] as int?;
         }
@@ -863,6 +876,28 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
           const SnackBar(content: Text('Father\'s Name is required! Please enter the father\'s name.'))
         );
         return false;
+      }
+      final email = _emailCtrl.text.trim();
+      if (email.isNotEmpty) {
+        final existingEmp = widget.employees.firstWhere(
+          (e) {
+            final eEmail = (e['contact_email'] ?? '').toString().trim().toLowerCase();
+            final eStatus = (e['status'] ?? '').toString();
+            final isSameId = widget.employee != null && e['id'] == widget.employee!['id'];
+            return !isSameId && eStatus != 'Terminated' && eEmail == email.toLowerCase();
+          },
+          orElse: () => <String, dynamic>{},
+        );
+        if (existingEmp.isNotEmpty) {
+          final existingName = existingEmp['full_name'] ?? existingEmp['employee_code'] ?? 'another employee';
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Email \'$email\' is already registered to $existingName (${existingEmp['employee_code']}). Each employee must have a unique email.'),
+              backgroundColor: const Color(0xFFDC2626),
+            ),
+          );
+          return false;
+        }
       }
     } else if (step == 1) {
       if (_officeId == null) {
@@ -1922,14 +1957,32 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
     required Future<void> Function() onAddNew,
     required ValueChanged<T?> onChanged,
   }) {
+    // Deduplicate items by normalized title/id to prevent duplicate dropdown entries
+    final seenTitles = <String>{};
+    final seenIds = <int>{};
+    final List<Map<String, dynamic>> dedupedItems = [];
+    for (final m in items) {
+      final id = (m['id'] as num?)?.toInt();
+      String title = (m[labelKey] ?? m['name'] ?? m['title'] ?? m['office_name'] ?? '').toString().trim();
+      final code = (m['office_code'] ?? m['code'] ?? '').toString().trim();
+      final fullTitle = code.isNotEmpty ? '$code • $title' : title;
+      final key = fullTitle.toLowerCase();
+      if (id != null && (seenIds.contains(id) || (key.isNotEmpty && seenTitles.contains(key)))) {
+        continue;
+      }
+      if (id != null) seenIds.add(id);
+      if (key.isNotEmpty) seenTitles.add(key);
+      dedupedItems.add(m);
+    }
+
     // Safety check: is the active value actually in the loaded list of IDs?
     // If not, and it is not null, coerce it to null to avoid Flutter's Dropdown crash assertion.
-    final bool hasValue = value != null && items.any((m) => m['id'] == value);
+    final bool hasValue = value != null && dedupedItems.any((m) => m['id'] == value);
     final T? safeValue = hasValue ? value : null;
 
     // Build item list: existing items + sentinel "Add New"
     final List<DropdownMenuItem<int>> menuItems = [
-      ...items.map((m) {
+      ...dedupedItems.map((m) {
         String title = m[labelKey]?.toString() ?? '';
         if (m['office_code'] != null && m['office_code'].toString().isNotEmpty) {
           title = '${m['office_code']} • $title';

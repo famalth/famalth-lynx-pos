@@ -113,8 +113,11 @@ class TransportController extends ChangeNotifier {
   Future<bool> addDriver({
     required String driverName,
     required String phone,
+    String? email,
+    String? password,
     String? licenseNumber,
     String? address,
+    String? status,
   }) async {
     loading = true;
     notifyListeners();
@@ -122,8 +125,11 @@ class TransportController extends ChangeNotifier {
       final res = await ApiClient.post(ApiEndpoints.transportDrivers, {
         'driver_name': driverName,
         'phone': phone,
+        'email': email,
+        'password': password,
         'license_number': licenseNumber,
         'address': address,
+        'status': status ?? 'AVAILABLE',
       });
       await loadDrivers();
       return res['success'] == true;

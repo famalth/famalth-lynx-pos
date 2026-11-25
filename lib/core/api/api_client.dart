@@ -25,7 +25,7 @@ class ApiClient {
   }
 
   // ---------------- COMMON HEADERS ----------------
-  static Future<Map<String, String>> _headers([String? path]) async {
+  static Future<Map<String, String>> _headers([String? path, String? overrideToken]) async {
     String? token;
     final cleanPath = (path ?? '').trim();
     final isControlPlaneRoute = cleanPath.contains('api/v1/control-plane') || isAdminConsole;
@@ -38,7 +38,9 @@ class ApiClient {
         cleanPath.contains('license-and-rm-status') ||
         cleanPath.contains('register-property');
 
-    if (isControlPlaneRoute) {
+    if (overrideToken != null && overrideToken.isNotEmpty) {
+      token = overrideToken;
+    } else if (isControlPlaneRoute) {
       token = await ControlPlaneStorage.getToken();
       // Only client-facing CP routes (like license warning banner or POS ticket creation) fallback to merchant token
       if (token == null && (isPublicCpRoute || cleanPath.contains('support/tickets'))) {
@@ -90,6 +92,7 @@ class ApiClient {
     Map<String, dynamic>? queryParams,
     bool silent = false,
     Duration? timeout,
+    String? token,
   }) async {
     Uri uri = _uri(path);
     if (queryParams != null && queryParams.isNotEmpty) {
@@ -101,7 +104,7 @@ class ApiClient {
     }
     final response = await http.get(
       uri,
-      headers: await _headers(path),
+      headers: await _headers(path, token),
     ).timeout(_resolveTimeout(path, timeout));
     return _handleResponse(response, path: path, silent: silent);
   }
@@ -112,10 +115,11 @@ class ApiClient {
     dynamic body, {
     bool silent = false,
     Duration? timeout,
+    String? token,
   }) async {
     final response = await http.post(
       _uri(path),
-      headers: await _headers(path),
+      headers: await _headers(path, token),
       body: jsonEncode(body),
     ).timeout(_resolveTimeout(path, timeout));
     return _handleResponse(response, path: path, silent: silent);
@@ -127,10 +131,11 @@ class ApiClient {
     Map body, {
     bool silent = false,
     Duration? timeout,
+    String? token,
   }) async {
     final response = await http.put(
       _uri(path),
-      headers: await _headers(path),
+      headers: await _headers(path, token),
       body: jsonEncode(body),
     ).timeout(_resolveTimeout(path, timeout));
     return _handleResponse(response, path: path, silent: silent);
@@ -142,10 +147,11 @@ class ApiClient {
     dynamic body, {
     bool silent = false,
     Duration? timeout,
+    String? token,
   }) async {
     final response = await http.patch(
       _uri(path),
-      headers: await _headers(path),
+      headers: await _headers(path, token),
       body: jsonEncode(body),
     ).timeout(_resolveTimeout(path, timeout));
     return _handleResponse(response, path: path, silent: silent);
@@ -157,10 +163,11 @@ class ApiClient {
     Map? body,
     bool silent = false,
     Duration? timeout,
+    String? token,
   }) async {
     final response = await http.delete(
       _uri(path),
-      headers: await _headers(path),
+      headers: await _headers(path, token),
       body: body != null ? jsonEncode(body) : null,
     ).timeout(_resolveTimeout(path, timeout));
     return _handleResponse(response, path: path, silent: silent);

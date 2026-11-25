@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:intl/intl.dart';
 
 DateTime _parseApiDate(dynamic raw) {
@@ -841,7 +842,10 @@ class CustomerLedgerReport {
         final existing = txns[existingIdx];
 
         final combinedDebit = existing.debit + tx.debit;
-        final combinedCredit = existing.credit + tx.credit;
+        final double sumCredit = existing.credit + tx.credit;
+        final double combinedCredit = (existing.debit > 0 && sumCredit > existing.debit)
+            ? (existing.credit >= existing.debit ? existing.credit : math.min(existing.debit, sumCredit))
+            : sumCredit;
         final combinedMode = existing.paymentMode.isNotEmpty && existing.paymentMode != 'CREDIT'
             ? existing.paymentMode
             : (tx.paymentMode.isNotEmpty ? tx.paymentMode : existing.paymentMode);

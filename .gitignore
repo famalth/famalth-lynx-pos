@@ -96,6 +96,10 @@ server_download.pdf
 installer/Output/
 installer/*.exe
 backend/*.exe
+*.apk
+*.aab
+downloads/
+**/downloads/
 
 # Compiled Web UI Heavy Artifacts — managed by GitHub Actions CI
 # backend/public/ is committed by CI after flutter build web

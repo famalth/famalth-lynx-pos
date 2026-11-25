@@ -6175,18 +6175,25 @@ class _SaleScreenState extends State<SaleScreen> {
                       const SizedBox(height: 12),
                       Builder(
                         builder: (_) {
-                          final uniqueSources = _availableSaleSources
-                              .map((s) => s.trim())
-                              .where((s) => s.isNotEmpty)
-                              .toSet()
-                              .toList();
-                          final effectiveSource = uniqueSources.contains(_selectedSaleSource)
-                              ? _selectedSaleSource
-                              : (uniqueSources.contains('Store') ? 'Store' : (uniqueSources.isNotEmpty ? uniqueSources.first : 'Store'));
-                          if (!uniqueSources.contains(effectiveSource)) {
-                            uniqueSources.add(effectiveSource);
+                          final uniqueSources = <String>[];
+                          final seen = <String>{};
+                          for (final s in _availableSaleSources) {
+                            final clean = s.trim();
+                            if (clean.isNotEmpty && seen.add(clean.toLowerCase())) {
+                              uniqueSources.add(clean);
+                            }
                           }
+                          if (!seen.contains('store')) {
+                            uniqueSources.insert(0, 'Store');
+                            seen.add('store');
+                          }
+                          final selectedLower = _selectedSaleSource.trim().toLowerCase();
+                          final effectiveSource = uniqueSources.firstWhere(
+                            (s) => s.toLowerCase() == selectedLower,
+                            orElse: () => uniqueSources.first,
+                          );
                           return DropdownButtonFormField<String>(
+                            key: ValueKey('checkoutSaleSource-${effectiveSource.toLowerCase()}'),
                             value: effectiveSource,
                             decoration: const InputDecoration(
                               labelText: 'Sale Source / Channel',
@@ -6202,7 +6209,7 @@ class _SaleScreenState extends State<SaleScreen> {
                                 .toList(),
                             onChanged: (value) {
                               setDialogState(() {
-                                _selectedSaleSource = value ?? 'Store';
+                                _selectedSaleSource = value ?? effectiveSource;
                               });
                               setState(() {});
                             },
@@ -14986,17 +14993,25 @@ class _SaleScreenState extends State<SaleScreen> {
                 width: 150,
                 child: Builder(
                   builder: (_) {
-                    final uniqueSources = _availableSaleSources
-                        .map((s) => s.trim())
-                        .where((s) => s.isNotEmpty)
-                        .toSet()
-                        .toList();
-                    final effSource = uniqueSources.contains(_selectedSaleSource)
-                        ? _selectedSaleSource
-                        : (uniqueSources.contains('Store') ? 'Store' : (uniqueSources.isNotEmpty ? uniqueSources.first : 'Store'));
-                    if (!uniqueSources.contains(effSource)) uniqueSources.add(effSource);
+                    final uniqueSources = <String>[];
+                    final seen = <String>{};
+                    for (final s in _availableSaleSources) {
+                      final clean = s.trim();
+                      if (clean.isNotEmpty && seen.add(clean.toLowerCase())) {
+                        uniqueSources.add(clean);
+                      }
+                    }
+                    if (!seen.contains('store')) {
+                      uniqueSources.insert(0, 'Store');
+                      seen.add('store');
+                    }
+                    final selectedLower = _selectedSaleSource.trim().toLowerCase();
+                    final effSource = uniqueSources.firstWhere(
+                      (s) => s.toLowerCase() == selectedLower,
+                      orElse: () => uniqueSources.first,
+                    );
                     return DropdownButtonFormField<String>(
-                      key: ValueKey('saleSource-$effSource'),
+                      key: ValueKey('saleSource-${effSource.toLowerCase()}'),
                       value: effSource,
                       items: uniqueSources
                           .map(
@@ -15008,7 +15023,7 @@ class _SaleScreenState extends State<SaleScreen> {
                           .toList(),
                       onChanged: (value) {
                         setState(() {
-                          _selectedSaleSource = value ?? 'Store';
+                          _selectedSaleSource = value ?? effSource;
                         });
                       },
                       decoration: const InputDecoration(labelText: 'Sale Source'),
