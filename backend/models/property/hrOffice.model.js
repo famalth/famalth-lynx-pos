@@ -20,13 +20,11 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     HrOffice.associate = (models) => {
         HrOffice.belongsTo(models.outlets, { foreignKey: 'outlet_id', as: 'outlet' });
         HrOffice.hasMany(models.hr_employees, { foreignKey: 'office_id', as: 'employees' });
         HrOffice.hasMany(models.hr_attendance_punches, { foreignKey: 'office_id', as: 'punches' });
     };
-
     return HrOffice;
 };
 exports.default = module.exports;

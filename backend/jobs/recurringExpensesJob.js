@@ -30,25 +30,110 @@ async function processRecurringExpenses(db) {
         for (const item of dueExpenses) {
             const t = await db.transaction();
             try {
-                // Fetch category name if available
+                // Fetch or create category row if available
                 let categoryName = 'General';
+                let categoryRow = null;
                 if (item.expense_category_id) {
-                    const cat = await db.models.expense_categories.findOne({
+                    categoryRow = await db.models.expense_categories.findOne({
                         where: { id: item.expense_category_id },
                         transaction: t
                     });
-                    if (cat) {
-                        categoryName = cat.name || cat.category_name || 'General';
+                    if (categoryRow) {
+                        categoryName = categoryRow.name || categoryRow.category_name || 'General';
                     }
                 }
-                // Insert expense entry
-                await db.models.expense_entries.create({
-                    outlet_id: item.outlet_id,
-                    expense_date: todayStr,
-                    category: categoryName,
-                    amount: item.amount,
-                    note: `[Automated Recurring] ${item.description || ''}`
-                }, { transaction: t });
+                if (!categoryRow && db.models.expense_categories) {
+                    categoryRow = await db.models.expense_categories.findOne({
+                        where: { outlet_id: item.outlet_id },
+                        transaction: t
+                    });
+                    if (!categoryRow) {
+                        categoryRow = await db.models.expense_categories.create({
+                            outlet_id: item.outlet_id,
+                            category_name: 'Operational Expense',
+                            is_active: true
+                        }, { transaction: t });
+                    }
+                    categoryName = categoryRow.category_name || categoryRow.name || 'Operational Expense';
+                }
+                const amt = parseFloat(item.amount) || 0.0;
+                const vRefNo = `REC-EXP-${item.id}-${todayStr.replace(/-/g, '')}`;
+                const vNo = `PV-REC-${item.id}-${Date.now().toString().slice(-4)}`;
+                // 1. Insert official expense record into expenses table
+                let expenseRecord = null;
+                if (db.models.expenses) {
+                    expenseRecord = await db.models.expenses.create({
+                        outlet_id: item.outlet_id,
+                        category_id: categoryRow ? categoryRow.id : null,
+                        invoice_ref_no: vRefNo,
+                        payment_date: todayStr,
+                        payment_method: 'CASH',
+                        is_tax_inclusive: true,
+                        base_amount: amt,
+                        total_tax_amount: 0,
+                        total_deduction_amount: 0,
+                        net_payable_amount: amt,
+                        expense_note: `[Automated Recurring] ${item.description || ''}`,
+                        status: 'Paid',
+                        created_by: 1
+                    }, { transaction: t });
+                }
+                // 2. Auto-create Accounting Voucher (PAYMENT) in accounting_vouchers
+                if (db.models.accounting_vouchers) {
+                    try {
+                        await db.models.accounting_vouchers.create({
+                            outlet_id: item.outlet_id,
+                            voucher_no: vNo,
+                            voucher_type: 'PAYMENT',
+                            voucher_date: todayStr,
+                            payment_mode: 'CASH',
+                            reference_no: vRefNo,
+                            narration: `[Automated Recurring] ${item.description || categoryName}`,
+                            total_amount: amt,
+                            debit_account_name: categoryName,
+                            debit_account_type: 'EXPENSE',
+                            credit_account_name: 'CASH',
+                            credit_account_type: 'ASSET',
+                            status: 'APPROVED',
+                            created_by: 1
+                        }, { transaction: t });
+                    }
+                    catch (vErr) {
+                        console.warn('[JOBS] accounting_vouchers create warning:', vErr.message);
+                    }
+                }
+                // 3. Post debit entry directly into General/Cash Ledger
+                try {
+                    const { createLedgerEntry } = require('../services/cashLedger.service');
+                    await createLedgerEntry({
+                        db,
+                        outlet_id: item.outlet_id,
+                        txn_date: todayStr,
+                        transaction_type: 'EXPENSE',
+                        reference_type: 'EXPENSE',
+                        reference_id: expenseRecord ? expenseRecord.id : item.id,
+                        reference_no: vNo,
+                        party_name: categoryName,
+                        payment_method: 'CASH',
+                        amount_out: amt,
+                        notes: `[Automated Recurring] ${item.description || ''}`,
+                        created_by: 1,
+                        transaction: t
+                    });
+                }
+                catch (ledgerErr) {
+                    console.warn('[JOBS] createLedgerEntry warning:', ledgerErr.message);
+                }
+                // 4. Insert legacy expense_entries for backward compatibility
+                if (db.models.expense_entries) {
+                    await db.models.expense_entries.create({
+                        outlet_id: item.outlet_id,
+                        expense_date: todayStr,
+                        category: categoryName,
+                        amount: amt,
+                        note: `[Automated Recurring] ${item.description || ''}`
+                    }, { transaction: t });
+                }
                 // Compute next trigger date step-by-step until nextDate > todayStr
                 let nextDate = new Date(item.next_generation_date);
                 while (true) {

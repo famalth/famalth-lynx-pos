@@ -896,10 +896,12 @@ const getClinicDoctors = async (req, res) => {
         }
         // Enrich with stats: patients attended, fees collected by mode, medicine referral sales
         const results = [];
+        // Ensure doctors list contains strictly unique doctor IDs
         const seenDoctorIds = new Set();
         const dedupedDoctors = doctors.filter((d) => {
             const id = Number(d.id);
-            if (!id || seenDoctorIds.has(id)) return false;
+            if (!id || seenDoctorIds.has(id))
+                return false;
             seenDoctorIds.add(id);
             return true;
         });
@@ -1698,8 +1700,9 @@ const getPublicDoctors = async (req, res) => {
         }
         const allOutlets = await req.propertyDb.models.outlets.findAll({ bypassOutletFilter: true }).catch(() => []);
         const outletMap = new Map();
-        for (const o of allOutlets) { outletMap.set(o.id, o); }
-
+        for (const o of allOutlets) {
+            outletMap.set(o.id, o);
+        }
         // Group doctors by clinic outlet to support multi-doctor clinics
         const doctorsByOutlet = new Map();
         for (const d of doctorUsers) {
@@ -2052,7 +2055,7 @@ const bookAppointmentPublic = async (req, res) => {
             status: 'SCHEDULED',
             source: 'ONLINE_WEB'
         });
-        // Record in Financial Ledger and Customer Credit
+        // Record in Financial Ledger and Customer Credit if prepaid
         if (payment_status === 'PAID' && finalPaid > 0) {
             try {
                 const { createLedgerEntry } = require('../../services/cashLedger.service');
@@ -2088,7 +2091,6 @@ const bookAppointmentPublic = async (req, res) => {
                         is_deleted: false,
                         notes: `Online OPD Prepaid Fee: Token #${token_number} (${appointment.doctor_name || 'Clinic'})`
                     }).catch(() => null);
-
                     if (createdSale && createdSale.id) {
                         await appointment.update({
                             billing_sale_id: createdSale.id,
@@ -3010,7 +3012,8 @@ const getPatientCreditStatus = async (req, res) => {
         const whereMatch = [];
         if (phone && phone.trim()) {
             whereMatch.push({ customer_phone: phone.trim() });
-        } else if (name && name.trim()) {
+        }
+        else if (name && name.trim()) {
             whereMatch.push({ customer_name: { [sequelize_1.Op.iLike]: `%${name.trim()}%` } });
         }
         const whereCondition = {
@@ -3073,7 +3076,8 @@ const settlePatientCredit = async (req, res) => {
         const whereMatch = [];
         if (phone && phone.trim()) {
             whereMatch.push({ customer_phone: phone.trim() });
-        } else if (name && name.trim()) {
+        }
+        else if (name && name.trim()) {
             whereMatch.push({ customer_name: { [sequelize_1.Op.iLike]: `%${name.trim()}%` } });
         }
         let targetSale = null;

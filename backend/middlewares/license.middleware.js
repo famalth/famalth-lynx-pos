@@ -14,13 +14,10 @@ function loadLicense() {
         if (process.env.LICENSE_KEY_JSON) {
             try {
                 return JSON.parse(process.env.LICENSE_KEY_JSON);
-            } catch (e) {}
+            }
+            catch (e) { }
         }
-        return {
-            allowed_mode: 'ONLINE',
-            valid_till: '2099-12-31',
-            modules: ['INVENTORY', 'REPORTS', 'ADMIN', 'PURCHASE', 'SUPPLIER', 'ACCOUNTING', 'ANALYTICS', 'DELIVERY', 'FINANCE', 'NOTIFICATIONS']
-        };
+        return { allowed_mode: 'ONLINE', valid_till: '2099-12-31', modules: ['INVENTORY', 'REPORTS', 'ADMIN', 'PURCHASE', 'SUPPLIER', 'ACCOUNTING', 'ANALYTICS', 'DELIVERY', 'FINANCE', 'NOTIFICATIONS'] };
     }
     if (!fs_1.default.existsSync(LICENSE_PATH)) {
         throw new Error('LICENSE_FILE_MISSING');
@@ -57,27 +54,15 @@ function license(requiredModule) {
                                 message: licCheck.message || 'System license expired. Cloud subscription requires activation by administrator via Console.'
                             });
                         }
-                        req.license = {
-                            allowed_mode: 'ONLINE',
-                            valid_till: licCheck?.valid_till || '2099-12-31',
-                            modules: ['INVENTORY', 'REPORTS', 'ADMIN', 'PURCHASE', 'SUPPLIER', 'ACCOUNTING', 'ANALYTICS', 'DELIVERY', 'FINANCE', 'NOTIFICATIONS']
-                        };
+                        req.license = { allowed_mode: 'ONLINE', valid_till: licCheck?.valid_till || '2099-12-31', modules: ['INVENTORY', 'REPORTS', 'ADMIN', 'PURCHASE', 'SUPPLIER', 'ACCOUNTING', 'ANALYTICS', 'DELIVERY', 'FINANCE', 'NOTIFICATIONS'] };
                         next();
                     }).catch(() => {
-                        req.license = {
-                            allowed_mode: 'ONLINE',
-                            valid_till: '2099-12-31',
-                            modules: ['INVENTORY', 'REPORTS', 'ADMIN', 'PURCHASE', 'SUPPLIER', 'ACCOUNTING', 'ANALYTICS', 'DELIVERY', 'FINANCE', 'NOTIFICATIONS']
-                        };
+                        req.license = { allowed_mode: 'ONLINE', valid_till: '2099-12-31', modules: ['INVENTORY', 'REPORTS', 'ADMIN', 'PURCHASE', 'SUPPLIER', 'ACCOUNTING', 'ANALYTICS', 'DELIVERY', 'FINANCE', 'NOTIFICATIONS'] };
                         next();
                     });
                     return;
                 }
-                req.license = {
-                    allowed_mode: 'ONLINE',
-                    valid_till: '2099-12-31',
-                    modules: ['INVENTORY', 'REPORTS', 'ADMIN', 'PURCHASE', 'SUPPLIER', 'ACCOUNTING', 'ANALYTICS', 'DELIVERY', 'FINANCE', 'NOTIFICATIONS']
-                };
+                req.license = { allowed_mode: 'ONLINE', valid_till: '2099-12-31', modules: ['INVENTORY', 'REPORTS', 'ADMIN', 'PURCHASE', 'SUPPLIER', 'ACCOUNTING', 'ANALYTICS', 'DELIVERY', 'FINANCE', 'NOTIFICATIONS'] };
                 return next();
             }
             const licenseData = loadLicense();

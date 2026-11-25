@@ -1185,6 +1185,7 @@ const renderDiningWebPortal = (req, res) => {
 
       const itemsPayload = entries.map(entry => ({
         item_id: entry.item.id,
+        item_name: entry.item.item_name || entry.item.name || '',
         quantity: entry.qty,
         rate: Number(entry.item.selling_price || entry.item.retail_sale_price || entry.item.price || entry.item.rate || 0),
         notes: entry.note || ''

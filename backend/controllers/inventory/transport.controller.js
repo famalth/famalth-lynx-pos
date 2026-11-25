@@ -161,20 +161,51 @@ class TransportController {
     static async createDriver(req, res) {
         try {
             const outlet_id = req.user.outlet_id;
-            const { driver_name, phone, license_number, address } = req.body;
+            const { driver_name, phone, email, password, license_number, address, status } = req.body;
             if (!driver_name || !driver_name.trim()) {
                 return res.status(400).json({ success: false, message: 'Driver name is required' });
             }
             if (!phone || !phone.trim()) {
                 return res.status(400).json({ success: false, message: 'Driver phone number is required' });
             }
+            const cleanPhone = phone.trim();
+            const cleanEmail = email ? email.trim().toLowerCase() : null;
+            // Unique check
+            const existing = await req.propertyDb.models.transport_drivers.findOne({
+                where: {
+                    outlet_id,
+                    is_active: true,
+                    [sequelize_1.Op.or]: [
+                        { phone: cleanPhone },
+                        ...(cleanEmail ? [{ email: cleanEmail }] : [])
+                    ]
+                }
+            });
+            if (existing) {
+                return res.status(400).json({
+                    success: false,
+                    message: `A driver with phone ${cleanPhone}${cleanEmail ? ' or email ' + cleanEmail : ''} already exists.`
+                });
+            }
+            let password_hash = null;
+            if (password && password.toString().trim().isNotEmpty) {
+                const bcrypt = require('bcryptjs');
+                password_hash = await bcrypt.hash(password.toString().trim(), 10);
+            }
+            else {
+                const bcrypt = require('bcryptjs');
+                password_hash = await bcrypt.hash('123456', 10);
+            }
             const driver = await req.propertyDb.models.transport_drivers.create({
                 outlet_id,
                 driver_name: driver_name.trim(),
-                phone: phone.trim(),
+                phone: cleanPhone,
+                email: cleanEmail,
+                password_hash,
                 license_number: license_number ? license_number.trim().toUpperCase() : null,
                 address: address ? address.trim() : null,
-                status: 'AVAILABLE',
+                status: status || 'AVAILABLE',
+                total_consignments_completed: 0,
                 is_active: true
             });
             return res.status(201).json({ success: true, data: driver, message: 'Driver profile created successfully' });
@@ -188,20 +219,38 @@ class TransportController {
         try {
             const outlet_id = req.user.outlet_id;
             const { id } = req.params;
-            const { driver_name, phone, license_number, address, status } = req.body;
+            const { driver_name, phone, email, password, license_number, address, status } = req.body;
             const driver = await req.propertyDb.models.transport_drivers.findOne({
                 where: { id, outlet_id }
             });
             if (!driver) {
                 return res.status(404).json({ success: false, message: 'Driver not found' });
             }
-            await driver.update({
-                driver_name: driver_name ? driver_name.trim() : driver.driver_name,
-                phone: phone ? phone.trim() : driver.phone,
-                license_number: license_number !== undefined ? (license_number ? license_number.trim().toUpperCase() : null) : driver.license_number,
-                address: address !== undefined ? (address ? address.trim() : null) : driver.address,
-                status: status || driver.status
-            });
+            const updatePayload = {};
+            if (driver_name !== undefined)
+                updatePayload.driver_name = driver_name ? driver_name.trim() : driver.driver_name;
+            if (phone !== undefined)
+                updatePayload.phone = phone ? phone.trim() : driver.phone;
+            if (email !== undefined)
+                updatePayload.email = email ? email.trim().toLowerCase() : driver.email;
+            if (license_number !== undefined)
+                updatePayload.license_number = license_number ? license_number.trim().toUpperCase() : null;
+            if (address !== undefined)
+                updatePayload.address = address ? address.trim() : null;
+            if (status !== undefined) {
+                updatePayload.status = status;
+                if (status === 'TERMINATED' || status === 'INACTIVE') {
+                    updatePayload.is_active = false;
+                }
+                else {
+                    updatePayload.is_active = true;
+                }
+            }
+            if (password && password.toString().trim()) {
+                const bcrypt = require('bcryptjs');
+                updatePayload.password_hash = await bcrypt.hash(password.toString().trim(), 10);
+            }
+            await driver.update(updatePayload);
             return res.json({ success: true, data: driver, message: 'Driver profile updated successfully' });
         }
         catch (err) {
@@ -268,11 +317,14 @@ class TransportController {
                 await t.rollback();
                 return res.status(404).json({ success: false, message: 'Selected driver not found.' });
             }
-            // Generate trip ID
-            const today = new Date();
-            const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
-            const tripRandom = Math.random().toString(36).substring(2, 6).toUpperCase();
-            const trip_id = `TRIP-${dateStr}-${tripRandom}`;
+            // Generate or reuse trip ID for multi-challan trip
+            let trip_id = vehicle.current_trip_id;
+            if (!trip_id) {
+                const today = new Date();
+                const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
+                const tripRandom = Math.random().toString(36).substring(2, 6).toUpperCase();
+                trip_id = `TRIP-${dateStr}-${tripRandom}`;
+            }
             const assignedChallans = [];
             for (const challanId of challan_ids) {
                 const challan = await req.propertyDb.models.delivery_challan_headers.findOne({
@@ -377,6 +429,14 @@ class TransportController {
                 delivered_at: new Date(),
                 delivered_by_remark: deliveryNote
             }, { transaction: t });
+            // Increment driver's completed consignments
+            if (challan.driver_id && req.propertyDb.models.transport_drivers) {
+                await req.propertyDb.models.transport_drivers.increment('total_consignments_completed', {
+                    by: 1,
+                    where: { id: challan.driver_id, outlet_id },
+                    transaction: t
+                }).catch(() => null);
+            }
             // Check if all other challans in this trip/vehicle are also delivered
             let tripCompleted = false;
             if (challan.trip_id) {
@@ -519,6 +579,315 @@ class TransportController {
         }
         catch (err) {
             console.error('getActiveTrips error:', err);
+            return res.status(500).json({ success: false, error: err.message });
+        }
+    }
+    // =========================================================================
+    // TRUCK DRIVER PORTAL & SELF-SERVICE AUTH / TRACKING
+    // =========================================================================
+    static async driverLogin(req, res) {
+        try {
+            const { login_id, password } = req.body;
+            if (!login_id || !password) {
+                return res.status(400).json({ success: false, message: 'Phone/Email and Password are required.' });
+            }
+            const cleanLogin = login_id.toString().trim();
+            const driver = await req.propertyDb.models.transport_drivers.findOne({
+                where: {
+                    is_active: true,
+                    [sequelize_1.Op.or]: [
+                        { phone: cleanLogin },
+                        { email: { [sequelize_1.Op.iLike]: cleanLogin } }
+                    ]
+                },
+                include: [
+                    {
+                        model: req.propertyDb.models.transport_vehicles,
+                        as: 'current_vehicle',
+                        required: false
+                    }
+                ]
+            });
+            if (!driver) {
+                return res.status(401).json({ success: false, message: 'Driver account not found with this Phone or Email.' });
+            }
+            if (driver.status === 'TERMINATED' || driver.status === 'INACTIVE' || driver.is_active === false) {
+                return res.status(403).json({ success: false, message: 'This driver account has been terminated or deactivated by the admin.' });
+            }
+            const bcrypt = require('bcryptjs');
+            let isMatch = false;
+            if (driver.password_hash) {
+                isMatch = await bcrypt.compare(password.toString().trim(), driver.password_hash);
+            }
+            else {
+                isMatch = password.toString().trim() === '123456' || password.toString().trim() === driver.phone;
+            }
+            if (!isMatch) {
+                return res.status(401).json({ success: false, message: 'Incorrect password entered.' });
+            }
+            const jwt = require('../../utils/jwt.util');
+            const token = jwt.sign({
+                driver_id: driver.id,
+                id: driver.id,
+                driver_name: driver.driver_name,
+                phone: driver.phone,
+                email: driver.email,
+                outlet_id: driver.outlet_id,
+                role: 'DRIVER'
+            });
+            return res.json({
+                success: true,
+                message: `Welcome, ${driver.driver_name}!`,
+                token,
+                driver: {
+                    id: driver.id,
+                    driver_name: driver.driver_name,
+                    phone: driver.phone,
+                    email: driver.email,
+                    license_number: driver.license_number,
+                    status: driver.status,
+                    total_consignments_completed: driver.total_consignments_completed || 0,
+                    outlet_id: driver.outlet_id,
+                    current_vehicle: driver.current_vehicle
+                }
+            });
+        }
+        catch (err) {
+            console.error('driverLogin error:', err);
+            return res.status(500).json({ success: false, error: err.message });
+        }
+    }
+    static async getDriverMe(req, res) {
+        try {
+            const driverId = req.user?.driver_id || req.user?.id;
+            const driver = await req.propertyDb.models.transport_drivers.findByPk(driverId, {
+                include: [
+                    {
+                        model: req.propertyDb.models.transport_vehicles,
+                        as: 'current_vehicle',
+                        required: false
+                    }
+                ]
+            });
+            if (!driver || driver.is_active === false || driver.status === 'TERMINATED' || driver.status === 'INACTIVE') {
+                return res.status(403).json({
+                    success: false,
+                    auto_logout: true,
+                    message: 'Driver profile has been terminated or deactivated by the admin.'
+                });
+            }
+            return res.json({
+                success: true,
+                driver: {
+                    id: driver.id,
+                    driver_name: driver.driver_name,
+                    phone: driver.phone,
+                    email: driver.email,
+                    license_number: driver.license_number,
+                    status: driver.status,
+                    total_consignments_completed: driver.total_consignments_completed || 0,
+                    last_latitude: driver.last_latitude,
+                    last_longitude: driver.last_longitude,
+                    last_location_address: driver.last_location_address,
+                    last_location_updated: driver.last_location_updated,
+                    current_vehicle: driver.current_vehicle
+                }
+            });
+        }
+        catch (err) {
+            return res.status(500).json({ success: false, error: err.message });
+        }
+    }
+    static async driverForgotPassword(req, res) {
+        try {
+            const { login_id } = req.body;
+            if (!login_id)
+                return res.status(400).json({ success: false, message: 'Please provide registered Phone or Email.' });
+            const clean = login_id.toString().trim();
+            const driver = await req.propertyDb.models.transport_drivers.findOne({
+                where: {
+                    is_active: true,
+                    [sequelize_1.Op.or]: [
+                        { phone: clean },
+                        { email: { [sequelize_1.Op.iLike]: clean } }
+                    ]
+                }
+            });
+            if (!driver) {
+                return res.status(404).json({ success: false, message: 'No driver found with this Phone or Email.' });
+            }
+            const otp = String(Math.floor(100000 + Math.random() * 900000));
+            const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+            await driver.update({
+                reset_otp: otp,
+                reset_otp_expires_at: expiresAt
+            });
+            try {
+                const { sendEmail } = require('../../services/email.service');
+                if (driver.email) {
+                    await sendEmail({
+                        to: driver.email,
+                        subject: 'Password Reset OTP - Truck Driver App',
+                        html: `<p>Dear ${driver.driver_name},</p><p>Your OTP for resetting your Truck Driver portal password is: <b>${otp}</b>.</p><p>This OTP will expire in 15 minutes.</p>`
+                    });
+                }
+            }
+            catch (mailErr) {
+                console.warn('Driver reset email send warning:', mailErr.message);
+            }
+            return res.json({
+                success: true,
+                message: `OTP sent to ${driver.email ? driver.email : 'registered mobile ' + driver.phone}. (OTP: ${otp})`,
+                demo_otp: otp
+            });
+        }
+        catch (err) {
+            return res.status(500).json({ success: false, error: err.message });
+        }
+    }
+    static async driverResetPassword(req, res) {
+        try {
+            const { login_id, otp, new_password } = req.body;
+            if (!login_id || !otp || !new_password) {
+                return res.status(400).json({ success: false, message: 'Phone/Email, OTP, and New Password are required.' });
+            }
+            const clean = login_id.toString().trim();
+            const driver = await req.propertyDb.models.transport_drivers.findOne({
+                where: {
+                    is_active: true,
+                    [sequelize_1.Op.or]: [
+                        { phone: clean },
+                        { email: { [sequelize_1.Op.iLike]: clean } }
+                    ]
+                }
+            });
+            if (!driver)
+                return res.status(404).json({ success: false, message: 'Driver not found.' });
+            if (!driver.reset_otp || driver.reset_otp !== otp.toString().trim()) {
+                return res.status(400).json({ success: false, message: 'Invalid OTP. Please check the OTP sent to your email.' });
+            }
+            if (driver.reset_otp_expires_at && new Date() > new Date(driver.reset_otp_expires_at)) {
+                return res.status(400).json({ success: false, message: 'OTP has expired. Please request a new one.' });
+            }
+            const bcrypt = require('bcryptjs');
+            const hash = await bcrypt.hash(new_password.toString().trim(), 10);
+            await driver.update({
+                password_hash: hash,
+                reset_otp: null,
+                reset_otp_expires_at: null
+            });
+            return res.json({ success: true, message: 'Password updated successfully! You can now log in.' });
+        }
+        catch (err) {
+            return res.status(500).json({ success: false, error: err.message });
+        }
+    }
+    static async getDriverAssignedTrips(req, res) {
+        try {
+            const driverId = req.user?.driver_id || req.user?.id;
+            const driver = await req.propertyDb.models.transport_drivers.findByPk(driverId);
+            if (!driver || driver.status === 'TERMINATED' || driver.status === 'INACTIVE' || !driver.is_active) {
+                return res.status(403).json({ success: false, auto_logout: true, message: 'Account terminated or deactivated.' });
+            }
+            const challans = await req.propertyDb.models.delivery_challan_headers.findAll({
+                where: {
+                    driver_id: driverId,
+                    delivery_status: { [sequelize_1.Op.in]: ['IN_TRANSIT', 'PENDING'] }
+                },
+                include: [
+                    {
+                        model: req.propertyDb.models.delivery_challan_items,
+                        as: 'items'
+                    }
+                ],
+                order: [['id', 'DESC']]
+            });
+            const deliveredRecent = await req.propertyDb.models.delivery_challan_headers.findAll({
+                where: {
+                    driver_id: driverId,
+                    delivery_status: 'DELIVERED'
+                },
+                include: [
+                    {
+                        model: req.propertyDb.models.delivery_challan_items,
+                        as: 'items'
+                    }
+                ],
+                order: [['delivered_at', 'DESC']],
+                limit: 10
+            });
+            return res.json({
+                success: true,
+                data: {
+                    active_challans: challans,
+                    delivered_recent: deliveredRecent,
+                    total_completed: driver.total_consignments_completed || deliveredRecent.length
+                }
+            });
+        }
+        catch (err) {
+            return res.status(500).json({ success: false, error: err.message });
+        }
+    }
+    static async driverUpdateLocation(req, res) {
+        try {
+            const driverId = req.user?.driver_id || req.user?.id;
+            const { latitude, longitude, address, battery_level, trip_id } = req.body;
+            if (!latitude || !longitude) {
+                return res.status(400).json({ success: false, message: 'Latitude and Longitude are required.' });
+            }
+            const driver = await req.propertyDb.models.transport_drivers.findByPk(driverId);
+            if (!driver || driver.status === 'TERMINATED' || driver.status === 'INACTIVE' || !driver.is_active) {
+                return res.status(403).json({ success: false, auto_logout: true, message: 'Account terminated or deactivated.' });
+            }
+            const now = new Date();
+            await driver.update({
+                last_latitude: latitude,
+                last_longitude: longitude,
+                last_location_address: address || driver.last_location_address,
+                last_location_updated: now
+            });
+            if (req.propertyDb.models.transport_driver_locations) {
+                await req.propertyDb.models.transport_driver_locations.create({
+                    outlet_id: driver.outlet_id,
+                    driver_id: driver.id,
+                    trip_id: trip_id || null,
+                    latitude,
+                    longitude,
+                    address: address || null,
+                    battery_level: battery_level || null,
+                    created_at: now
+                }).catch(() => null);
+            }
+            return res.json({ success: true, message: 'Live GPS location updated successfully.' });
+        }
+        catch (err) {
+            return res.status(500).json({ success: false, error: err.message });
+        }
+    }
+    static async getFleetLiveTracking(req, res) {
+        try {
+            const outlet_id = req.user.outlet_id;
+            const drivers = await req.propertyDb.models.transport_drivers.findAll({
+                where: { outlet_id, is_active: true },
+                attributes: [
+                    'id', 'driver_name', 'phone', 'email', 'license_number', 'status',
+                    'last_latitude', 'last_longitude', 'last_location_address', 'last_location_updated',
+                    'total_consignments_completed'
+                ],
+                include: [
+                    {
+                        model: req.propertyDb.models.transport_vehicles,
+                        as: 'current_vehicle',
+                        required: false,
+                        attributes: ['id', 'vehicle_number', 'vehicle_type', 'status', 'current_trip_id']
+                    }
+                ],
+                order: [['driver_name', 'ASC']]
+            });
+            return res.json({ success: true, data: drivers });
+        }
+        catch (err) {
             return res.status(500).json({ success: false, error: err.message });
         }
     }

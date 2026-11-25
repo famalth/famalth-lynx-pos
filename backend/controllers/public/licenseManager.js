@@ -107,11 +107,12 @@ async function verifyLicenseOnline(outletCode) {
             const expiryDate = new Date(activeLic.valid_till);
             const graceDays = Number(activeLic.grace_period_days || 0);
             const diffMs = expiryDate.getTime() - Date.now();
-            const daysRemaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+            let daysRemaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
             let licenseState = 'VALID';
             let message = 'License active';
             if (daysRemaining <= 0 || activeLic.status === 'EXPIRED') {
                 if (!isCloudEnvironment()) {
+                    // On local offline server, license never expires from online migration
                     licenseState = 'VALID';
                     daysRemaining = 365;
                     message = 'Offline license active.';
@@ -120,8 +121,10 @@ async function verifyLicenseOnline(outletCode) {
                         activeLic.status = 'ACTIVE';
                         activeLic.payment_status = 'PAID';
                         activeLic.save();
-                    } catch (_) {}
-                } else {
+                    }
+                    catch (_) { }
+                }
+                else {
                     licenseState = 'EXPIRED';
                     message = `Software license expired on ${expiryDate.toLocaleDateString()}. Cloud subscription must be activated via Management Console.`;
                 }

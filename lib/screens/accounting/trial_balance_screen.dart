@@ -28,8 +28,43 @@ class _TrialBalanceScreenState extends State<TrialBalanceScreen> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 1,
-        title: const Text('Trial Balance Report', style: TextStyle(color: primaryColor, fontSize: 16, fontWeight: FontWeight.bold)),
+        titleSpacing: 0,
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                color: primaryColor,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.balance_rounded, color: Colors.white, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Trial Balance Report',
+                  style: TextStyle(color: Color(0xFF0F172A), fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  'Double-Entry Debit & Credit Ledger Verification',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
+                ),
+              ],
+            ),
+          ],
+        ),
         iconTheme: const IconThemeData(color: primaryColor),
+        actions: [
+          IconButton(
+            tooltip: 'Refresh',
+            icon: const Icon(Icons.refresh_rounded, color: primaryColor),
+            onPressed: () => ctrl.fetchTrialBalance(outletId: widget.outletId),
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: ListenableBuilder(
         listenable: ctrl,
@@ -95,9 +130,9 @@ class _TrialBalanceScreenState extends State<TrialBalanceScreen> {
                         const Text('TOTAL:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                         Row(
                           children: [
-                            Text('Debit: ${CurrencyService.format(double.tryParse(summary['totalDebit']?.toString() ?? '0') ?? 0)}', style: TextStyle(fontWeight: FontWeight.bold, color: primaryColor, fontFamily: 'monospace')),
+                            Text('Debit: ${CurrencyService.format(double.tryParse(summary['totalDebit']?.toString() ?? '0') ?? 0)}', style: const TextStyle(fontWeight: FontWeight.bold, color: primaryColor, fontFamily: 'monospace')),
                             const SizedBox(width: 24),
-                            Text('Credit: ${CurrencyService.format(double.tryParse(summary['totalCredit']?.toString() ?? '0') ?? 0)}', style: TextStyle(fontWeight: FontWeight.bold, color: primaryColor, fontFamily: 'monospace')),
+                            Text('Credit: ${CurrencyService.format(double.tryParse(summary['totalCredit']?.toString() ?? '0') ?? 0)}', style: const TextStyle(fontWeight: FontWeight.bold, color: primaryColor, fontFamily: 'monospace')),
                           ],
                         ),
                       ],

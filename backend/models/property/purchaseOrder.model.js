@@ -23,7 +23,6 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     if (sequelize && typeof sequelize.query === 'function') {
         sequelize.query(`
             ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS approval_status VARCHAR(20) DEFAULT 'APPROVED';
@@ -33,7 +32,7 @@ module.exports = (sequelize, DataTypes) => {
             ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMP;
             ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
             UPDATE purchase_orders SET approval_status = 'APPROVED' WHERE approval_status IS NULL;
-        `).catch(() => {});
+        `).catch(() => { });
     }
     purchase_order.associate = (models) => {
         purchase_order.hasMany(models.purchase_order_items, {

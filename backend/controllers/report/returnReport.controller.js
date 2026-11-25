@@ -54,8 +54,12 @@ exports.getReturnReport = async (req, res) => {
             const items = (h.return_items || []).map((i) => {
                 const amount = Number(i.amount ?? Number(i.qty) * Number(i.rate));
                 const tax = Number(i.tax || i.issue_item?.tax || 0);
-                const taxAmount = !Number(i.tax_amount) ? amount * tax / 100 : Number(i.tax_amount);
-                const lineTotalAmount = i.total_after_tax == null ? amount + taxAmount : Number(i.total_after_tax);
+                const taxAmount = !Number(i.tax_amount)
+                    ? amount * tax / 100
+                    : Number(i.tax_amount);
+                const lineTotalAmount = i.total_after_tax == null
+                    ? amount + taxAmount
+                    : Number(i.total_after_tax);
                 totalQty += Number(i.qty);
                 totalAmount += lineTotalAmount;
                 return {

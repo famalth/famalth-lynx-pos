@@ -742,7 +742,7 @@ export class TransportController {
         return res.status(401).json({ success: false, message: 'Incorrect password entered.' });
       }
 
-      const jwt = require('../utils/jwt.util');
+      const jwt = require('../../utils/jwt.util');
       const token = jwt.sign({
         driver_id: driver.id,
         id: driver.id,
@@ -847,7 +847,7 @@ export class TransportController {
       });
 
       try {
-        const { sendEmail } = require('../services/mailer.service');
+        const { sendEmail } = require('../../services/email.service');
         if (driver.email) {
           await sendEmail({
             to: driver.email,

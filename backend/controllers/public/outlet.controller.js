@@ -302,11 +302,9 @@ exports.updateOutletModule = async (req, res) => {
         await outlet.update({ business_module: resolved });
         if (req.propertyDb.models.property_info) {
             try {
-                await req.propertyDb.models.property_info.update(
-                    { outlet_module: resolved, business_module: resolved },
-                    { where: { outlet_id: outlet.id } }
-                );
-            } catch (_) {}
+                await req.propertyDb.models.property_info.update({ outlet_module: resolved, business_module: resolved }, { where: { outlet_id: outlet.id } });
+            }
+            catch (_) { }
         }
         res.json({
             success: true,

@@ -38,10 +38,12 @@ class SupportConsoleController {
                 resolvedTenantId = firstTenant?.id;
             }
             if (!resolvedTenantId) {
+                // Fallback to ANY tenant if active is not found
                 const anyTenant = await MasterTenant.findOne();
                 resolvedTenantId = anyTenant?.id;
             }
             if (!resolvedTenantId) {
+                // Ensure a fallback tenant so tenant_id is never null
                 const defaultTenant = await MasterTenant.create({
                     client_code: 'STORE-DEFAULT',
                     legal_name: 'Retail Store POS Client',
@@ -97,7 +99,8 @@ class SupportConsoleController {
             // Broadcast real-time sound chime alert to all support staff in control panel
             try {
                 (0, socketHub_service_1.broadcastNewSupportTicket)(populatedTicket || ticket.toJSON());
-            } catch (_) {}
+            }
+            catch (_) { }
             return res.status(201).json({
                 success: true,
                 message: 'Ticket raised successfully.',

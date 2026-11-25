@@ -2130,6 +2130,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
   // DIALOG: ISSUE NEW DELIVERY CHALLAN (WITH OPTIONAL TRUCK & DRIVER ASSIGNMENT)
   // =========================================================================
   void _openIssueChallanDialog(BuildContext mainContext) {
+    _loadRegisteredCustomers();
     final customerNameCtrl = TextEditingController();
     final customerPhoneCtrl = TextEditingController();
     final destinationCtrl = TextEditingController();
@@ -2165,7 +2166,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Customer info with Autocomplete (Case 2)
+                      // Customer info with Autocomplete (Searchable Name & Phone)
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -2177,20 +2178,22 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                                 if (textEditingValue.text.trim().isEmpty) {
                                   return const Iterable<Map<String, dynamic>>.empty();
                                 }
-                                final q = textEditingValue.text.toLowerCase();
+                                final q = textEditingValue.text.toLowerCase().trim();
                                 return _registeredCustomers.where((c) {
                                   final name = (c['customer_name'] ?? c['name'] ?? '').toString().toLowerCase();
-                                  final phone = (c['phone'] ?? c['mobile'] ?? '').toString().toLowerCase();
-                                  return name.contains(q) || phone.contains(q);
+                                  final phone = (c['customer_phone'] ?? c['phone'] ?? c['mobile'] ?? '').toString().toLowerCase();
+                                  final addr = (c['customer_address'] ?? c['address'] ?? c['shipping_address'] ?? '').toString().toLowerCase();
+                                  return name.contains(q) || phone.contains(q) || addr.contains(q);
                                 });
                               },
                               displayStringForOption: (c) => (c['customer_name'] ?? c['name'] ?? '').toString(),
                               onSelected: (Map<String, dynamic> selection) {
                                 setDialogState(() {
-                                  customerNameCtrl.text = (selection['customer_name'] ?? selection['name'] ?? '').toString();
-                                  final ph = (selection['phone'] ?? selection['mobile'] ?? '').toString();
+                                  final name = (selection['customer_name'] ?? selection['name'] ?? '').toString().trim();
+                                  final ph = (selection['customer_phone'] ?? selection['phone'] ?? selection['mobile'] ?? '').toString().trim();
+                                  final addr = (selection['customer_address'] ?? selection['address'] ?? selection['shipping_address'] ?? selection['billing_address'] ?? selection['city'] ?? '').toString().trim();
+                                  if (name.isNotEmpty) customerNameCtrl.text = name;
                                   if (ph.isNotEmpty) customerPhoneCtrl.text = ph;
-                                  final addr = (selection['address'] ?? selection['shipping_address'] ?? selection['billing_address'] ?? selection['city'] ?? '').toString();
                                   if (addr.isNotEmpty) destinationCtrl.text = addr;
                                 });
                               },
@@ -2211,23 +2214,48 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                                 return Align(
                                   alignment: Alignment.topLeft,
                                   child: Material(
-                                    elevation: 4.0,
+                                    elevation: 6.0,
                                     borderRadius: BorderRadius.circular(8),
-                                    child: SizedBox(
-                                      width: 340,
-                                      height: options.length > 4 ? 200 : options.length * 52.0,
+                                    child: Container(
+                                      width: 350,
+                                      constraints: const BoxConstraints(maxHeight: 220),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                                      ),
                                       child: ListView.builder(
                                         padding: EdgeInsets.zero,
+                                        shrinkWrap: true,
                                         itemCount: options.length,
                                         itemBuilder: (BuildContext context, int index) {
                                           final c = options.elementAt(index);
                                           final name = (c['customer_name'] ?? c['name'] ?? '').toString();
-                                          final phone = (c['phone'] ?? c['mobile'] ?? '').toString();
+                                          final phone = (c['customer_phone'] ?? c['phone'] ?? c['mobile'] ?? '').toString();
+                                          final addr = (c['customer_address'] ?? c['address'] ?? c['shipping_address'] ?? '').toString();
                                           return ListTile(
                                             dense: true,
-                                            leading: const Icon(Icons.account_circle, size: 20, color: Color(0xFF008060)),
-                                            title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                                            subtitle: Text(phone.isNotEmpty ? 'Ph: $phone' : 'No phone', style: const TextStyle(fontSize: 11)),
+                                            leading: Container(
+                                              padding: const EdgeInsets.all(5),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFF008060).withValues(alpha: 0.1),
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: const Icon(Icons.person_pin_circle_rounded, size: 18, color: Color(0xFF008060)),
+                                            ),
+                                            title: Text(
+                                              name.isNotEmpty ? name : 'Customer ($phone)',
+                                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
+                                            ),
+                                            subtitle: Text(
+                                              [
+                                                if (phone.isNotEmpty) '📞 $phone',
+                                                if (addr.isNotEmpty) '📍 $addr',
+                                              ].join('  •  '),
+                                              style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
                                             onTap: () => onSelected(c),
                                           );
                                         },
@@ -2247,20 +2275,22 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                                 if (textEditingValue.text.trim().isEmpty) {
                                   return const Iterable<Map<String, dynamic>>.empty();
                                 }
-                                final q = textEditingValue.text.toLowerCase();
+                                final q = textEditingValue.text.toLowerCase().trim();
                                 return _registeredCustomers.where((c) {
-                                  final phone = (c['phone'] ?? c['mobile'] ?? '').toString().toLowerCase();
+                                  final phone = (c['customer_phone'] ?? c['phone'] ?? c['mobile'] ?? '').toString().toLowerCase();
                                   final name = (c['customer_name'] ?? c['name'] ?? '').toString().toLowerCase();
-                                  return phone.contains(q) || name.contains(q);
+                                  final addr = (c['customer_address'] ?? c['address'] ?? c['shipping_address'] ?? '').toString().toLowerCase();
+                                  return phone.contains(q) || name.contains(q) || addr.contains(q);
                                 });
                               },
-                              displayStringForOption: (c) => (c['phone'] ?? c['mobile'] ?? '').toString(),
+                              displayStringForOption: (c) => (c['customer_phone'] ?? c['phone'] ?? c['mobile'] ?? '').toString(),
                               onSelected: (Map<String, dynamic> selection) {
                                 setDialogState(() {
-                                  customerPhoneCtrl.text = (selection['phone'] ?? selection['mobile'] ?? '').toString();
-                                  final nm = (selection['customer_name'] ?? selection['name'] ?? '').toString();
+                                  final ph = (selection['customer_phone'] ?? selection['phone'] ?? selection['mobile'] ?? '').toString().trim();
+                                  final nm = (selection['customer_name'] ?? selection['name'] ?? '').toString().trim();
+                                  final addr = (selection['customer_address'] ?? selection['address'] ?? selection['shipping_address'] ?? selection['billing_address'] ?? selection['city'] ?? '').toString().trim();
+                                  if (ph.isNotEmpty) customerPhoneCtrl.text = ph;
                                   if (nm.isNotEmpty) customerNameCtrl.text = nm;
-                                  final addr = (selection['address'] ?? selection['shipping_address'] ?? selection['billing_address'] ?? selection['city'] ?? '').toString();
                                   if (addr.isNotEmpty) destinationCtrl.text = addr;
                                 });
                               },
@@ -2282,23 +2312,48 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                                 return Align(
                                   alignment: Alignment.topLeft,
                                   child: Material(
-                                    elevation: 4.0,
+                                    elevation: 6.0,
                                     borderRadius: BorderRadius.circular(8),
-                                    child: SizedBox(
-                                      width: 340,
-                                      height: options.length > 4 ? 200 : options.length * 52.0,
+                                    child: Container(
+                                      width: 350,
+                                      constraints: const BoxConstraints(maxHeight: 220),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                                      ),
                                       child: ListView.builder(
                                         padding: EdgeInsets.zero,
+                                        shrinkWrap: true,
                                         itemCount: options.length,
                                         itemBuilder: (BuildContext context, int index) {
                                           final c = options.elementAt(index);
                                           final name = (c['customer_name'] ?? c['name'] ?? '').toString();
-                                          final phone = (c['phone'] ?? c['mobile'] ?? '').toString();
+                                          final phone = (c['customer_phone'] ?? c['phone'] ?? c['mobile'] ?? '').toString();
+                                          final addr = (c['customer_address'] ?? c['address'] ?? c['shipping_address'] ?? '').toString();
                                           return ListTile(
                                             dense: true,
-                                            leading: const Icon(Icons.phone_iphone, size: 20, color: Color(0xFF008060)),
-                                            title: Text(phone, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                                            subtitle: Text(name, style: const TextStyle(fontSize: 11)),
+                                            leading: Container(
+                                              padding: const EdgeInsets.all(5),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFF008060).withValues(alpha: 0.1),
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: const Icon(Icons.phone_iphone, size: 18, color: Color(0xFF008060)),
+                                            ),
+                                            title: Text(
+                                              phone.isNotEmpty ? phone : 'No Phone',
+                                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
+                                            ),
+                                            subtitle: Text(
+                                              [
+                                                if (name.isNotEmpty) '👤 $name',
+                                                if (addr.isNotEmpty) '📍 $addr',
+                                              ].join('  •  '),
+                                              style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
                                             onTap: () => onSelected(c),
                                           );
                                         },
@@ -2495,7 +2550,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                                       items: catalogItems.map((catItem) {
                                         return DropdownMenuItem<int>(
                                           value: catItem.id,
-                                          child: Text('${catItem.itemCode ?? ''} - ${catItem.itemName} (${catItem.unit})'),
+                                          child: Text('${catItem.itemCode} - ${catItem.itemName} (${catItem.unit})'),
                                         );
                                       }).toList(),
                                       onChanged: (val) {
@@ -2597,13 +2652,28 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                     });
 
                     if (success && mainContext.mounted) {
+                      final enteredName = customerNameCtrl.text.trim();
+                      final enteredPhone = customerPhoneCtrl.text.trim();
+                      final enteredAddr = destinationCtrl.text.trim();
+                      if (enteredPhone.isNotEmpty) {
+                        final exists = _registeredCustomers.any((c) =>
+                            (c['customer_phone'] ?? c['phone'] ?? '').toString().trim() == enteredPhone);
+                        if (!exists) {
+                          _registeredCustomers.insert(0, {
+                            'customer_name': enteredName,
+                            'customer_phone': enteredPhone,
+                            'customer_address': enteredAddr,
+                          });
+                        }
+                      }
                       ScaffoldMessenger.of(mainContext).showSnackBar(
                         const SnackBar(
-                          content: Text('Delivery Challan issued successfully! Stock deducted & Truck assigned.'),
+                          content: Text('Delivery Challan issued successfully! Customer synced & stock deducted.'),
                           backgroundColor: Color(0xFF008060),
                         ),
                       );
                       _loadData();
+                      _loadRegisteredCustomers();
                     }
                   },
                   icon: const Icon(Icons.check, size: 18),

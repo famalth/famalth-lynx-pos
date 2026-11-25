@@ -198,14 +198,14 @@ const listSupplierReturns = async (req, res) => {
                     model: req.propertyDb.models.supplier_return_items,
                     as: 'items',
                     include: [{
-                        model: req.propertyDb.models.item_master,
-                        as: 'item_master',
-                        attributes: ['brand']
-                    }, {
-                        model: req.propertyDb.models.goods_receipt_items,
-                        as: 'receipt_item',
-                        attributes: ['tax', 'brand']
-                    }]
+                            model: req.propertyDb.models.item_master,
+                            as: 'item_master',
+                            attributes: ['brand']
+                        }, {
+                            model: req.propertyDb.models.goods_receipt_items,
+                            as: 'receipt_item',
+                            attributes: ['tax', 'brand']
+                        }]
                 }
             ],
             order: [['return_date', 'DESC'], ['id', 'DESC']]

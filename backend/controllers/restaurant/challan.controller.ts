@@ -141,6 +141,44 @@ export const createChallan = async (req: Request, res: Response): Promise<any> =
       { transaction: t }
     );
 
+    // Auto-save/update customer in centralized customer database if phone is provided (no duplicates)
+    if (customer_phone && customer_phone.trim().length > 0 && req.propertyDb.models.customers) {
+      try {
+        const cleanPhone = customer_phone.toString().trim();
+        const cleanName = (customer_name || '').toString().trim() || 'Retail Customer';
+        const cleanAddress = (destination_address || '').toString().trim() || null;
+
+        const existingCust = await req.propertyDb.models.customers.findOne({
+          where: {
+            customer_phone: cleanPhone
+          },
+          transaction: t
+        });
+
+        if (existingCust) {
+          const updateData: any = {};
+          if ((!existingCust.customer_name || existingCust.customer_name === 'Retail Customer') && cleanName) {
+            updateData.customer_name = cleanName;
+          }
+          if (!existingCust.customer_address && cleanAddress) {
+            updateData.customer_address = cleanAddress;
+          }
+          if (Object.keys(updateData).length > 0) {
+            await existingCust.update(updateData, { transaction: t });
+          }
+        } else {
+          await req.propertyDb.models.customers.create({
+            outlet_id,
+            customer_name: cleanName,
+            customer_phone: cleanPhone,
+            customer_address: cleanAddress
+          }, { transaction: t });
+        }
+      } catch (custErr: any) {
+        console.warn('Auto customer save during challan creation warning:', custErr.message);
+      }
+    }
+
     // Save items and write to Stock Ledger
     for (const item of itemsToCreate) {
       await req.propertyDb.models.delivery_challan_items.create(

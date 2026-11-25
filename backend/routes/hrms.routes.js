@@ -9,21 +9,17 @@ const authRaw = require('../middlewares/auth.middleware');
 const auth = typeof authRaw === 'function' ? authRaw : (authRaw.authMiddleware || authRaw.default);
 const propRaw = require('../middlewares/propertyContext.middleware');
 const propertyContext = typeof propRaw === 'function' ? propRaw : (propRaw.propertyContextMiddleware || propRaw.default || ((req, _res, next) => next()));
-const ctrl = require('../controllers/hrms/hrms.controller');
+const ctrl = require('../controllers/hrms/hrms.controller.ts');
 router.use(propertyContext);
-
 // Public Webhook for Biometric Machines / Devices (Push logs)
 router.post('/biometric-punch', ctrl.receiveBiometricPushWebhook);
 router.post('/attendance/biometric-push', ctrl.receiveBiometricPushWebhook);
-
 // Public Employee Portal Auth (App Sign-In & OTP Password Reset)
 router.post('/employee-auth/login', ctrl.employeeLogin);
 router.post('/employee-auth/forgot-password/request-otp', ctrl.employeeRequestResetOtp);
 router.post('/employee-auth/forgot-password/reset', ctrl.employeeResetPassword);
-
 // All authenticated HRMS routes require auth
 router.use(auth);
-
 // Employee Portal (Authenticated App Operations)
 router.get('/employee/my-profile', ctrl.getMyEmployeeProfile);
 router.post('/employee/punch', ctrl.employeeGeotaggedPunch);
@@ -31,10 +27,8 @@ router.post('/employee/change-password', ctrl.employeeChangePassword);
 router.post('/employee/request-loan', ctrl.employeeRequestLoan);
 router.post('/employee/request-salary-raise', ctrl.employeeRequestSalaryRaise);
 router.post('/employees/:id/reset-device', ctrl.adminResetEmployeeDevice);
-
 // HRMS Dashboard Overview with Office Filter
 router.get('/dashboard-overview', ctrl.getHrmsDashboardOverview);
-
 // Offices Master
 router.get('/offices', ctrl.getOffices);
 router.post('/offices', ctrl.createOffice);

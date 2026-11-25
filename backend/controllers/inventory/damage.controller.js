@@ -325,6 +325,7 @@ const approveDamage = async (req, res) => {
             if (!itemCode) {
                 throw new Error('Item code not found for damage entry');
             }
+            const itemQty = Number(row.qty ?? row.quantity ?? 0);
             await insertLedger({
                 db: req.propertyDb,
                 outlet_id: req.user.outlet_id,
@@ -332,7 +333,7 @@ const approveDamage = async (req, res) => {
                 txn_date: damage.damage_date,
                 txn_type: 'DAMAGE',
                 ref_no: damage.damage_no,
-                qty_out: row.qty,
+                qty_out: itemQty,
                 transaction: t
             });
         }

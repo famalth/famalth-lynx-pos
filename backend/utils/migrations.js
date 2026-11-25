@@ -5559,6 +5559,36 @@ COMMIT;
         ALTER TABLE outlet_settings ADD COLUMN IF NOT EXISTS settings JSONB DEFAULT '{}';
       `);
         }
+    },
+    {
+        version: 131,
+        description: 'Add driver credentials, password, tracking, and multi-challan fleet support',
+        up: async (db) => {
+            await db.query(`
+        ALTER TABLE transport_drivers ADD COLUMN IF NOT EXISTS email VARCHAR(100);
+        ALTER TABLE transport_drivers ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
+        ALTER TABLE transport_drivers ADD COLUMN IF NOT EXISTS last_latitude NUMERIC(10, 6);
+        ALTER TABLE transport_drivers ADD COLUMN IF NOT EXISTS last_longitude NUMERIC(10, 6);
+        ALTER TABLE transport_drivers ADD COLUMN IF NOT EXISTS last_location_address TEXT;
+        ALTER TABLE transport_drivers ADD COLUMN IF NOT EXISTS last_location_updated TIMESTAMP;
+        ALTER TABLE transport_drivers ADD COLUMN IF NOT EXISTS reset_otp VARCHAR(10);
+        ALTER TABLE transport_drivers ADD COLUMN IF NOT EXISTS reset_otp_expires_at TIMESTAMPTZ;
+        ALTER TABLE transport_drivers ADD COLUMN IF NOT EXISTS total_consignments_completed INTEGER DEFAULT 0;
+
+        CREATE TABLE IF NOT EXISTS transport_driver_locations (
+          id SERIAL PRIMARY KEY,
+          outlet_id INTEGER NOT NULL,
+          driver_id INTEGER NOT NULL,
+          trip_id VARCHAR(50),
+          latitude NUMERIC(10, 6) NOT NULL,
+          longitude NUMERIC(10, 6) NOT NULL,
+          address TEXT,
+          battery_level INTEGER,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_driver_locations_driver ON transport_driver_locations(driver_id, created_at);
+      `);
+        }
     }
 ];
 exports.default = exports.migrations;

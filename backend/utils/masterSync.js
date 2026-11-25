@@ -10,7 +10,19 @@ const path_1 = __importDefault(require("path"));
 const master_1 = __importDefault(require("../models/master"));
 const { invalidateLicenseCache } = require('../controllers/public/licenseManager');
 const { isCloudEnvironment } = require('./backupTracker');
-async function syncClientsJsonToMaster(db) {
+let isSyncInProgress = false;
+let lastMasterSyncTimestamp = 0;
+const SYNC_THROTTLE_MS = 15 * 60 * 1000; // 15 minutes throttle
+async function syncClientsJsonToMaster(db, force = false) {
+    const now = Date.now();
+    if (isSyncInProgress) {
+        console.log('⚡ [MASTER_SYNC] Sync already in progress, skipping duplicate execution.');
+        return;
+    }
+    if (!force && (now - lastMasterSyncTimestamp < SYNC_THROTTLE_MS)) {
+        return;
+    }
+    isSyncInProgress = true;
     const rootDir = process.pkg ? path_1.default.dirname(process.execPath) : process.cwd();
     const candidateClientPaths = [
         path_1.default.join(rootDir, 'client.json'),
@@ -206,9 +218,13 @@ async function syncClientsJsonToMaster(db) {
         catch (dbErr) {
             console.warn('⚠️ [MASTER_SYNC] Notice syncing database outlets:', dbErr.message);
         }
+        lastMasterSyncTimestamp = Date.now();
     }
     catch (err) {
         console.warn('⚠️ syncClientsJsonToMaster global notice:', err.message);
+    }
+    finally {
+        isSyncInProgress = false;
     }
 }
 exports.ensureMasterDatabaseSync = syncClientsJsonToMaster;

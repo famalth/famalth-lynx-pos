@@ -90,21 +90,16 @@ exports.createLocalEncBackup = async (req, res) => {
         const { TenantBackupService } = require("../../services/tenantBackup.service");
         const propertyDb = require("../../db/models");
         const activeDb = req.propertyDb || propertyDb.sequelize || propertyDb;
-
         const outletCode = String(req.user?.outlet_code || req.outlet_code || req.query?.outlet_code || "DEFAULT").trim();
         const outletId = Number(req.user?.outlet_id || req.outlet_id || 1);
-
         console.log(`[BACKUP] Generating secured .fambak archive for outlet ${outletCode}...`);
-
         const result = await TenantBackupService.createFambakBackup(activeDb, {
             scope: 'OUTLET',
             outletId,
             outletCode,
             saveToDrive: false
         });
-
         const fileBuffer = fs.readFileSync(result.filePath);
-
         return res.status(200).json({
             success: true,
             message: `Secured .fambak backup archive generated successfully for ${outletCode}.`,
@@ -113,7 +108,8 @@ exports.createLocalEncBackup = async (req, res) => {
                 base64: fileBuffer.toString("base64")
             }
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error("Local .fambak backup error:", err);
         return res.status(500).json({
             success: false,
@@ -125,14 +121,22 @@ exports.restoreFromLocalEnc = async (req, res) => {
     try {
         const { isCloudEnvironment } = require("../../utils/backupTracker");
         const isCloud = isCloudEnvironment();
-
         let body = req.body || {};
         if ((!body || Object.keys(body).length === 0) && req.rawBody) {
-            try { body = JSON.parse(req.rawBody.toString('utf8')); } catch (_) {}
+            try {
+                body = JSON.parse(req.rawBody.toString('utf8'));
+            }
+            catch (_) { }
         }
         const filename = String(body.filename || "").trim();
         const base64 = String(body.base64 || "").trim();
-        if (!filename.toLowerCase().endsWith(".enc") && !filename.toLowerCase().endsWith(".fambak") && !filename.toLowerCase().endsWith(".posbak")) {
+        if (filename.toLowerCase().endsWith(".enc")) {
+            return res.status(400).json({
+                success: false,
+                message: "Legacy .enc backup files have been retired. Please use secured .fambak archive files."
+            });
+        }
+        if (!filename.toLowerCase().endsWith(".fambak") && !filename.toLowerCase().endsWith(".posbak")) {
             return res.status(400).json({
                 success: false,
                 message: "Only proprietary .fambak secured backup archives are allowed."
@@ -144,9 +148,7 @@ exports.restoreFromLocalEnc = async (req, res) => {
                 message: "Backup payload is required."
             });
         }
-
         const lowerName = filename.toLowerCase();
-
         // STRICT CLOUD ENFORCEMENT: Legacy .enc is forbidden on cloud
         if (isCloud && lowerName.endsWith(".enc")) {
             return res.status(403).json({
@@ -154,7 +156,6 @@ exports.restoreFromLocalEnc = async (req, res) => {
                 message: "Legacy .enc backup files are strictly disabled on cloud servers. Only secured .fambak archives are allowed."
             });
         }
-
         const encBuffer = Buffer.from(base64, "base64");
         if (!encBuffer.length) {
             return res.status(400).json({
@@ -162,13 +163,11 @@ exports.restoreFromLocalEnc = async (req, res) => {
                 message: "Invalid backup payload."
             });
         }
-
         if (lowerName.endsWith(".fambak") || lowerName.endsWith(".posbak")) {
             const { TenantBackupService } = require('../../services/tenantBackup.service');
             const propertyDb = require('../../db/models');
             const activeDb = req.propertyDb || propertyDb.sequelize || propertyDb;
             const outletCode = String(req.user?.outlet_code || req.outlet_code || body.outlet_code || "").trim();
-
             const restoreResult = await TenantBackupService.restoreFambakBackup(activeDb, encBuffer, {
                 scope: (isCloud || outletCode) ? 'OUTLET' : 'ALL',
                 selectedOutletCode: outletCode || undefined,
@@ -182,7 +181,6 @@ exports.restoreFromLocalEnc = async (req, res) => {
                 details: restoreResult
             });
         }
-
         // Offline legacy fallback only (if not in cloud)
         await restoreFromEncBuffer(encBuffer);
         let primaryOutletCode = "";
@@ -192,13 +190,15 @@ exports.restoreFromLocalEnc = async (req, res) => {
             if (outlets && outlets[0] && outlets[0].outlet_code) {
                 primaryOutletCode = outlets[0].outlet_code;
             }
-        } catch (_) {}
+        }
+        catch (_) { }
         return res.status(200).json({
             success: true,
             message: "Backup restored successfully from legacy .enc file.",
             outlet_code: primaryOutletCode
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error("Restore backup error:", err);
         return res.status(500).json({
             success: false,
@@ -206,33 +206,26 @@ exports.restoreFromLocalEnc = async (req, res) => {
         });
     }
 };
-
 exports.uploadBackupOnDemand = async (req, res) => {
     try {
         const outletCode = req.user?.outlet_code || req.outlet_code;
-
         if (!outletCode) {
             return res.status(400).json({
                 success: false,
                 message: "Missing outlet code in request."
             });
         }
-
         const isCloudServer = isCloudEnvironment();
         console.log(`[BACKUP] Starting secured .fambak backup sequence for outlet ${outletCode} (cloud: ${isCloudServer})...`);
-
         const { TenantBackupService } = require('../../services/tenantBackup.service');
         const propertyDb = require('../../db/models');
         const activeDb = req.propertyDb || propertyDb.sequelize || propertyDb;
-
         const fambakResult = await TenantBackupService.createFambakBackup(activeDb, {
             scope: 'OUTLET',
             outletCode: outletCode,
             saveToDrive: !isCloudServer
         });
-
         updateSyncSuccess(outletCode);
-
         return res.status(200).json({
             success: true,
             message: isCloudServer
@@ -242,8 +235,8 @@ exports.uploadBackupOnDemand = async (req, res) => {
             totalRecords: fambakResult.totalRecords,
             storage_mode: isCloudServer ? 'ENTERPRISE_CLOUD' : 'LOCAL_DRIVE'
         });
-
-    } catch (err) {
+    }
+    catch (err) {
         console.error("On-demand backup upload failed:", err);
         return res.status(500).json({
             success: false,

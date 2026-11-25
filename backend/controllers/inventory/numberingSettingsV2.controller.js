@@ -106,7 +106,8 @@ async function getEffectiveSetting({ db, outlet_id, module, date, transaction })
 }
 async function getExistingNumbersForModule({ db, req, module, outlet_id, startDate, endDate, transaction }) {
     const database = db || req?.propertyDb || req?.db;
-    if (!database || !database.models) return [];
+    if (!database || !database.models)
+        return [];
     let Model;
     let numberField;
     let dateField = 'created_at';
@@ -163,7 +164,8 @@ async function getExistingNumbersForModule({ db, req, module, outlet_id, startDa
         default:
             throw new Error(`Unsupported module ${module}`);
     }
-    if (!Model) return [];
+    if (!Model)
+        return [];
     const where = {
         outlet_id: Number(outlet_id)
     };
@@ -191,7 +193,8 @@ async function getExistingNumbersForModule({ db, req, module, outlet_id, startDa
                     { [dateField]: dateFilter },
                     { created_at: dateFilter }
                 ];
-            } else {
+            }
+            else {
                 where.created_at = dateFilter;
             }
         }
@@ -239,13 +242,14 @@ async function allocateNextNumber({ db, req, outlet_id, module, date, transactio
         const nextNo = maxSavedNo + 1;
         try {
             await effective.update({ last_used_no: nextNo }, { transaction });
-        } catch (_) {}
+        }
+        catch (_) { }
         return {
             number: `${effective.prefix || ''}${nextNo}${effective.postfix || ''}`,
             next_no: nextNo
         };
     }
-    // Default sequence fallbacks
+    // Default sequence fallbacks if no numbering setting exists
     const existingNumbers = await getExistingNumbersForModule({
         db: database,
         module: mod,
@@ -253,18 +257,30 @@ async function allocateNextNumber({ db, req, outlet_id, module, date, transactio
         transaction
     });
     let prefix = `${mod}-`;
-    if (mod === 'SALES') prefix = 'FAM-';
-    else if (mod === 'TOKEN') prefix = 'TK-';
-    else if (mod === 'KOT') prefix = 'KOT-';
-    else if (mod === 'RECEIVING') prefix = 'RC-';
-    else if (mod === 'PO') prefix = 'PO-';
-    else if (mod === 'INDENT') prefix = 'INT-';
-    else if (mod === 'REQUEST') prefix = 'REC-';
-    else if (mod === 'DAMAGE') prefix = 'DMG-';
-    else if (mod === 'CONTRA') prefix = 'CNT-';
-    else if (mod === 'PAYMENT') prefix = 'PAY-';
-    else if (mod === 'RECEIPT') prefix = 'RCT-';
-    else if (mod === 'JOURNAL') prefix = 'JRN-';
+    if (mod === 'SALES')
+        prefix = 'FAM-';
+    else if (mod === 'TOKEN')
+        prefix = 'TK-';
+    else if (mod === 'KOT')
+        prefix = 'KOT-';
+    else if (mod === 'RECEIVING')
+        prefix = 'RC-';
+    else if (mod === 'PO')
+        prefix = 'PO-';
+    else if (mod === 'INDENT')
+        prefix = 'INT-';
+    else if (mod === 'REQUEST')
+        prefix = 'REC-';
+    else if (mod === 'DAMAGE')
+        prefix = 'DMG-';
+    else if (mod === 'CONTRA')
+        prefix = 'CNT-';
+    else if (mod === 'PAYMENT')
+        prefix = 'PAY-';
+    else if (mod === 'RECEIPT')
+        prefix = 'RCT-';
+    else if (mod === 'JOURNAL')
+        prefix = 'JRN-';
     let maxNum = 0;
     for (const val of existingNumbers) {
         const str = String(val || '').trim();
@@ -321,18 +337,30 @@ async function resolveNextNumber({ req, db, module, date, outlet_id }) {
         outlet_id
     });
     let prefix = `${mod}-`;
-    if (mod === 'SALES') prefix = 'FAM-';
-    else if (mod === 'TOKEN') prefix = 'TK-';
-    else if (mod === 'KOT') prefix = 'KOT-';
-    else if (mod === 'RECEIVING') prefix = 'RC-';
-    else if (mod === 'PO') prefix = 'PO-';
-    else if (mod === 'INDENT') prefix = 'INT-';
-    else if (mod === 'REQUEST') prefix = 'REC-';
-    else if (mod === 'DAMAGE') prefix = 'DMG-';
-    else if (mod === 'CONTRA') prefix = 'CNT-';
-    else if (mod === 'PAYMENT') prefix = 'PAY-';
-    else if (mod === 'RECEIPT') prefix = 'RCT-';
-    else if (mod === 'JOURNAL') prefix = 'JRN-';
+    if (mod === 'SALES')
+        prefix = 'FAM-';
+    else if (mod === 'TOKEN')
+        prefix = 'TK-';
+    else if (mod === 'KOT')
+        prefix = 'KOT-';
+    else if (mod === 'RECEIVING')
+        prefix = 'RC-';
+    else if (mod === 'PO')
+        prefix = 'PO-';
+    else if (mod === 'INDENT')
+        prefix = 'INT-';
+    else if (mod === 'REQUEST')
+        prefix = 'REC-';
+    else if (mod === 'DAMAGE')
+        prefix = 'DMG-';
+    else if (mod === 'CONTRA')
+        prefix = 'CNT-';
+    else if (mod === 'PAYMENT')
+        prefix = 'PAY-';
+    else if (mod === 'RECEIPT')
+        prefix = 'RCT-';
+    else if (mod === 'JOURNAL')
+        prefix = 'JRN-';
     let maxNum = 0;
     for (const val of existingNumbers) {
         const str = String(val || '').trim();

@@ -11,6 +11,7 @@ const master_1 = __importDefault(require("../../models/master"));
 const socketHub_service_1 = require("../../services/socketHub.service");
 const emailService_1 = require("../../modules/emailService");
 const subscriptionInvoicePdf_service_1 = require("../../services/subscriptionInvoicePdf.service");
+const licensorBilling_service_1 = __importDefault(require("../../services/licensorBilling.service"));
 const controlPlaneNotification_service_1 = __importDefault(require("../../services/controlPlaneNotification.service"));
 const { invalidateLicenseCache } = require('../public/licenseManager');
 const masterSync_service_1 = require("../../services/masterSync.service");
@@ -21,12 +22,10 @@ class ControlPlaneController {
      */
     static async getFleetOverview(req, res) {
         try {
-            try {
-                await (0, masterSync_service_1.ensureMasterDatabaseSync)(propertyDb_1.default);
-            }
-            catch (syncErr) {
-                console.warn('[CONTROL_PLANE] Database auto-sync warning:', syncErr.message);
-            }
+            // Trigger background sync non-blocking so the telemetry API responds instantly
+            (0, masterSync_service_1.ensureMasterDatabaseSync)(propertyDb_1.default).catch((syncErr) => {
+                console.warn('[CONTROL_PLANE] Background database sync notice:', syncErr.message);
+            });
             const isResellerRole = req.masterStaff?.role === 'RESELLER_ADMIN' || req.masterStaff?.role === 'RESELLER';
             let resellerFilterId = null;
             if (isResellerRole) {
@@ -169,10 +168,7 @@ class ControlPlaneController {
      */
     static async getAllTenants(req, res) {
         try {
-            try {
-                await (0, masterSync_service_1.ensureMasterDatabaseSync)(propertyDb_1.default);
-            }
-            catch (_) { }
+            (0, masterSync_service_1.ensureMasterDatabaseSync)(propertyDb_1.default).catch(() => { });
             const { search, status, reseller_id, rm_id } = req.query;
             const whereClause = {};
             if (status)
@@ -755,12 +751,14 @@ class ControlPlaneController {
             const taxAmount = Number(invoice ? invoice.tax_amount : (subtotal * (taxRate / 100)));
             const totalAmount = Number(invoice ? invoice.total_amount : (subtotal + taxAmount));
             const invoiceNumber = invoice ? invoice.invoice_number : `INV-${tenant.client_code}-${Date.now().toString(36).toUpperCase()}`;
+            const licensorConfig = licensorBilling_service_1.default.getConfig();
             const pdfBuffer = await (0, subscriptionInvoicePdf_service_1.generateSubscriptionInvoicePdf)({
                 invoiceNumber,
                 issueDate: invoice ? invoice.billing_period_start : (activeLicense.valid_from || new Date()),
                 dueDate: invoice ? invoice.due_date : (activeLicense.next_payment_date || activeLicense.valid_till || new Date()),
                 paymentStatus: (invoice?.status === 'PAID' || activeLicense.payment_status === 'PAID') ? 'PAID' : 'PENDING',
                 paidAt: invoice?.paid_at,
+                licensor: licensorConfig,
                 tenant: {
                     clientCode: tenant.client_code,
                     legalName: tenant.legal_name,
@@ -1430,6 +1428,40 @@ class ControlPlaneController {
         }
     }
     /**
+     * 13. Get SaaS Licensor Subscription Billing Profile
+     */
+    static async getSubscriptionBillingConfig(req, res) {
+        try {
+            const config = licensorBilling_service_1.default.getConfig();
+            return res.json({
+                success: true,
+                data: config,
+            });
+        }
+        catch (err) {
+            console.error('getSubscriptionBillingConfig error:', err);
+            return res.status(500).json({ success: false, message: 'Failed to retrieve billing config: ' + err.message });
+        }
+    }
+    /**
+     * 14. Save SaaS Licensor Subscription Billing Profile
+     */
+    static async saveSubscriptionBillingConfig(req, res) {
+        try {
+            const updates = req.body || {};
+            const updated = licensorBilling_service_1.default.saveConfig(updates);
+            return res.json({
+                success: true,
+                message: 'Subscription billing profile saved successfully.',
+                data: updated,
+            });
+        }
+        catch (err) {
+            console.error('saveSubscriptionBillingConfig error:', err);
+            return res.status(500).json({ success: false, message: 'Failed to save billing config: ' + err.message });
+        }
+    }
+    /**
      * 15. Server Health, Uptime & Telemetry Status
      */
     static async getServerHealth(req, res) {
@@ -1437,37 +1469,39 @@ class ControlPlaneController {
             const os = require('os');
             const processUptime = process.uptime();
             const systemUptime = os.uptime();
-
+            // Database health & latency
             let dbStatus = 'CONNECTED';
             let dbLatencyMs = 0;
             let dbSize = 'Unknown';
             let activeConnections = 1;
-
             try {
                 const t0 = Date.now();
                 await propertyDb_1.default.query('SELECT 1;');
                 dbLatencyMs = Date.now() - t0;
-
                 try {
                     const [sizeRow] = await propertyDb_1.default.query('SELECT pg_size_pretty(pg_database_size(current_database())) as size;');
-                    if (sizeRow && sizeRow[0]?.size) dbSize = String(sizeRow[0].size);
-                } catch (_) {}
-
+                    if (sizeRow && sizeRow[0]?.size)
+                        dbSize = String(sizeRow[0].size);
+                }
+                catch (_) { }
                 try {
                     const [connRow] = await propertyDb_1.default.query('SELECT count(*) as count FROM pg_stat_activity WHERE datname = current_database();');
-                    if (connRow && connRow[0]?.count) activeConnections = Number(connRow[0].count);
-                } catch (_) {}
-            } catch (dbErr) {
+                    if (connRow && connRow[0]?.count)
+                        activeConnections = Number(connRow[0].count);
+                }
+                catch (_) { }
+            }
+            catch (dbErr) {
                 dbStatus = 'DISCONNECTED';
                 dbLatencyMs = -1;
             }
-
+            // Memory metrics
             const memUsage = process.memoryUsage();
             const totalRam = os.totalmem();
             const freeRam = os.freemem();
             const usedRam = totalRam - freeRam;
             const memUsagePercent = totalRam > 0 ? Math.round((usedRam / totalRam) * 100) : 0;
-
+            // Realtime websocket clients
             let socketClientsCount = 0;
             try {
                 const { getSocketHub } = require('../../services/socketHub.service');
@@ -1475,8 +1509,9 @@ class ControlPlaneController {
                 if (io) {
                     socketClientsCount = io.engine?.clientsCount || (io.sockets?.sockets?.size ?? 0);
                 }
-            } catch (_) {}
-
+            }
+            catch (_) { }
+            // Network interfaces (IPv4)
             const networkIps = [];
             try {
                 const ifaces = os.networkInterfaces();
@@ -1487,31 +1522,32 @@ class ControlPlaneController {
                         }
                     }
                 }
-            } catch (_) {}
-
+            }
+            catch (_) { }
+            // Format seconds into readable duration
             const formatDuration = (seconds) => {
                 const d = Math.floor(seconds / (3600 * 24));
                 const h = Math.floor((seconds % (3600 * 24)) / 3600);
                 const m = Math.floor((seconds % 3600) / 60);
                 const s = Math.floor(seconds % 60);
                 const parts = [];
-                if (d > 0) parts.push(`${d}d`);
-                if (h > 0 || d > 0) parts.push(`${h}h`);
-                if (m > 0 || h > 0 || d > 0) parts.push(`${m}m`);
+                if (d > 0)
+                    parts.push(`${d}d`);
+                if (h > 0 || d > 0)
+                    parts.push(`${h}h`);
+                if (m > 0 || h > 0 || d > 0)
+                    parts.push(`${m}m`);
                 parts.push(`${s}s`);
                 return parts.join(' ');
             };
-
             const isCloud = !!(process.env.IS_CLOUD === 'true' || process.env.DATABASE_URL || process.env.RENDER || process.env.VERCEL);
             const cloudProvider = process.env.RENDER
                 ? 'Render Cloud'
                 : (process.env.VERCEL ? 'Vercel' : (process.env.AWS ? 'Amazon Web Services' : (isCloud ? 'Cloud Container' : 'Local / On-Premise Workstation')));
-
             const serverPort = Number(process.env.PORT || 3000);
             const hostHeader = req.get('host') || `${os.hostname()}:${serverPort}`;
             const serverOrigin = `${req.protocol}://${hostHeader}`;
             const clientIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').toString();
-
             let overallStatus = 'HEALTHY';
             if (dbStatus !== 'CONNECTED' || dbLatencyMs > 2500) {
                 overallStatus = 'DEGRADED';
@@ -1519,7 +1555,6 @@ class ControlPlaneController {
             if (memUsagePercent > 92) {
                 overallStatus = 'WARNING';
             }
-
             return res.json({
                 success: true,
                 data: {

@@ -48,6 +48,7 @@ const TRANSACTION_TABLES = [
     'request_headers',
     // Milk Subscription tables
     'milk_subscription_consumptions',
+    'milk_subscription_items',
     'milk_subscription_settlements',
     'milk_subscription_schemes',
     'milk_subscriptions',
@@ -463,14 +464,13 @@ exports.clearTransactionData = async (req, res) => {
             req,
         });
         try {
+            // Also release any locked hardware device bindings on employees so new punches work cleanly
             const { hr_employees } = req.propertyDb.models;
             if (hr_employees) {
-                await hr_employees.update(
-                    { bound_device_id: null, bound_device_info: null },
-                    { where: { outlet_id: outletId } }
-                );
+                await hr_employees.update({ bound_device_id: null, bound_device_info: null }, { where: { outlet_id: outletId } });
             }
-        } catch (_) {}
+        }
+        catch (_) { }
         try {
             await audit.log(req, 'CLEAR_TRANSACTION_DATA', {
                 details: `Pruned ${result.totalDeletedRecords} records for outlet #${outletId} (${result.retentionPolicy})`

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendPoEmail = exports.rejectPurchaseOrder = exports.approvePurchaseOrder = exports.getPurchaseOrderApprovals = exports.cancelPurchaseOrder = exports.closePurchaseOrder = exports.updatePurchaseOrder = exports.getPurchaseOrder = exports.listPurchaseOrders = exports.modifyPurchaseOrder = exports.getPurchaseOrderForPrint = exports.getPoByDate = exports.getPurchaseOrderDetails = exports.getPurchaseOrderReport = exports.createPurchaseOrder = void 0;
+exports.sendPoEmail = exports.cancelPurchaseOrder = exports.closePurchaseOrder = exports.updatePurchaseOrder = exports.getPurchaseOrder = exports.listPurchaseOrders = exports.modifyPurchaseOrder = exports.getPurchaseOrderForPrint = exports.getPoByDate = exports.rejectPurchaseOrder = exports.approvePurchaseOrder = exports.getPurchaseOrderApprovals = exports.getPurchaseOrderDetails = exports.getPurchaseOrderReport = exports.createPurchaseOrder = void 0;
 const audit = require('../../services/audit.service');
 const { Op, Sequelize } = require('sequelize');
 const { normalizeDateKey } = require('../../utils/dateQuery');
@@ -214,15 +214,23 @@ const getPurchaseOrderApprovals = async (req, res) => {
     try {
         const { from_date, to_date, status } = req.query;
         const where = { outlet_id: req.user.outlet_id };
-        if (from_date && to_date)
+        if (from_date && to_date) {
             where.po_date = { [Op.between]: [from_date, to_date] };
+        }
         if (status)
             where.approval_status = String(status).toUpperCase();
         const rows = await req.propertyDb.models.purchase_orders.findAll({
             where,
             include: [
-                { model: req.propertyDb.models.supplier_master, as: 'supplier', attributes: ['supplier_name', 'supplier_code'] },
-                { model: req.propertyDb.models.purchase_order_items, as: 'items' }
+                {
+                    model: req.propertyDb.models.supplier_master,
+                    as: 'supplier',
+                    attributes: ['supplier_name', 'supplier_code']
+                },
+                {
+                    model: req.propertyDb.models.purchase_order_items,
+                    as: 'items'
+                }
             ],
             order: [['po_date', 'DESC'], ['id', 'DESC']]
         });
@@ -234,12 +242,14 @@ const getPurchaseOrderApprovals = async (req, res) => {
 };
 exports.getPurchaseOrderApprovals = getPurchaseOrderApprovals;
 const approvePurchaseOrder = async (req, res) => {
-    if (String(req.user.role || '').toUpperCase() !== 'ADMIN')
+    if (String(req.user.role || '').toUpperCase() !== 'ADMIN') {
         return res.status(403).json({ success: false, message: 'Only admin can approve purchase orders' });
+    }
     const t = await req.propertyDb.transaction();
     try {
         const po = await req.propertyDb.models.purchase_orders.findOne({
-            where: { id: req.params.id, outlet_id: req.user.outlet_id }, transaction: t
+            where: { id: req.params.id, outlet_id: req.user.outlet_id },
+            transaction: t
         });
         if (!po) {
             await t.rollback();
@@ -250,14 +260,29 @@ const approvePurchaseOrder = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Only pending purchase orders can be approved' });
         }
         await po.update({
-            approval_status: 'APPROVED', approved_by: req.user.id, approved_at: new Date(),
-            rejected_by: null, rejected_at: null, rejection_reason: null
+            approval_status: 'APPROVED',
+            approved_by: req.user.id,
+            approved_at: new Date(),
+            rejected_by: null,
+            rejected_at: null,
+            rejection_reason: null
         }, { transaction: t });
         await req.propertyDb.models.system_notifications.create({
-            outlet_id: req.user.outlet_id, module: 'PURCHASE', title: 'Purchase Order Approved',
-            message: `Purchase Order ${po.po_no} approved`, type: 'SUCCESS', entity_id: po.id
+            outlet_id: req.user.outlet_id,
+            module: 'PURCHASE',
+            title: 'Purchase Order Approved',
+            message: `Purchase Order ${po.po_no} approved`,
+            type: 'SUCCESS',
+            entity_id: po.id
         }, { transaction: t });
-        await audit.log({ req, module: 'PURCHASE_ORDER', action: 'APPROVE', table: 'purchase_orders', recordId: po.id, newData: { approval_status: 'APPROVED' } }, { transaction: t });
+        await audit.log({
+            req,
+            module: 'PURCHASE_ORDER',
+            action: 'APPROVE',
+            table: 'purchase_orders',
+            recordId: po.id,
+            newData: { approval_status: 'APPROVED' }
+        }, { transaction: t });
         await t.commit();
         res.json({ success: true, message: 'Purchase order approved successfully' });
     }
@@ -268,15 +293,17 @@ const approvePurchaseOrder = async (req, res) => {
 };
 exports.approvePurchaseOrder = approvePurchaseOrder;
 const rejectPurchaseOrder = async (req, res) => {
-    if (String(req.user.role || '').toUpperCase() !== 'ADMIN')
+    if (String(req.user.role || '').toUpperCase() !== 'ADMIN') {
         return res.status(403).json({ success: false, message: 'Only admin can reject purchase orders' });
+    }
     const reason = String(req.body.rejection_reason || '').trim();
     if (!reason)
         return res.status(400).json({ success: false, message: 'Rejection reason is required' });
     const t = await req.propertyDb.transaction();
     try {
         const po = await req.propertyDb.models.purchase_orders.findOne({
-            where: { id: req.params.id, outlet_id: req.user.outlet_id }, transaction: t
+            where: { id: req.params.id, outlet_id: req.user.outlet_id },
+            transaction: t
         });
         if (!po) {
             await t.rollback();
@@ -287,14 +314,29 @@ const rejectPurchaseOrder = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Only pending purchase orders can be rejected' });
         }
         await po.update({
-            approval_status: 'REJECTED', rejected_by: req.user.id, rejected_at: new Date(),
-            rejection_reason: reason, approved_by: null, approved_at: null
+            approval_status: 'REJECTED',
+            rejected_by: req.user.id,
+            rejected_at: new Date(),
+            rejection_reason: reason,
+            approved_by: null,
+            approved_at: null
         }, { transaction: t });
         await req.propertyDb.models.system_notifications.create({
-            outlet_id: req.user.outlet_id, module: 'PURCHASE', title: 'Purchase Order Rejected',
-            message: `Purchase Order ${po.po_no} rejected: ${reason}`, type: 'WARNING', entity_id: po.id
+            outlet_id: req.user.outlet_id,
+            module: 'PURCHASE',
+            title: 'Purchase Order Rejected',
+            message: `Purchase Order ${po.po_no} rejected: ${reason}`,
+            type: 'WARNING',
+            entity_id: po.id
         }, { transaction: t });
-        await audit.log({ req, module: 'PURCHASE_ORDER', action: 'REJECT', table: 'purchase_orders', recordId: po.id, newData: { approval_status: 'REJECTED', rejection_reason: reason } }, { transaction: t });
+        await audit.log({
+            req,
+            module: 'PURCHASE_ORDER',
+            action: 'REJECT',
+            table: 'purchase_orders',
+            recordId: po.id,
+            newData: { approval_status: 'REJECTED', rejection_reason: reason }
+        }, { transaction: t });
         await t.commit();
         res.json({ success: true, message: 'Purchase order rejected successfully' });
     }
@@ -439,8 +481,12 @@ const modifyPurchaseOrder = async (req, res) => {
             round_off_amount: roundOff,
             total_amount: finalTotal,
             status: deriveHeaderStatus(normalizedItems),
-            approval_status: 'PENDING', approved_by: null, approved_at: null,
-            rejected_by: null, rejected_at: null, rejection_reason: null
+            approval_status: 'PENDING',
+            approved_by: null,
+            approved_at: null,
+            rejected_by: null,
+            rejected_at: null,
+            rejection_reason: null
         }, { transaction: t });
         await req.propertyDb.models.purchase_order_items.destroy({
             where: { po_id: po.id },

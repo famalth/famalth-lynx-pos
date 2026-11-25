@@ -130,7 +130,8 @@ exports.getSalesReport = async (req, res) => {
         };
         if (order_type) {
             where.order_type = order_type;
-        } else {
+        }
+        else {
             where.order_type = { [Op.ne]: 'CLINIC_APPOINTMENT' };
             where.sale_no = {
                 [Op.and]: [
@@ -426,21 +427,37 @@ exports.getSalesReport = async (req, res) => {
                     }
                     else {
                         const isTaxInclusive = !!(item.item?.is_tax_inclusive);
+                        const dbTaxAmt = toNumber(item.tax_amount !== undefined ? item.tax_amount : item.taxAmount);
+                        const rawTaxPercent = item.tax_percent !== undefined && item.tax_percent !== null ? item.tax_percent : item.taxPercent;
+                        const hasExplicitTaxPercent = rawTaxPercent !== undefined && rawTaxPercent !== null;
+                        const dbTaxPercent = hasExplicitTaxPercent ? toNumber(rawTaxPercent) : null;
                         if (isTaxInclusive) {
                             effectiveDiscount = Math.max(lineAmount - dbNetAmount, 0);
                         }
                         else {
-                            effectiveDiscount = Math.max(lineAmount + toNumber(item.tax_amount) - dbNetAmount, 0);
+                            effectiveDiscount = Math.max(lineAmount + dbTaxAmt - dbNetAmount, 0);
                         }
                         effectiveNetAmount = dbNetAmount;
                         effectiveTaxableAmount = toNumber(item.taxable_amount);
-                        effectiveTaxAmount = toNumber(item.tax_amount);
-                        if (isTaxInclusive && effectiveNetAmount > 0) {
-                            if (effectiveTaxableAmount === 0 || effectiveTaxableAmount >= effectiveNetAmount) {
-                                const taxPct = toNumber(item.tax_percent || item.taxPercent || 18);
-                                effectiveTaxableAmount = roundAmount(effectiveNetAmount / (1 + taxPct / 100));
+                        effectiveTaxAmount = dbTaxAmt;
+                        // Identify 0% tax / non-tax item
+                        const isZeroTax = (hasExplicitTaxPercent && dbTaxPercent === 0) || (dbTaxAmt === 0 && (dbTaxPercent === 0 || dbTaxPercent === null));
+                        if (isZeroTax) {
+                            effectiveTaxAmount = 0;
+                            effectiveTaxableAmount = effectiveNetAmount > 0 ? effectiveNetAmount : Math.max(lineAmount - effectiveDiscount, 0);
+                        }
+                        else if (isTaxInclusive && effectiveNetAmount > 0) {
+                            const taxPct = dbTaxPercent !== null && dbTaxPercent > 0 ? dbTaxPercent : (effectiveTaxableAmount > 0 && effectiveTaxAmount > 0 ? roundAmount((effectiveTaxAmount / effectiveTaxableAmount) * 100) : 0);
+                            if (taxPct > 0) {
+                                if (effectiveTaxableAmount === 0 || effectiveTaxAmount === 0 || effectiveTaxableAmount >= effectiveNetAmount) {
+                                    effectiveTaxableAmount = roundAmount(effectiveNetAmount / (1 + taxPct / 100));
+                                    effectiveTaxAmount = roundAmount(effectiveNetAmount - effectiveTaxableAmount);
+                                }
                             }
-                            effectiveTaxAmount = roundAmount(effectiveNetAmount - effectiveTaxableAmount);
+                            else {
+                                effectiveTaxAmount = 0;
+                                effectiveTaxableAmount = effectiveNetAmount;
+                            }
                         }
                     }
                     const itemCostRate = toNumber(item.item?.rate);
@@ -475,7 +492,9 @@ exports.getSalesReport = async (req, res) => {
                             taxableAmount: roundAmount(tTaxable)
                         };
                     });
-                    const itemTaxPct = effectiveTaxableAmount > 0 ? roundAmount((effectiveTaxAmount / effectiveTaxableAmount) * 100) : toNumber(item.tax_percent || item.taxPercent);
+                    const itemTaxPct = effectiveTaxAmount > 0
+                        ? (effectiveTaxableAmount > 0 ? roundAmount((effectiveTaxAmount / effectiveTaxableAmount) * 100) : toNumber(item.tax_percent ?? item.taxPercent ?? 0))
+                        : (toNumber(item.tax_percent ?? item.taxPercent ?? 0));
                     if (effectiveTaxAmount > 0) {
                         const existingSum = itemTaxBreakup.reduce((s, t) => s + toNumber(t.tax_amount !== undefined ? t.tax_amount : t.taxAmount), 0);
                         if (existingSum === 0 || Math.abs(existingSum - effectiveTaxAmount) > 0.05) {
@@ -487,6 +506,20 @@ exports.getSalesReport = async (req, res) => {
                                 { code: 'SGST', label: 'SGST', rate: halfRate, tax_amount: sgstAmt, taxAmount: sgstAmt, taxable_amount: roundAmount(effectiveTaxableAmount), taxableAmount: roundAmount(effectiveTaxableAmount) }
                             ];
                         }
+                    }
+                    else {
+                        itemTaxBreakup = [
+                            {
+                                code: 'NIL',
+                                label: 'GST 0%',
+                                taxType: 'GST',
+                                rate: 0,
+                                tax_amount: 0,
+                                taxAmount: 0,
+                                taxable_amount: roundAmount(effectiveTaxableAmount),
+                                taxableAmount: roundAmount(effectiveTaxableAmount)
+                            }
+                        ];
                     }
                     return {
                         item_code: item.item_code,
@@ -503,6 +536,7 @@ exports.getSalesReport = async (req, res) => {
                         line_discount: roundAmount(effectiveDiscount),
                         taxable_amount: roundAmount(effectiveTaxableAmount),
                         tax_amount: roundAmount(effectiveTaxAmount),
+                        tax_percent: roundAmount(itemTaxPct),
                         line_total: roundAmount(effectiveNetAmount),
                         net_amount: roundAmount(effectiveNetAmount),
                         cost_rate: itemCostRate,
@@ -609,13 +643,20 @@ exports.getSalesReport = async (req, res) => {
                 }
                 const normalizeReportPaymentMethod = (methodName) => {
                     const m = String(methodName || '').trim().toUpperCase();
-                    if (!m) return 'CASH';
-                    if (m === 'CASH' || m.includes('CASH')) return 'CASH';
-                    if (m === 'CARD' || m.includes('CARD') || m.includes('DEBIT') || m.includes('CREDIT_CARD') || m.includes('POS')) return 'CARD';
-                    if (m === 'UPI' || m.includes('UPI') || m.includes('QR') || m.includes('GPAY') || m.includes('GOOGLE') || m.includes('PHONEPE') || m.includes('PAYTM') || m.includes('BHIM') || m.includes('ONLINE') || m.includes('SCAN') || m.includes('WALLET')) return 'UPI';
-                    if (m === 'CREDIT' || m.includes('CREDIT') || m.includes('DUE') || m.includes('PAY_LATER') || m.includes('PAY_AT_CLINIC')) return 'CREDIT';
-                    if (m === 'ADVANCE_ADDED' || m === 'ADVANCE_DEPOSIT') return 'ADVANCE_DEPOSIT';
-                    if (m === 'ADVANCE' || m === 'ADVANCE_ADJUSTMENT' || m === 'ADVANCE_APPLY' || m === 'SUBSCRIPTION') return 'ADVANCE_ADJUSTMENT';
+                    if (!m)
+                        return 'CASH';
+                    if (m === 'CASH' || m.includes('CASH'))
+                        return 'CASH';
+                    if (m === 'CARD' || m.includes('CARD') || m.includes('DEBIT') || m.includes('CREDIT_CARD') || m.includes('POS'))
+                        return 'CARD';
+                    if (m === 'UPI' || m.includes('UPI') || m.includes('QR') || m.includes('GPAY') || m.includes('GOOGLE') || m.includes('PHONEPE') || m.includes('PAYTM') || m.includes('BHIM') || m.includes('ONLINE') || m.includes('SCAN') || m.includes('WALLET'))
+                        return 'UPI';
+                    if (m === 'CREDIT' || m.includes('CREDIT') || m.includes('DUE') || m.includes('PAY_LATER') || m.includes('PAY_AT_CLINIC'))
+                        return 'CREDIT';
+                    if (m === 'ADVANCE_ADDED' || m === 'ADVANCE_DEPOSIT')
+                        return 'ADVANCE_DEPOSIT';
+                    if (m === 'ADVANCE' || m === 'ADVANCE_ADJUSTMENT' || m === 'ADVANCE_APPLY' || m === 'SUBSCRIPTION')
+                        return 'ADVANCE_ADJUSTMENT';
                     return m;
                 };
                 if (Object.keys(methodMap).length > 0) {
@@ -629,9 +670,9 @@ exports.getSalesReport = async (req, res) => {
                             upiAmount += amt;
                         else if (method === 'CREDIT')
                             creditAmount += amt;
-                        else if (method === 'ADVANCE_ADDED' || method === 'ADVANCE_DEPOSIT')
+                        else if (method === 'ADVANCE_DEPOSIT')
                             advanceAmount += amt;
-                        else if (method === 'ADVANCE' || method === 'ADVANCE_ADJUSTMENT' || method === 'ADVANCE_APPLY' || method === 'SUBSCRIPTION')
+                        else if (method === 'ADVANCE_ADJUSTMENT')
                             advanceAdjustmentAmount += amt;
                         else
                             otherAmount += amt;
@@ -782,23 +823,41 @@ exports.getSalesReport = async (req, res) => {
                     paymentModeSummary[pKey].amount = roundAmount(paymentModeSummary[pKey].amount + item.amount);
                     paymentModeSummary[pKey].sales_count += 1;
                 }
+                const isInterstate = toNumber(sale.igst_amount) > 0.0001 || String(sale.billing_tax_mode || '').toUpperCase().includes('IGST');
                 let billCgst = lineItems.reduce((sum, item) => {
-                    const itemCgst = safeArray(item.tax_breakup)
+                    const itemBreakup = safeArray(item.tax_breakup);
+                    const itemIgst = itemBreakup
+                        .filter((t) => String(t.code || t.label || '').toUpperCase().includes('IGST'))
+                        .reduce((s, t) => s + toNumber(t.tax_amount !== undefined ? t.tax_amount : t.taxAmount), 0);
+                    if (itemIgst > 0.0001 || isInterstate)
+                        return sum;
+                    const itemCgst = itemBreakup
                         .filter((t) => String(t.code || t.label || '').toUpperCase().includes('CGST'))
                         .reduce((s, t) => s + toNumber(t.tax_amount !== undefined ? t.tax_amount : t.taxAmount), 0);
                     return sum + (itemCgst > 0 ? itemCgst : (toNumber(item.tax_amount) / 2));
                 }, 0);
                 let billSgst = lineItems.reduce((sum, item) => {
-                    const itemSgst = safeArray(item.tax_breakup)
+                    const itemBreakup = safeArray(item.tax_breakup);
+                    const itemIgst = itemBreakup
+                        .filter((t) => String(t.code || t.label || '').toUpperCase().includes('IGST'))
+                        .reduce((s, t) => s + toNumber(t.tax_amount !== undefined ? t.tax_amount : t.taxAmount), 0);
+                    if (itemIgst > 0.0001 || isInterstate)
+                        return sum;
+                    const itemSgst = itemBreakup
                         .filter((t) => String(t.code || t.label || '').toUpperCase().includes('SGST'))
                         .reduce((s, t) => s + toNumber(t.tax_amount !== undefined ? t.tax_amount : t.taxAmount), 0);
                     return sum + (itemSgst > 0 ? itemSgst : (toNumber(item.tax_amount) / 2));
                 }, 0);
                 let billIgst = lineItems.reduce((sum, item) => {
-                    const itemIgst = safeArray(item.tax_breakup)
+                    const itemBreakup = safeArray(item.tax_breakup);
+                    const itemIgst = itemBreakup
                         .filter((t) => String(t.code || t.label || '').toUpperCase().includes('IGST'))
                         .reduce((s, t) => s + toNumber(t.tax_amount !== undefined ? t.tax_amount : t.taxAmount), 0);
-                    return sum + itemIgst;
+                    if (itemIgst > 0.0001)
+                        return sum + itemIgst;
+                    if (isInterstate)
+                        return sum + toNumber(item.tax_amount);
+                    return sum;
                 }, 0);
                 billCgst = roundAmount(billCgst);
                 billSgst = roundAmount(billSgst);
@@ -837,6 +896,7 @@ exports.getSalesReport = async (req, res) => {
                     charge_total: saleChargeTotal,
                     charge_tax_total: saleChargeTaxTotal,
                     total_discount: saleDiscount,
+                    round_off_amount: toNumber(sale.round_off_amount),
                     net_amount: saleNetRevenue,
                     estimated_cost: saleEstimatedCost,
                     estimated_profit: saleProfit,
@@ -985,6 +1045,7 @@ exports.getSalesReport = async (req, res) => {
                     charge_total: saleChargeTotal,
                     charge_tax_total: 0,
                     total_discount: saleDiscount,
+                    round_off_amount: -toNumber(cn.round_off_amount || 0),
                     net_amount: saleNetRevenue,
                     estimated_cost: 0,
                     estimated_profit: saleProfit,

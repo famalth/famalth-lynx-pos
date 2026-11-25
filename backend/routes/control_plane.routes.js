@@ -73,6 +73,9 @@ router.post('/maintenance/advance-notice', maintenance_controller_1.default.setA
 // 12. Real-Time Server Health & Telemetry
 router.get('/system/health', controlPlaneAuth_middleware_1.requireControlPlaneAuth, controlPlane_controller_1.default.getServerHealth);
 router.get('/server-health', controlPlaneAuth_middleware_1.requireControlPlaneAuth, controlPlane_controller_1.default.getServerHealth);
+// 11. SaaS Licensor Subscription Billing Profile (Admin Console)
+router.get('/subscription-billing-config', controlPlaneAuth_middleware_1.requireControlPlaneAuth, controlPlane_controller_1.default.getSubscriptionBillingConfig);
+router.post('/subscription-billing-config', controlPlaneAuth_middleware_1.requireControlPlaneAuth, (0, controlPlaneAuth_middleware_1.requireStaffRole)(['SUPER_ADMIN', 'RESELLER_ADMIN', 'OWNER', 'DEVELOPER']), controlPlane_controller_1.default.saveSubscriptionBillingConfig);
 /* ==========================================================================
    SUPPORT CONSOLE & DATA DOCTOR ROUTES (Outlet-Wise Helpdesk & Query Studio)
    ========================================================================== */

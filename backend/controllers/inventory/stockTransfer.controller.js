@@ -452,10 +452,12 @@ const getOutletsHierarchy = async (req, res) => {
                 return true;
             return false;
         });
+        // Deduplicate allowed outlets strictly by ID
         const seenAllowedIds = new Set();
         const dedupedAllowedOutlets = allowedOutletsForSession.filter((o) => {
             const id = Number(o.id);
-            if (!id || seenAllowedIds.has(id)) return false;
+            if (!id || seenAllowedIds.has(id))
+                return false;
             seenAllowedIds.add(id);
             return true;
         });

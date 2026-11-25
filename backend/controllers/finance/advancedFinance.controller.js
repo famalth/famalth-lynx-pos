@@ -778,47 +778,55 @@ exports.createExpense = async (req, res) => {
         const taxes = req.body.taxes || [];
         const deductions = req.body.deductions || [];
         const vendor_id = req.body.vendor_id ? Number(req.body.vendor_id) : null;
-        const category_id = req.body.category_id;
+        let category_id = req.body.category_id;
+        const category_name = String(req.body.category_name || req.body.category || '').trim();
         const invoice_ref_no = req.body.invoice_ref_no ? String(req.body.invoice_ref_no).trim() : null;
-        const payment_date = dateKey(req.body.payment_date || new Date());
+        const payment_date = dateKey(req.body.payment_date || req.body.txn_date || new Date());
         const payment_method = String(req.body.payment_method || req.body.payment_mode || 'CASH').trim();
-        const expense_note = req.body.expense_note || req.body.note || null;
-        const status = (req.body.status || 'Paid').toString().trim();
+        const expense_note = req.body.expense_note || req.body.note || req.body.description || null;
+        const status = req.body.status || 'Paid';
+        if (!category_id && !category_name)
+            throw new Error('Category is required');
         if (amount <= 0)
             throw new Error('Amount must be greater than 0');
+        // Safely validate UUID vs Name
+        const isUuid = category_id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(category_id).trim());
         let categoryRow = null;
-        if (category_id) {
+        if (isUuid) {
             categoryRow = await req.propertyDb.models.expense_categories.findOne({
                 where: { id: category_id, outlet_id: req.user.outlet_id },
                 transaction: t
             });
-            if (!categoryRow) {
+        }
+        // If not found by UUID or category_id is a text name like "TEST", find by name or auto-create
+        if (!categoryRow) {
+            const nameToFind = (category_name || String(category_id || '')).trim();
+            if (nameToFind) {
                 categoryRow = await req.propertyDb.models.expense_categories.findOne({
-                    where: { category_name: category_id, outlet_id: req.user.outlet_id },
+                    where: {
+                        outlet_id: req.user.outlet_id,
+                        category_name: req.propertyDb.Sequelize.where(req.propertyDb.Sequelize.fn('lower', req.propertyDb.Sequelize.col('category_name')), nameToFind.toLowerCase())
+                    },
                     transaction: t
                 });
+                if (!categoryRow) {
+                    categoryRow = await req.propertyDb.models.expense_categories.create({
+                        outlet_id: req.user.outlet_id,
+                        user_id: req.user.id,
+                        category_name: nameToFind,
+                        is_active: true
+                    }, { transaction: t });
+                }
+                category_id = categoryRow.id;
             }
         }
-        if (!categoryRow && req.body.category_name) {
-            categoryRow = await req.propertyDb.models.expense_categories.findOne({
-                where: { category_name: req.body.category_name, outlet_id: req.user.outlet_id },
-                transaction: t
-            });
-        }
-        if (!categoryRow) {
-            const catName = req.body.category_name || (typeof category_id === 'string' && category_id.trim().isNotEmpty ? category_id.trim() : 'General Expense');
-            categoryRow = await req.propertyDb.models.expense_categories.create({
-                outlet_id: req.user.outlet_id,
-                user_id: req.user.id,
-                category_name: catName,
-                is_active: true
-            }, { transaction: t });
-        }
+        if (!categoryRow)
+            throw new Error('Category not found');
         const { base_amount, total_tax_amount, total_deduction_amount, net_payable_amount, taxes: calculatedTaxes, deductions: calculatedDeductions } = calculateExpenseAmounts({ amount, isTaxInclusive: is_tax_inclusive, taxes, deductions });
         await ensureExpenseDuplicateFree({
             req,
             payment_date,
-            category_id: categoryRow.id,
+            category_id,
             net_payable_amount,
             invoice_ref_no,
             expense_note,
@@ -828,7 +836,7 @@ exports.createExpense = async (req, res) => {
         const expense = await req.propertyDb.models.expenses.create({
             outlet_id: req.user.outlet_id,
             vendor_id,
-            category_id: categoryRow.id,
+            category_id,
             invoice_ref_no,
             payment_date,
             payment_method,
@@ -857,7 +865,7 @@ exports.createExpense = async (req, res) => {
                 deduction_amount: ded.deduction_amount
             })), { transaction: t });
         }
-        if (status.toLowerCase() === 'paid') {
+        if (status === 'Paid') {
             try {
                 autoVoucher = await createAutoAccountingVoucher({
                     req,
@@ -989,7 +997,7 @@ exports.updateExpense = async (req, res) => {
             })), { transaction: t });
         }
         const ledgerEntry = await findLinkedLedgerEntry(req.propertyDb, req.user.outlet_id, 'EXPENSE', expense.id, t);
-        if (status.toLowerCase() === 'paid') {
+        if (status === 'Paid') {
             if (ledgerEntry) {
                 await updateLedgerEntry({
                     db: req.propertyDb,
@@ -1043,9 +1051,12 @@ exports.updateExpense = async (req, res) => {
     }
 };
 exports.createRepayment = async (req, res) => {
+    const sale_id = Number(req.body.sale_id);
+    if ((!Number.isFinite(sale_id) || sale_id <= 0) && (req.body.customer_phone || req.body.customer_name || req.body.customer_gstin)) {
+        return exports.adjustBulkRepayment(req, res);
+    }
     const t = await req.propertyDb.transaction();
     try {
-        const sale_id = Number(req.body.sale_id);
         const payment_date = dateKey(req.body.payment_date || new Date());
         const amount = toAmount(req.body.amount);
         const payment_mode = String(req.body.payment_mode || 'CASH').trim().toUpperCase();
@@ -1297,7 +1308,8 @@ exports.createRepayment = async (req, res) => {
                     let vNo;
                     try {
                         vNo = await getNextNumber(req.propertyDb, req.user.outlet_id, 'RECEIPT', t);
-                    } catch (_) {
+                    }
+                    catch (_) {
                         const count = await req.propertyDb.models.accounting_vouchers.count({ where: { outlet_id: req.user.outlet_id, voucher_type: 'RECEIPT' }, transaction: t });
                         vNo = `RCT59-${String(count + 1).padStart(4, '0')}-26`;
                     }
@@ -1720,15 +1732,25 @@ exports.adjustBulkAdvance = async (req, res) => {
         if (adjustAmount > totalAvailable + 0.009) {
             throw new Error(`Adjustment amount (${adjustAmount.toFixed(2)}) exceeds available advance (${totalAvailable.toFixed(2)})`);
         }
+        const salesWhere = {
+            outlet_id: req.user.outlet_id,
+            status: 'COMPLETED',
+            is_latest: true,
+            is_deleted: false,
+            ...match
+        };
+        if (req.body.sale_id) {
+            salesWhere.id = req.body.sale_id;
+        }
+        else {
+            salesWhere[Op.or] = [
+                { balance_due: { [Op.gt]: 0 } },
+                { payment_mode: 'CREDIT' }
+            ];
+        }
         const sales = await req.propertyDb.models.sales_headers.findAll({
-            where: {
-                outlet_id: req.user.outlet_id,
-                status: 'COMPLETED',
-                is_latest: true,
-                is_deleted: false,
-                balance_due: { [Op.gt]: 0 },
-                ...match
-            },
+            where: salesWhere,
+            include: [{ model: req.propertyDb.models.customer_repayments, as: 'repayments', required: false }],
             order: [['sale_date', 'ASC'], ['id', 'ASC']],
             transaction: t
         });
@@ -1737,7 +1759,12 @@ exports.adjustBulkAdvance = async (req, res) => {
         for (const sale of sales) {
             if (remainingToAdjust <= 0.009)
                 break;
-            const due = toAmount(sale.balance_due);
+            const repaymentTotal = (sale.repayments || []).reduce((s, r) => s + toAmount(r.amount), 0);
+            const isCredit = String(sale.payment_mode || '').toUpperCase() === 'CREDIT';
+            let due = toAmount(sale.balance_due);
+            if (isCredit && due <= 0.009) {
+                due = Math.max(0, toAmount(sale.net_amount) - repaymentTotal);
+            }
             if (due <= 0.009)
                 continue;
             const alloc = Math.min(remainingToAdjust, due);
@@ -2044,6 +2071,10 @@ exports.getExpenseReport = async (req, res) => {
         const formattedData = data.map(e => {
             const json = e.toJSON();
             json.voucher_no = ledgerMap.get(String(e.id)) || (e.invoice_ref_no && e.invoice_ref_no.startsWith('PV-') ? e.invoice_ref_no : null);
+            const rawCatName = json.category?.category_name || json.category_name;
+            const isCatUuid = rawCatName && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(rawCatName).trim());
+            json.category_name = (!isCatUuid && rawCatName) ? rawCatName : (json.expense_note || 'Store Expense');
+            json.amount = Number(json.net_payable_amount ?? json.total_amount ?? json.amount ?? 0);
             return json;
         });
         const totalAmount = data.reduce((sum, entry) => sum + Number(entry.net_payable_amount || 0), 0);
@@ -2278,12 +2309,22 @@ exports.getLedgerReport = async (req, res) => {
             .filter((entry) => String(entry.transaction_type || '').toUpperCase() === 'OPENING_DEPOSIT')
             .reduce((sum, entry) => sum + toAmount(entry.amount_in), 0);
         const totalIn = entries.reduce((sum, entry) => {
-            if (String(entry.transaction_type || '').toUpperCase() === 'OPENING_DEPOSIT') {
+            const isCredit = String(entry.transaction_type || '').toUpperCase() === 'SALE_CREDIT' || String(entry.payment_method || '').toUpperCase() === 'CREDIT';
+            if (isCredit || String(entry.transaction_type || '').toUpperCase() === 'OPENING_DEPOSIT')
                 return sum;
-            }
             return sum + toAmount(entry.amount_in);
         }, 0);
-        const totalOut = entries.reduce((sum, entry) => sum + toAmount(entry.amount_out), 0);
+        const totalOut = entries.reduce((sum, entry) => {
+            const isCredit = String(entry.transaction_type || '').toUpperCase() === 'SALE_CREDIT' || String(entry.payment_method || '').toUpperCase() === 'CREDIT';
+            if (isCredit)
+                return sum;
+            if (toAmount(entry.amount_out) > 0.009)
+                return sum + toAmount(entry.amount_out);
+            const isAdv = String(entry.transaction_type || '').toUpperCase() === 'ADVANCE_APPLY' || String(entry.transaction_type || '').toUpperCase() === 'ADVANCE_ADJUSTMENT';
+            if (isAdv && toAmount(entry.adjustment_amount) > 0.009)
+                return sum + toAmount(entry.adjustment_amount);
+            return sum;
+        }, 0);
         const paymentMethodSummary = entries.reduce((acc, entry) => {
             const key = String(entry.payment_method || 'UNKNOWN').trim().toUpperCase() || 'UNKNOWN';
             if (!acc[key]) {
@@ -2295,7 +2336,9 @@ exports.getLedgerReport = async (req, res) => {
                 };
             }
             acc[key].amount_in += toAmount(entry.amount_in);
-            acc[key].amount_out += toAmount(entry.amount_out);
+            const isAdv = String(entry.transaction_type || '').toUpperCase() === 'ADVANCE_APPLY' || String(entry.transaction_type || '').toUpperCase() === 'ADVANCE_ADJUSTMENT';
+            const outVal = toAmount(entry.amount_out) > 0.009 ? toAmount(entry.amount_out) : (isAdv ? toAmount(entry.adjustment_amount) : 0);
+            acc[key].amount_out += outVal;
             acc[key].count += 1;
             return acc;
         }, {});
@@ -2570,11 +2613,13 @@ exports.getCustomerLedger = async (req, res) => {
             customerMatch = {
                 customer_phone: phoneConditions.length > 1 ? { [Op.or]: phoneConditions } : (phoneConditions[0] || customerPhone)
             };
-        } else if (customerName) {
+        }
+        else if (customerName) {
             customerMatch = {
                 customer_name: { [Op.iLike]: `%${customerName}%` }
             };
-        } else if (search) {
+        }
+        else if (search) {
             customerMatch = buildCustomerMatch(search);
         }
         let customerProfile = null;
@@ -2629,9 +2674,17 @@ exports.getCustomerLedger = async (req, res) => {
             const saleYmd = toYmd(sale.sale_date);
             const repaymentTotal = (sale.repayments || []).reduce((sum, p) => sum + toAmount(p.amount), 0);
             const parsedInitial = extractInitialPaid(sale);
-            const initialPaid = parsedInitial !== null
+            const isCreditSale = String(sale.payment_mode || '').toUpperCase() === 'CREDIT';
+            let initialPaid = isCreditSale ? 0 : (parsedInitial !== null && parsedInitial > 0
                 ? parsedInitial
-                : Math.max(0, toAmount(sale.amount_paid) - repaymentTotal);
+                : Math.max(0, toAmount(sale.amount_paid) - repaymentTotal));
+            const isNonCreditSale = !isCreditSale;
+            const balDue = isCreditSale && repaymentTotal <= 0.009
+                ? netAmount
+                : toAmount(sale.balance_due);
+            if (isNonCreditSale && balDue <= 0.01 && initialPaid <= 0.009) {
+                initialPaid = netAmount;
+            }
             const sameDateRepayments = [];
             const otherDateRepayments = [];
             for (const p of (sale.repayments || [])) {
@@ -2644,16 +2697,32 @@ exports.getCustomerLedger = async (req, res) => {
                 }
             }
             const sameDateRepaymentTotal = sameDateRepayments.reduce((sum, p) => sum + toAmount(p.amount), 0);
-            const sameDateCredit = roundAmount(initialPaid + sameDateRepaymentTotal);
+            const isSettled = !isCreditSale ? balDue <= 0.01 : (repaymentTotal >= netAmount - 0.01 || (balDue <= 0.01 && repaymentTotal > 0.009));
+            const nonRepaymentPaid = Math.max(0, netAmount - balDue - repaymentTotal);
+            let sameDateCredit = 0;
+            if (String(sale.payment_mode || '').toUpperCase() === 'SUBSCRIPTION') {
+                sameDateCredit = netAmount;
+            }
+            else if (isCreditSale) {
+                sameDateCredit = Math.min(netAmount, sameDateRepaymentTotal);
+            }
+            else {
+                sameDateCredit = Math.min(netAmount, nonRepaymentPaid + sameDateRepaymentTotal);
+            }
             const advanceRepayments = (sale.repayments || []).filter((p) => String(p.payment_mode || '').toUpperCase() === 'ADVANCE');
             const totalAdvanceAdjusted = advanceRepayments.reduce((sum, p) => sum + toAmount(p.amount), 0);
-
             let noteText = `Mode: ${sale.payment_mode || 'CREDIT'}`;
-            if (sameDateCredit >= netAmount && netAmount > 0) {
-                noteText = initialPaid > 0.009 ? 'Paid at checkout' : 'Settled on same date';
+            if (String(sale.payment_mode || '').toUpperCase() === 'SUBSCRIPTION') {
+                noteText = 'Paid via Subscription';
+            }
+            else if (isSettled) {
+                noteText = initialPaid > 0.009 ? 'Paid at checkout' : 'Settled / Paid';
+            }
+            else if (isCreditSale) {
+                noteText = 'Credit Sale (Outstanding Due)';
             }
             else if (sameDateCredit > 0.009) {
-                noteText = `Partially paid (${sameDateCredit}) on bill date`;
+                noteText = `Partially paid (${sameDateCredit.toFixed(2)})`;
             }
             else if (totalAdvanceAdjusted >= netAmount && netAmount > 0) {
                 noteText = 'Settled from customer advance';
@@ -2661,15 +2730,16 @@ exports.getCustomerLedger = async (req, res) => {
             else if (totalAdvanceAdjusted > 0.009) {
                 noteText = `Advance adjusted (${totalAdvanceAdjusted.toFixed(2)})`;
             }
-
-            const effectivePaymentMode = (sameDateCredit >= netAmount && netAmount > 0)
-                ? (sale.payment_mode || (sameDateRepayments[0]?.payment_mode || 'CASH'))
-                : (totalAdvanceAdjusted > 0.009 ? 'ADVANCE' : (sale.payment_mode || 'CREDIT'));
-
+            const effectivePaymentMode = String(sale.payment_mode || '').toUpperCase() === 'SUBSCRIPTION'
+                ? 'SUBSCRIPTION'
+                : (isSettled
+                    ? (sale.payment_mode === 'CREDIT' ? 'PAID' : (sale.payment_mode || 'PAID'))
+                    : (sale.payment_mode || 'CREDIT'));
             rawTransactions.push({
                 date: sale.sale_date,
                 sort_time: sale.created_at || sale.sale_date,
                 id: `sale-${sale.id}`,
+                sale_id: sale.id,
                 voucher_type: 'SALE_INVOICE',
                 voucher_no: sale.sale_no,
                 description: `Invoice #${sale.sale_no} (${sale.order_type || 'Sale'})`,
@@ -2682,7 +2752,7 @@ exports.getCustomerLedger = async (req, res) => {
                 const isAdvanceAdjust = String(p.payment_mode || '').toUpperCase() === 'ADVANCE';
                 if (isAdvanceAdjust) {
                     // Pre-existing advance credit was already credited in customer ledger upon deposit.
-                    // The invoice debit draws down against that advance. Skipping duplicate opposing credit/debit adjustment rows.
+                    // The invoice debit already draws down against that advance. Do not insert redundant opposing credit + debit rows!
                     continue;
                 }
                 rawTransactions.push({
@@ -3248,6 +3318,16 @@ exports.deleteRecurringExpense = async (req, res) => {
         const { id } = req.params;
         await req.propertyDb.models.recurring_expenses.destroy({ where: { id, outlet_id } });
         res.json({ success: true, message: 'Deleted successfully' });
+    }
+    catch (e) {
+        res.status(500).json({ success: false, message: e.message });
+    }
+};
+exports.runDueRecurringExpenses = async (req, res) => {
+    try {
+        const { processRecurringExpenses } = require('../../jobs/recurringExpensesJob');
+        await processRecurringExpenses(req.propertyDb);
+        res.json({ success: true, message: 'Due recurring expenses processed and debited in ledger successfully!' });
     }
     catch (e) {
         res.status(500).json({ success: false, message: e.message });

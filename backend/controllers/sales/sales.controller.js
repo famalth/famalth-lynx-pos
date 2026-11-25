@@ -43,6 +43,7 @@ const { normalizePhoneNumber, getPhoneSearchVariants } = require('../../utils/ph
 function normalizeCustomerIdentity(header = {}) {
     const rawPhone = header.customer_phone || header.customerPhone || '';
     return {
+        // Standard E.164 clean phone for international compatibility (no arbitrary chopping)
         customer_phone: normalizePhoneNumber(rawPhone),
         customer_gstin: String(header.customer_gstin || header.customerGstin || '').trim().toUpperCase(),
         customer_name: String(header.customer_name || header.customerName || '').trim()
@@ -1084,12 +1085,15 @@ async function collectPreSplitSubscriptionAllocation({ req, header, items, trans
             itemName: row.item_name || '',
             cartQty: 0,
             freeQty: 0,
-            rate: 0,
+            rate: toAmount(row.reference_rate || row.original_rate || row.rate || 0),
             taxPercent: toAmount(row.tax_percent || 0)
         };
         bucket.cartQty += qty;
         if (row.is_advance_free === true) {
             bucket.freeQty += qty;
+            if (bucket.rate <= 0 && toAmount(row.reference_rate || row.original_rate) > 0) {
+                bucket.rate = toAmount(row.reference_rate || row.original_rate);
+            }
         }
         else if (toAmount(row.rate) > 0) {
             bucket.rate = toAmount(row.rate);
@@ -1166,7 +1170,7 @@ async function collectPreSplitSubscriptionAllocation({ req, header, items, trans
             chosenSubscription = subscription;
             agreedRate = toAmount(bucket.rate) > 0
                 ? toAmount(bucket.rate)
-                : toAmount(subscriptionAdvance?.rate || 0);
+                : (toAmount(subscriptionAdvance?.rate || 0) || toAmount(subscription?.rate || 0) || toAmount(subscription?.item?.selling_price || 0));
             coveredQty = Math.min(bucket.freeQty, remainingCoverage);
             break;
         }
@@ -2354,7 +2358,10 @@ async function createSaleVersion({ req, transaction, header, items, overrides = 
     let roundOffAmount = toAmount(header.round_off_amount || 0);
     const netAmount = toAmount(header.net_amount);
     const invoiceDiscount = Math.max(0, toAmount(invoiceDiscountAmount || header.total_discount || 0));
-    const amountPaid = toAmount(header.amount_paid ?? (paymentMode === 'CREDIT' ? 0 : netAmount));
+    const isPureCredit = paymentMode === 'CREDIT';
+    const amountPaid = isPureCredit
+        ? 0
+        : toAmount(header.amount_paid ?? netAmount);
     const changeAmount = header.change_amount != null
         ? Math.max(toAmount(header.change_amount), 0)
         : (paymentMode === 'CASH' ? Math.max(amountPaid - netAmount, 0) : 0);
@@ -2877,6 +2884,10 @@ async function createSaleVersion({ req, transaction, header, items, overrides = 
         charges: headerCharges,
         charge_total: headerChargeTotal,
         total_discount: derivedTotalDiscount,
+        scheme_id: header.scheme_id ? Number(header.scheme_id) : (header.schemeId ? Number(header.schemeId) : null),
+        scheme_name: header.scheme_name || header.schemeName || null,
+        scheme_usage_mode: header.scheme_usage_mode || header.schemeUsageMode || null,
+        scheme_discount: toAmount(header.scheme_discount ?? header.schemeDiscount ?? 0),
         manual_discount_type: header.manual_discount_type || header.manualDiscountType || 'AMOUNT',
         manual_discount_value: toAmount(header.manual_discount_value ?? header.manualDiscountValue ?? derivedTotalDiscount),
         manual_discount_amount: toAmount(header.manual_discount_amount ?? header.manualDiscountAmount ?? derivedTotalDiscount),
@@ -3070,7 +3081,7 @@ async function createSaleVersion({ req, transaction, header, items, overrides = 
                 party_name: header.customer_name || header.customer_phone || 'Customer',
                 payment_method: 'ADVANCE',
                 amount_in: 0,
-                amount_out: advanceApplied,
+                amount_out: 0,
                 adjustment_amount: advanceApplied,
                 notes: `Advance adjusted while billing #${sale.sale_no}`,
                 created_by,
@@ -3387,8 +3398,9 @@ exports.createSale = async (req, res) => {
             totalCoveredAmount: 0,
             subscriptionId: 0
         };
+        const hasPreSplitItems = itemsPreSplit || (Array.isArray(saleItemsRaw) && saleItemsRaw.some((row) => row.is_advance_free === true || row._subscription_free === true));
         if (status === 'COMPLETED') {
-            if (itemsPreSplit) {
+            if (hasPreSplitItems) {
                 let t2 = Date.now();
                 subscriptionAllocation = await collectPreSplitSubscriptionAllocation({
                     req,
@@ -3463,7 +3475,6 @@ exports.createSale = async (req, res) => {
             transaction: t
         });
         let paidSaleNo = allocated?.number || String(headerForCreate.sale_no || '').trim();
-
         let freeSaleNo = splitItems.paid.length > 0 ? incrementSaleNo(paidSaleNo) : paidSaleNo;
         if (splitItems.paid.length > 0 && splitItems.free.length > 0) {
             let existsFree = await req.propertyDb.models.sales_headers.findOne({
@@ -3705,7 +3716,9 @@ exports.createSale = async (req, res) => {
                             reference_no: referenceSale.sale_no,
                             party_name: header.customer_name || header.customer_phone || 'Subscription Customer',
                             payment_method: 'SUBSCRIPTION',
-                            amount_out: appliedCashAdvanceAmount,
+                            amount_in: 0,
+                            amount_out: 0,
+                            adjustment_amount: appliedCashAdvanceAmount,
                             notes: `Advance adjusted for subscription item consumption in ${referenceSale.sale_no}`,
                             created_by: req.user.id,
                             transaction: t
@@ -4913,6 +4926,10 @@ exports.listSales = async (req, res) => {
         }
         const sales = await req.propertyDb.models.sales_headers.findAll({
             where,
+            include: [
+                { model: req.propertyDb.models.sales_items, as: 'items', required: false },
+                { model: req.propertyDb.models.customer_repayments, as: 'repayments', required: false }
+            ],
             order: [['sale_date', 'DESC'], ['id', 'DESC']]
         });
         const saleIds = sales.map(s => s.id);
@@ -5303,11 +5320,50 @@ exports.getSaleDetails = async (req, res) => {
             }
             return {
                 ...item,
+                brand: item.brand || (item.item ? item.item.brand : null),
                 modifier_details: Array.isArray(modDetails) ? modDetails : (item.modifier_details || []),
                 modifier_objects: Array.isArray(modObjs) ? modObjs : (item.modifier_objects || []),
                 returned_qty: alreadyReturned[item.item_id] || 0
             };
         });
+        // Resolve scheme name and details if missing
+        if (!saleJson.scheme_name) {
+            try {
+                const schemeIdsToLookup = new Set();
+                if (saleJson.scheme_id && Number(saleJson.scheme_id) > 0) {
+                    schemeIdsToLookup.add(Number(saleJson.scheme_id));
+                }
+                if (Array.isArray(saleJson.items)) {
+                    saleJson.items.forEach((it) => {
+                        const sid = Number(it.applied_scheme_id);
+                        if (Number.isFinite(sid) && sid > 0) {
+                            schemeIdsToLookup.add(sid);
+                        }
+                    });
+                }
+                if (schemeIdsToLookup.size > 0) {
+                    const schemes = await req.propertyDb.models.sales_schemes.findAll({
+                        where: { id: { [Op.in]: Array.from(schemeIdsToLookup) } }
+                    });
+                    if (schemes && schemes.length > 0) {
+                        const schemeMap = new Map();
+                        schemes.forEach((s) => schemeMap.set(s.id, s.scheme_name));
+                        if (!saleJson.scheme_name) {
+                            saleJson.scheme_name = schemes[0].scheme_name;
+                        }
+                        if (!saleJson.selected_schemes || saleJson.selected_schemes.length === 0) {
+                            saleJson.selected_schemes = schemes.map((s) => (typeof s.toJSON === 'function' ? s.toJSON() : s));
+                        }
+                        saleJson.items.forEach((it) => {
+                            if (it.applied_scheme_id && schemeMap.has(Number(it.applied_scheme_id))) {
+                                it.scheme_name = schemeMap.get(Number(it.applied_scheme_id));
+                            }
+                        });
+                    }
+                }
+            }
+            catch (_) { }
+        }
         saleJson.credit_notes = (creditNotes || []).map((cn) => {
             const raw = typeof cn.toJSON === 'function' ? cn.toJSON() : cn;
             return {
@@ -5781,15 +5837,34 @@ exports.getSchemeProgress = async (req, res) => {
 };
 exports.listSubscriptions = async (req, res) => {
     try {
+        await resolveOutletId(req);
+        const { getLinkedOutletIds } = require('../../utils/outletScopeHelper');
+        const sessionOutletId = Number(req.user?.outlet_id || 0);
+        const linkedIds = await getLinkedOutletIds(req, sessionOutletId);
+        const outletIds = linkedIds.length > 0 ? linkedIds : (sessionOutletId ? [sessionOutletId] : []);
         const search = String(req.query.search || '').trim().toLowerCase();
         const status = String(req.query.status || '').trim().toUpperCase();
-        console.log("[DEBUG listSubscriptions] Received request. Query:", req.query);
-        console.log("[DEBUG listSubscriptions] User resolved:", req.user);
-        const where = { outlet_id: req.user.outlet_id };
+        const todayStr = formatDateLocalYmd(new Date());
+        await req.propertyDb.models.milk_subscriptions.update({ status: 'EXPIRED', active_subscription: false }, {
+            where: {
+                status: 'ACTIVE',
+                end_date: { [Op.lt]: todayStr }
+            },
+            bypassOutletFilter: true
+        }).catch(() => { });
+        const where = {};
+        if (outletIds.length === 1) {
+            where.outlet_id = outletIds[0];
+        }
+        else if (outletIds.length > 1) {
+            where.outlet_id = { [Op.in]: outletIds };
+        }
+        else if (sessionOutletId) {
+            where.outlet_id = sessionOutletId;
+        }
         if (status === 'ACTIVE' || status === 'EXPIRED' || status === 'SETTLED' || status === 'CANCELLED') {
             where.status = status;
         }
-        console.log("[DEBUG listSubscriptions] Where clause:", where);
         const subscriptions = await req.propertyDb.models.milk_subscriptions.findAll({
             where,
             include: [
@@ -5797,7 +5872,8 @@ exports.listSubscriptions = async (req, res) => {
                 { model: req.propertyDb.models.milk_subscription_schemes, as: 'schemes', required: false },
                 { model: req.propertyDb.models.milk_subscription_consumptions, as: 'consumptions', required: false }
             ],
-            order: [['created_at', 'DESC'], ['id', 'DESC']]
+            order: [['created_at', 'DESC'], ['id', 'DESC']],
+            bypassOutletFilter: true
         });
         console.log("[DEBUG listSubscriptions] Found subscriptions count:", subscriptions.length);
         const data = [];
@@ -5824,9 +5900,17 @@ exports.listSubscriptions = async (req, res) => {
             const remainingAmount = isSettled ? 0 : (cashAdvanceSummary.available_amount != null && cashAdvanceSummary.original_amount > 0 ? cashAdvanceSummary.available_amount : (advanceSummary.available_amount || 0));
             const remainingQty = isSettled ? 0 : advanceSummary.available_qty;
             const consumedQty = isSettled ? advanceSummary.original_qty : advanceSummary.consumed_qty;
+            const startDateStr = formatDateLocalYmd(subscription.start_date);
+            const endDateStr = subscription.end_date ? formatDateLocalYmd(subscription.end_date) : null;
+            const asOfDay = formatDateLocalYmd(new Date());
+            const isStarted = !startDateStr || asOfDay >= startDateStr;
+            const isEnded = endDateStr ? asOfDay > endDateStr : false;
+            const isActuallyActive = !isEnded && isStarted && subscription.status === 'ACTIVE' && Boolean(subscription.active_subscription);
+            const computedStatus = isEnded && subscription.status === 'ACTIVE' ? 'EXPIRED' : subscription.status;
             data.push({
                 ...subscription.toJSON(),
-                active_subscription: subscription.active_subscription === true && subscription.status === 'ACTIVE',
+                status: computedStatus,
+                active_subscription: isActuallyActive,
                 scheme_totals: {
                     bonus_qty: sumNumeric(subscription.schemes, 'bonus_qty'),
                     discount_amount: sumNumeric(subscription.schemes, 'discount_amount')
@@ -5852,6 +5936,10 @@ exports.listSubscriptions = async (req, res) => {
 exports.listCustomerSubscriptions = async (req, res) => {
     try {
         await resolveOutletId(req);
+        const { getLinkedOutletIds } = require('../../utils/outletScopeHelper');
+        const sessionOutletId = Number(req.user?.outlet_id || 0);
+        const linkedIds = await getLinkedOutletIds(req, sessionOutletId);
+        const outletIds = linkedIds.length > 0 ? linkedIds : (sessionOutletId ? [sessionOutletId] : []);
         const identity = normalizeCustomerIdentity(req.query);
         const scope = buildCustomerScope(identity);
         if (!scope) {
@@ -5859,16 +5947,24 @@ exports.listCustomerSubscriptions = async (req, res) => {
         }
         const today = req.query.date || new Date();
         const asOfDay = formatDateLocalYmd(today);
+        const where = { ...scope };
+        if (outletIds.length === 1) {
+            where.outlet_id = outletIds[0];
+        }
+        else if (outletIds.length > 1) {
+            where.outlet_id = { [Op.in]: outletIds };
+        }
+        else if (sessionOutletId) {
+            where.outlet_id = sessionOutletId;
+        }
         const subscriptions = await req.propertyDb.models.milk_subscriptions.findAll({
-            where: {
-                outlet_id: req.user.outlet_id,
-                ...scope
-            },
+            where,
             include: [
                 { model: req.propertyDb.models.item_master, as: 'item', required: false },
                 { model: req.propertyDb.models.milk_subscription_schemes, as: 'schemes', required: false }
             ],
-            order: [['start_date', 'DESC'], ['id', 'DESC']]
+            order: [['start_date', 'DESC'], ['id', 'DESC']],
+            bypassOutletFilter: true
         });
         const rows = [];
         const remainingAssignedByItem = new Set();
@@ -5899,8 +5995,11 @@ exports.listCustomerSubscriptions = async (req, res) => {
             const remainingAmount = isSettled ? 0 : (cashAdvanceSummary.available_amount != null && cashAdvanceSummary.original_amount > 0 ? cashAdvanceSummary.available_amount : (advanceSummary.available_amount || 0));
             const remainingQty = isSettled ? 0 : advanceSummary.available_qty;
             const consumedQty = isSettled ? advanceSummary.original_qty : advanceSummary.consumed_qty;
+            const computedStatus = isEnded && subscription.status === 'ACTIVE' ? 'EXPIRED' : subscription.status;
             rows.push({
                 ...subscription.toJSON(),
+                status: computedStatus,
+                active_subscription: isApplicableToday,
                 scheme_totals: {
                     bonus_qty: sumNumeric(subscription.schemes, 'bonus_qty'),
                     discount_amount: sumNumeric(subscription.schemes, 'discount_amount')
@@ -5916,7 +6015,6 @@ exports.listCustomerSubscriptions = async (req, res) => {
                 today_remaining_qty: todayRemainingQty,
                 daily_allowed_qty: dailyLimit,
                 consumption: coveredRows.map((row) => row.toJSON()),
-                active_subscription: isApplicableToday,
                 ...buildSubscriptionMetrics(subscription, coveredRows)
             });
         }
@@ -6005,8 +6103,9 @@ exports.createSubscription = async (req, res) => {
             transaction: t
         });
         const duplicateMatch = existingSubscriptions.find((row) => {
-            const rowStatus = (row.status || '').toUpperCase();
-            if (rowStatus === 'CANCELLED' || rowStatus === 'EXHAUSTED' || rowStatus === 'SETTLED' || rowStatus === 'EXPIRED') return false;
+            const rowStatus = String(row.status || '').toUpperCase();
+            if (rowStatus === 'EXHAUSTED' || rowStatus === 'CANCELLED' || rowStatus === 'SETTLED' || rowStatus === 'EXPIRED')
+                return false;
             // Must be the exact same item variant (item_code is unique per variant)
             const rowItemCode = row.item ? row.item.item_code : '';
             if (rowItemCode !== item.item_code)
@@ -6037,17 +6136,19 @@ exports.createSubscription = async (req, res) => {
             });
         }
         const overlappingMatch = existingSubscriptions.find((row) => {
-            const rowStatus = (row.status || '').toUpperCase();
-            const isRowRunning = row.active_subscription !== false &&
-                                 rowStatus !== 'EXHAUSTED' &&
-                                 rowStatus !== 'SETTLED' &&
-                                 rowStatus !== 'CANCELLED' &&
-                                 rowStatus !== 'EXPIRED';
-            if (!isRowRunning) return false;
-
             // Must be the exact same item variant (item_code is unique per variant)
             const rowItemCode = row.item ? row.item.item_code : '';
             if (rowItemCode !== item.item_code)
+                return false;
+            // Only actively running subscriptions can conflict!
+            // If the existing subscription is EXHAUSTED, SETTLED, CANCELLED, EXPIRED, or active_subscription is false, it does NOT conflict!
+            const rowStatus = String(row.status || '').toUpperCase();
+            const isRowRunning = (row.active_subscription === true || rowStatus === 'ACTIVE') &&
+                rowStatus !== 'EXHAUSTED' &&
+                rowStatus !== 'SETTLED' &&
+                rowStatus !== 'CANCELLED' &&
+                rowStatus !== 'EXPIRED';
+            if (!isRowRunning)
                 return false;
             const rowIdentity = normalizeCustomerIdentity(row.toJSON());
             const samePhone = identity.customer_phone && rowIdentity.customer_phone

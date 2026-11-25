@@ -56,7 +56,6 @@ exports.login = async (req, res, next) => {
         }
         const cleanUser = (username || '').trim();
         const outletCode = currentOutlet.outlet_code;
-
         let user = await db.models.users.findOne({
             where: {
                 [Op.or]: [
@@ -70,7 +69,6 @@ exports.login = async (req, res, next) => {
                 is_active: true
             }
         });
-
         if (!user && (cleanUser.toLowerCase() === 'admin' || cleanUser.toLowerCase() === `admin_${outletCode}`.toLowerCase())) {
             user = await db.models.users.findOne({
                 where: {
@@ -83,7 +81,6 @@ exports.login = async (req, res, next) => {
                 }
             });
         }
-
         if (!user) {
             user = await db.models.users.findOne({
                 where: {
@@ -100,7 +97,6 @@ exports.login = async (req, res, next) => {
                 }
             });
         }
-
         if (!user && (cleanUser.toLowerCase() === 'famalth' || cleanUser.toLowerCase() === 'admin' || cleanUser.toLowerCase() === `admin_${outletCode}`.toLowerCase())) {
             user = await db.models.users.findOne({
                 where: {
@@ -110,7 +106,6 @@ exports.login = async (req, res, next) => {
                 }
             });
         }
-
         // Global master admin fallback: If famalth or a SUPER_ADMIN exists globally in the system, allow authentication across all registered outlets
         if (!user && (cleanUser.toLowerCase() === 'famalth' || cleanUser.toLowerCase() === 'superadmin' || cleanUser.toLowerCase() === 'admin')) {
             const masterUser = await db.models.users.findOne({
@@ -127,7 +122,6 @@ exports.login = async (req, res, next) => {
                 user = masterUser;
             }
         }
-
         if (!user || !user.is_active) {
             return res.status(401).json({ success: false, message: 'Invalid user for this outlet.' });
         }
@@ -181,7 +175,8 @@ exports.login = async (req, res, next) => {
                 if (!isCloudEnvironment()) {
                     licenseState = 'VALID';
                     daysRemaining = 365;
-                } else {
+                }
+                else {
                     return res.status(403).json({
                         success: false,
                         license_status: 'EXPIRED',
@@ -289,14 +284,11 @@ exports.requestSupplierOtp = async (req, res) => {
     try {
         let { outlet_code, email } = req.body;
         const db = req.propertyDb;
-
         if (!email || !email.toString().trim()) {
             return res.status(400).json({ success: false, message: 'Email address is required.' });
         }
-
         const normEmail = email.toString().trim().toLowerCase();
         let targetOutlet = null;
-
         // 1. Resolve outlet by outlet_code if provided
         if (outlet_code && outlet_code.toString().trim()) {
             targetOutlet = await db.models.outlets.findOne({
@@ -306,7 +298,6 @@ exports.requestSupplierOtp = async (req, res) => {
                 }
             }).catch(() => null);
         }
-
         // 2. Resolve outlet by contact_email matching the outlet
         if (!targetOutlet) {
             targetOutlet = await db.models.outlets.findOne({
@@ -316,7 +307,6 @@ exports.requestSupplierOtp = async (req, res) => {
                 }
             }).catch(() => null);
         }
-
         // 3. Resolve outlet by matching user email
         if (!targetOutlet && db.models.users) {
             const userMatch = await db.models.users.findOne({
@@ -329,7 +319,6 @@ exports.requestSupplierOtp = async (req, res) => {
                 targetOutlet = await db.models.outlets.findByPk(userMatch.outlet_id).catch(() => null);
             }
         }
-
         // 4. Fallback to default or any active outlet
         if (!targetOutlet) {
             targetOutlet = await db.models.outlets.findOne({
@@ -337,68 +326,59 @@ exports.requestSupplierOtp = async (req, res) => {
                 order: [['id', 'ASC']]
             }).catch(() => null);
         }
-
         if (!targetOutlet) {
             return res.status(404).json({ success: false, message: 'No active business outlet found.' });
         }
-
         // Generate 6-digit OTP
         const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
         const expiresAt = Date.now() + 600000; // 10 minutes
-
         // Store OTP under multiple keys so verify succeeds regardless of outlet code parameter
         supplierOtpStore.set(`${targetOutlet.outlet_code}_${normEmail}`, { otp: otpCode, expiresAt, outlet_code: targetOutlet.outlet_code });
         supplierOtpStore.set(normEmail, { otp: otpCode, expiresAt, outlet_code: targetOutlet.outlet_code });
         if (outlet_code && outlet_code.toString().trim()) {
             supplierOtpStore.set(`${outlet_code.toString().trim()}_${normEmail}`, { otp: otpCode, expiresAt, outlet_code: targetOutlet.outlet_code });
         }
-
         console.log(`[SUPPLIER LOGIN OTP] Key sent to ${normEmail} for outlet ${targetOutlet.outlet_code}: ${otpCode}`);
-
         // Send OTP email (gracefully catch if mail transport is not configured)
         try {
             await sendOtpEmail(normEmail, otpCode, "Supplier Login Verification");
-        } catch (mailErr) {
+        }
+        catch (mailErr) {
             console.warn('[SUPPLIER OTP EMAIL NOTICE] Could not send email, OTP logged to console:', mailErr);
         }
-
         return res.json({
             success: true,
             message: `Verification OTP has been sent to ${normEmail}.`,
             outlet_code: targetOutlet.outlet_code
         });
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[OTP REQUEST ERROR]', error);
         return res.status(500).json({ success: false, message: 'Internal server error during OTP request.' });
     }
 };
-
 exports.verifySupplierOtp = async (req, res) => {
     try {
         let { outlet_code, email, otp } = req.body;
         const db = req.propertyDb;
-
         if (!email || !otp) {
             return res.status(400).json({ success: false, message: 'Email and OTP are required.' });
         }
-
         const normEmail = email.toString().trim().toLowerCase();
         const cleanOtp = otp.toString().trim();
-
         // Check OTP record across possible keys
         const record = (outlet_code ? supplierOtpStore.get(`${outlet_code.toString().trim()}_${normEmail}`) : null) ||
-                       supplierOtpStore.get(normEmail) ||
-                       supplierOtpStore.get(`${outlet_code}_${normEmail}`);
-
+            supplierOtpStore.get(normEmail) ||
+            supplierOtpStore.get(`${outlet_code}_${normEmail}`);
         if (!record || record.otp !== cleanOtp || Date.now() > record.expiresAt) {
             return res.status(400).json({ success: false, message: 'Invalid or expired OTP.' });
         }
-
         const resolvedOutletCode = record.outlet_code || outlet_code;
         supplierOtpStore.delete(normEmail);
-        if (outlet_code) supplierOtpStore.delete(`${outlet_code}_${normEmail}`);
-        if (record.outlet_code) supplierOtpStore.delete(`${record.outlet_code}_${normEmail}`);
-
+        if (outlet_code)
+            supplierOtpStore.delete(`${outlet_code}_${normEmail}`);
+        if (record.outlet_code)
+            supplierOtpStore.delete(`${record.outlet_code}_${normEmail}`);
         // Fetch the outlet
         let currentOutlet = null;
         if (resolvedOutletCode) {
@@ -412,11 +392,9 @@ exports.verifySupplierOtp = async (req, res) => {
                 order: [['id', 'ASC']]
             }).catch(() => null);
         }
-
         if (!currentOutlet) {
             return res.status(404).json({ success: false, message: 'Outlet no longer exists or is inactive.' });
         }
-
         // Find matching or manager user
         let user = await db.models.users.findOne({
             where: {
@@ -424,7 +402,6 @@ exports.verifySupplierOtp = async (req, res) => {
                 is_active: true
             }
         }).catch(() => null);
-
         if (!user) {
             user = await db.models.users.findOne({
                 where: {
@@ -434,7 +411,6 @@ exports.verifySupplierOtp = async (req, res) => {
                 }
             }).catch(() => null);
         }
-
         if (!user) {
             user = await db.models.users.findOne({
                 where: {
@@ -443,11 +419,9 @@ exports.verifySupplierOtp = async (req, res) => {
                 }
             }).catch(() => null);
         }
-
         if (!user) {
             return res.status(404).json({ success: false, message: 'No active user found for this outlet.' });
         }
-
         // Generate login token
         const token = jwt.sign({
             user_id: user.id,
@@ -457,16 +431,12 @@ exports.verifySupplierOtp = async (req, res) => {
             business_module: resolveBusinessModule(currentOutlet.business_module, currentOutlet.outlet_type),
             permissions: ['*']
         });
-
-        await user.update({ last_login: new Date() }).catch(() => {});
-
+        await user.update({ last_login: new Date() }).catch(() => { });
         const property = await db.models.property_info.findOne({
             where: { outlet_id: currentOutlet.id },
             attributes: ['property_name', 'logo_path']
         }).catch(() => null);
-
-        await touchClient(currentOutlet.outlet_code).catch(() => {});
-
+        await touchClient(currentOutlet.outlet_code).catch(() => { });
         return res.json({
             success: true,
             license_status: 'VALID',
@@ -485,12 +455,12 @@ exports.verifySupplierOtp = async (req, res) => {
                 permissions: ['*']
             }
         });
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[OTP VERIFY ERROR]', error);
         return res.status(500).json({ success: false, message: 'Internal server error during OTP verification.' });
     }
 };
-
 exports.switchOutlet = async (req, res) => {
     try {
         const db = req.propertyDb;
@@ -784,7 +754,8 @@ exports.pinLogin = async (req, res) => {
                 if (!isCloudEnvironment()) {
                     licenseState = 'VALID';
                     daysRemaining = 365;
-                } else {
+                }
+                else {
                     return res.status(403).json({
                         success: false,
                         license_status: 'EXPIRED',

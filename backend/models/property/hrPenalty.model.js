@@ -1,5 +1,4 @@
 "use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const HrPenalty = sequelize.define('hr_penalties', {
         id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
@@ -24,4 +23,3 @@ module.exports = (sequelize, DataTypes) => {
     };
     return HrPenalty;
 };
-exports.default = module.exports;

@@ -232,6 +232,8 @@ const modifyRequest = async (req, res) => {
             const existingItem = item.id ? existingById.get(String(item.id)) : null;
             return {
                 ...item,
+                // Approval does not change issue state. Preserve it from the database
+                // so editing an approved, unissued request cannot accidentally close it.
                 line_status: existingItem
                     ? normalizeLineStatus(existingItem.line_status)
                     : normalizeLineStatus(item.line_status || 'OPEN')

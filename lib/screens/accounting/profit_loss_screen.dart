@@ -73,7 +73,7 @@ class _ProfitLossScreenState extends State<ProfitLossScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Row(
           children: [
-            Icon(Icons.corporate_fare_rounded, color: Color(0xFF008060)),
+            Icon(Icons.corporate_fare_rounded, color: Color(0xFF0B5CAD)),
             SizedBox(width: 10),
             Expanded(
               child: Text(
@@ -163,7 +163,7 @@ class _ProfitLossScreenState extends State<ProfitLossScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Close', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF008060))),
+            child: const Text('Close', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0B5CAD))),
           ),
         ],
       ),
@@ -172,29 +172,54 @@ class _ProfitLossScreenState extends State<ProfitLossScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const primaryColor = Color(0xFF008060);
+    const primaryColor = Color(0xFF0B5CAD);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6F9),
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 1,
-        title: const Text(
-          'Statement of Profit & Loss (Corporate EBITDA Standard)',
-          style: TextStyle(color: primaryColor, fontSize: 16, fontWeight: FontWeight.bold),
+        titleSpacing: 0,
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                color: primaryColor,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.analytics_rounded, color: Colors.white, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Statement of Profit & Loss',
+                  style: TextStyle(color: Color(0xFF0F172A), fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  'Corporate Standard • EBITDA, EBIT, EBT & PAT Architecture',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
+                ),
+              ],
+            ),
+          ],
         ),
         iconTheme: const IconThemeData(color: primaryColor),
         actions: [
           IconButton(
-            tooltip: 'View EBITDA & Accounting Formula',
-            icon: const Icon(Icons.functions_rounded, color: primaryColor),
+            tooltip: 'View EBITDA & Accounting Formula Guide',
+            icon: const Icon(Icons.info_outline, color: primaryColor),
             onPressed: () => _showProfitLossFormulaDialog(context, ctrl.profitLossData),
           ),
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: 'Refresh Statement',
             icon: const Icon(Icons.refresh_rounded, color: primaryColor),
             onPressed: _loadData,
           ),
+          const SizedBox(width: 8),
         ],
       ),
       body: ListenableBuilder(
@@ -466,7 +491,7 @@ class _ProfitLossScreenState extends State<ProfitLossScreen> {
                         Colors.orange.shade800,
                       ),
                       const Divider(height: 12),
-                      _row('EBIT (Operating Profit / Profit Before Interest & Tax)', CurrencyService.format(ebit), const Color(0xFF7C3AED), isBold: true),
+                      _row('EBIT (Operating Profit / PBIT • Margin: ${ebitMargin.toStringAsFixed(1)}%)', CurrencyService.format(ebit), const Color(0xFF7C3AED), isBold: true),
                       _row(
                         'Less: Finance Costs (Cash Interest paid on Bank Loans & Borrowings)',
                         '(${CurrencyService.format(financeCosts)})',

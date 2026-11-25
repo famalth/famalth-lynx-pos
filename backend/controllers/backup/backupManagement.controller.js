@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.BackupManagementController = void 0;
+const sequelize_1 = require("sequelize");
 const tenantBackup_service_1 = __importDefault(require("../../services/tenantBackup.service"));
 const dataRetention_service_1 = __importDefault(require("../../services/dataRetention.service"));
 const storageQuota_service_1 = __importDefault(require("../../services/storageQuota.service"));
@@ -25,8 +26,7 @@ function formatBytes(bytes, decimals = 2) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 }
 const storageStatsCache = new Map();
-const STATS_CACHE_TTL_MS = 60 * 1000;
-
+const STATS_CACHE_TTL_MS = 60 * 1000; // 60s memory cache to guarantee instant sub-second response
 class BackupManagementController {
     static invalidateStatsCache() {
         storageStatsCache.clear();
@@ -48,7 +48,7 @@ class BackupManagementController {
                 'DEFAULT');
             const outletId = Number(req.outlet_id || req.user?.outlet_id || 1);
             const cacheKey = `${outletCode}_${outletId}_${isSuperAdmin}`;
-
+            // Fast in-memory cache hit
             const cached = storageStatsCache.get(cacheKey);
             if (cached && Date.now() < cached.expiry) {
                 return res.json({
@@ -56,41 +56,33 @@ class BackupManagementController {
                     data: cached.data,
                 });
             }
-
+            // Parallelize disk scan and quota audit with Promise.allSettled to eliminate 15s timeouts
             const [statsRes, quotaRes] = await Promise.allSettled([
                 tenantBackup_service_1.default.getStorageStats(activeDb, outletCode, isSuperAdmin),
                 storageQuota_service_1.default.calculateTenantStorage(activeDb, outletId, outletCode)
             ]);
-
             const stats = statsRes.status === 'fulfilled' ? statsRes.value : {
                 disk: { total: 0, free: 0, used: 0, totalPretty: '0 GB', freePretty: '0 GB', usedPretty: '0 GB', usagePct: 0 },
                 backups: { count: 0, totalSize: 0, totalPretty: '0 MB', latest: null, items: [] },
                 uploads: { count: 0, totalSize: 0, totalPretty: '0 MB' },
                 database: { totalSize: 0, totalPretty: '0 MB' },
             };
-
             if (quotaRes.status === 'fulfilled') {
                 stats.quota = quotaRes.value;
             }
-
             stats.isEnterpriseConsole = isSuperAdmin;
             stats.canManageAll = isSuperAdmin;
             let isCloudEnabled = false;
             try {
-                const [settingsRow] = await activeDb.query(
-                    `SELECT is_cloud_enabled FROM system_settings LIMIT 1;`,
-                    { type: require('sequelize').QueryTypes.SELECT }
-                );
-                isCloudEnabled = (settingsRow === null || settingsRow === void 0 ? void 0 : settingsRow.is_cloud_enabled) === true;
+                const [settingsRow] = await activeDb.query(`SELECT is_cloud_enabled FROM system_settings LIMIT 1;`, { type: sequelize_1.QueryTypes.SELECT });
+                isCloudEnabled = settingsRow?.is_cloud_enabled === true;
             }
             catch (_) { }
             stats.isCloudEnabled = isCloudEnabled;
-
             storageStatsCache.set(cacheKey, {
                 data: stats,
                 expiry: Date.now() + STATS_CACHE_TTL_MS,
             });
-
             return res.json({
                 success: true,
                 data: stats,
@@ -330,6 +322,7 @@ class BackupManagementController {
             const isMasterAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN';
             const isCloud = isCloudEnvironment();
             const scope = (String(req.body?.scope || 'OUTLET').toUpperCase() === 'ALL') ? 'ALL' : 'OUTLET';
+            // On cloud-hosted servers, ALL outlets backup is restricted to Enterprise Super Admins - store terminals can only backup their own outlet
             if (isCloud && scope === 'ALL' && !isMasterAdmin) {
                 return res.status(403).json({
                     success: false,
@@ -449,21 +442,15 @@ class BackupManagementController {
             const isLocalServerSuperAdmin = isMasterAdmin && isLoopback;
             const isCloud = isCloudEnvironment();
             const requestedScope = String(req.body?.scope || '').toUpperCase();
-            if (isCloud && requestedScope === 'ALL') {
-                return res.status(403).json({
-                    success: false,
-                    message: 'When hosted on cloud, only your own outlet restoration (.fambak) is allowed. Full system restoration across all outlets is disabled on cloud instances.',
-                });
-            }
             const isLanClient = !isLoopback && !isCloud && (ip.includes('192.168.') || ip.includes('10.') || ip.includes('172.'));
-            if (requestedScope === 'ALL' && !isLoopback && !isMasterAdmin) {
+            if (requestedScope === 'ALL' && isLanClient && !isMasterAdmin) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Complete enterprise database restoration can only be performed directly on the Local Server PC.',
+                    message: 'Full system database restoration cannot be performed from a Client PC. Please restore on the Main Server PC.',
                 });
             }
             const userOutletCode = String(req.outlet_code || req.user?.outlet_code || req.outlet?.outlet_code || req.outlet?.code || '');
-            if (requestedScope === 'ALL' && !isLoopback && !isMasterAdmin) {
+            if (requestedScope === 'ALL' && !isLoopback && !isCloud && !isMasterAdmin) {
                 return res.status(403).json({
                     success: false,
                     message: 'Complete enterprise database restoration can only be performed directly on the Local Server PC.',
@@ -486,8 +473,22 @@ class BackupManagementController {
                     message: 'No backup file payload or valid filename provided for restore.',
                 });
             }
-            const effectiveTargetId = Number(targetOutletId || req.outlet_id || req.user?.outlet_id || 1);
-            const effectiveTargetCode = String(targetOutletCode || userOutletCode || `OUT_${effectiveTargetId}`);
+            let effectiveTargetCode = String(targetOutletCode || userOutletCode || '').trim();
+            let effectiveTargetId = Number(targetOutletId || req.outlet_id || req.user?.outlet_id || 0);
+            if (effectiveTargetCode && !effectiveTargetId) {
+                try {
+                    const [oRow] = await activeDb.query(`SELECT id, outlet_code FROM outlets WHERE outlet_code = :code LIMIT 1;`, { replacements: { code: effectiveTargetCode }, type: sequelize_1.QueryTypes.SELECT });
+                    if (oRow?.id) {
+                        effectiveTargetId = Number(oRow.id);
+                        effectiveTargetCode = String(oRow.outlet_code || effectiveTargetCode);
+                    }
+                }
+                catch (_) { }
+            }
+            if (!effectiveTargetId)
+                effectiveTargetId = 1;
+            if (!effectiveTargetCode)
+                effectiveTargetCode = `OUT_${effectiveTargetId}`;
             BackupManagementController.invalidateStatsCache();
             const result = await tenantBackup_service_1.default.restoreFambakBackup(activeDb, fileBuffer, {
                 scope: scope ? (String(scope).toUpperCase() === 'ALL' ? 'ALL' : 'OUTLET') : undefined,

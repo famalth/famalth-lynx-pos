@@ -21,7 +21,7 @@ exports.getIssuedItems = async (req, res) => {
             {
                 model: req.propertyDb.models.item_master,
                 as: 'item_master', // ✅ REQUIRED
-                    attributes: ['item_name', 'brand', 'unit', 'item_code']
+                attributes: ['item_name', 'brand', 'unit', 'item_code']
             }
         ]
     });

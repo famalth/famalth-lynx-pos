@@ -7,38 +7,36 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.normalizePhoneNumber = normalizePhoneNumber;
 exports.getPhoneSearchVariants = getPhoneSearchVariants;
-
 function normalizePhoneNumber(raw) {
-    if (raw === null || raw === undefined) return '';
+    if (raw === null || raw === undefined)
+        return '';
     const str = String(raw).trim();
-    if (!str) return '';
-
+    if (!str)
+        return '';
     const hasPlus = str.startsWith('+');
     // Strip non-digits (formatting spaces, hyphens, brackets, dots)
     const digits = str.replace(/\D/g, '');
-    if (!digits) return '';
-
+    if (!digits)
+        return '';
     // ITU-T E.164 allows up to 15 digits (excluding +)
     const sanitized = digits.length > 15 ? digits.slice(0, 15) : digits;
     return hasPlus ? `+${sanitized}` : sanitized;
 }
-
 /**
  * Returns phone search variants for international and local formats
  * Enables bidirectional matching (with/without +, with/without country codes)
  */
 function getPhoneSearchVariants(raw) {
     const norm = normalizePhoneNumber(raw);
-    if (!norm) return [];
+    if (!norm)
+        return [];
     const digits = norm.replace(/\D/g, '');
     const variants = new Set();
-
     variants.add(norm);
     variants.add(digits);
     if (!norm.startsWith('+')) {
         variants.add(`+${digits}`);
     }
-
     // Common international prefixes (India +91, US +1, UK +44, UAE +971, Australia +61, etc.)
     if (digits.startsWith('91') && digits.length >= 12) {
         const local = digits.slice(2);
@@ -74,6 +72,5 @@ function getPhoneSearchVariants(raw) {
         const withoutZero = digits.slice(1);
         variants.add(withoutZero);
     }
-
-    return Array.from(variants).filter(Boolean);
+    return Array.from(variants);
 }

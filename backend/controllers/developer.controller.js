@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.issueOAuthToken = exports.deleteApiKey = exports.generateApiKey = exports.getApiKeys = exports.testWebhook = exports.deleteWebhook = exports.registerWebhook = exports.getWebhooks = exports.getEcosystemInfo = void 0;
+exports.getOAuthMetadata = exports.issueOAuthToken = exports.authorizeOAuth = exports.deleteApiKey = exports.generateApiKey = exports.getApiKeys = exports.testWebhook = exports.deleteWebhook = exports.registerWebhook = exports.getWebhooks = exports.getEcosystemInfo = void 0;
 const developerService = require('../services/developer.service');
 const defaultDb = require('../db/models');
 function getDb(req) {
@@ -187,7 +187,6 @@ const authorizeOAuth = async (req, res) => {
         const scopeParam = req.query?.scope || req.body?.scope;
         const codeChallenge = req.query?.code_challenge || req.body?.code_challenge;
         const codeChallengeMethod = req.query?.code_challenge_method || req.body?.code_challenge_method || 'S256';
-
         if (!clientId) {
             return res.status(400).send(`
                 <html>
@@ -198,9 +197,7 @@ const authorizeOAuth = async (req, res) => {
                 </html>
             `);
         }
-
         const scopes = scopeParam ? String(scopeParam).split(/[,\s]+/).filter(Boolean) : undefined;
-
         const { code, keyRecord } = await developerService.createAuthorizationCode(getDb(req), {
             clientId: String(clientId).trim(),
             redirectUri: redirectUri ? String(redirectUri).trim() : undefined,
@@ -208,17 +205,15 @@ const authorizeOAuth = async (req, res) => {
             codeChallenge: codeChallenge ? String(codeChallenge).trim() : undefined,
             codeChallengeMethod: codeChallengeMethod ? String(codeChallengeMethod).trim() : 'S256'
         });
-
         // If redirect_uri provided (standard ChatGPT OAuth flow), redirect back with code and state
         if (redirectUri) {
-            const redirectUrl = new (require('url').URL)(String(redirectUri).trim());
+            const redirectUrl = new URL(String(redirectUri).trim());
             redirectUrl.searchParams.set('code', code);
             if (state) {
                 redirectUrl.searchParams.set('state', String(state));
             }
             return res.redirect(redirectUrl.toString());
         }
-
         // Otherwise render confirmation HTML
         return res.send(`
             <html>
@@ -235,7 +230,8 @@ const authorizeOAuth = async (req, res) => {
             </body>
             </html>
         `);
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[DEVELOPER OAUTH AUTHORIZE ERROR]:', error.message);
         return res.status(400).send(`
             <html>
@@ -248,13 +244,11 @@ const authorizeOAuth = async (req, res) => {
     }
 };
 exports.authorizeOAuth = authorizeOAuth;
-
 const issueOAuthToken = async (req, res) => {
     try {
         let clientId = req.body?.client_id || req.body?.clientId;
         let clientSecret = req.body?.client_secret || req.body?.clientSecret;
         const grantType = req.body?.grant_type || req.body?.grantType || 'client_credentials';
-
         // Check HTTP Basic Auth header: Authorization: Basic base64(client_id:client_secret)
         // Standard in ChatGPT client_secret_basic mode
         const authHeader = req.headers?.authorization;
@@ -266,14 +260,13 @@ const issueOAuthToken = async (req, res) => {
                     clientId = credentials.substring(0, sepIndex);
                     clientSecret = credentials.substring(sepIndex + 1);
                 }
-            } catch (_) {}
+            }
+            catch (_) { }
         }
-
         if (grantType === 'authorization_code') {
             const code = req.body?.code;
             const redirectUri = req.body?.redirect_uri || req.body?.redirectUri;
             const codeVerifier = req.body?.code_verifier || req.body?.codeVerifier;
-
             const data = await developerService.exchangeAuthCode(getDb(req), {
                 code,
                 clientId,
@@ -283,7 +276,6 @@ const issueOAuthToken = async (req, res) => {
             });
             return res.json(data);
         }
-
         if (grantType === 'refresh_token') {
             const refreshToken = req.body?.refresh_token || req.body?.refreshToken;
             if (!refreshToken) {
@@ -295,14 +287,12 @@ const issueOAuthToken = async (req, res) => {
             const data = await developerService.refreshOAuthToken(getDb(req), refreshToken);
             return res.json(data);
         }
-
         if (grantType !== 'client_credentials') {
             return res.status(400).json({
                 error: 'unsupported_grant_type',
                 error_description: 'Supported grant_type values: authorization_code, client_credentials, refresh_token.'
             });
         }
-
         const data = await developerService.issueOAuthToken(getDb(req), clientId, clientSecret);
         return res.json(data);
     }
@@ -315,16 +305,13 @@ const issueOAuthToken = async (req, res) => {
     }
 };
 exports.issueOAuthToken = issueOAuthToken;
-
 const getOAuthMetadata = (req, res) => {
     const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
     const host = req.headers['x-forwarded-host'] || req.headers['host'] || 'localhost:3000';
     const baseUrl = `${proto}://${host}`;
-
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', '*');
-
     return res.json({
         issuer: baseUrl,
         authorization_endpoint: `${baseUrl}/api/v1/developer/oauth/authorize`,
@@ -345,7 +332,6 @@ const getOAuthMetadata = (req, res) => {
     });
 };
 exports.getOAuthMetadata = getOAuthMetadata;
-
 module.exports = {
     getEcosystemInfo: exports.getEcosystemInfo,
     getWebhooks: exports.getWebhooks,

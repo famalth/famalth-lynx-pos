@@ -73,7 +73,6 @@ const createIssue = async (req, res) => {
         catch (seqErr) {
             console.warn('[INDENT SEQ] Auto-resolve numbering warning:', seqErr?.message || seqErr);
         }
-
         const issue = await req.propertyDb.models.issue_headers.create({
             issue_no: effectiveIssueNo,
             issue_date: header.issue_date,

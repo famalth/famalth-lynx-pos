@@ -37,6 +37,17 @@ async function getLinkedOutletIds(req, sessionOutletId) {
                 }
             });
         }
+        else if (currentOutlet.parent_outlet_id) {
+            const parentId = Number(currentOutlet.parent_outlet_id);
+            linkedSet.add(parentId);
+            rawOutlets.forEach(o => {
+                const oid = Number(o.id);
+                const pid = o.parent_outlet_id ? Number(o.parent_outlet_id) : null;
+                if (pid === parentId || oid === parentId) {
+                    linkedSet.add(oid);
+                }
+            });
+        }
         return Array.from(linkedSet);
     }
     catch (err) {

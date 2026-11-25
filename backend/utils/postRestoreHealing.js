@@ -84,6 +84,34 @@ async function runPostRestoreHealing(db) {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
+
+      -- Deduplicate & enforce PK and UNIQUE constraints on sale_sources
+      DELETE FROM sale_sources a USING sale_sources b WHERE a.ctid < b.ctid AND a.name = b.name;
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sale_sources_pkey') THEN
+          ALTER TABLE sale_sources ADD PRIMARY KEY (id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sale_sources_name_unique') THEN
+          ALTER TABLE sale_sources ADD CONSTRAINT sale_sources_name_unique UNIQUE (name);
+        END IF;
+      EXCEPTION WHEN OTHERS THEN
+        NULL;
+      END $$;
+
+      -- Deduplicate & enforce PK and UNIQUE constraints on payment_methods
+      DELETE FROM payment_methods a USING payment_methods b WHERE a.ctid < b.ctid AND a.name = b.name;
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payment_methods_pkey') THEN
+          ALTER TABLE payment_methods ADD PRIMARY KEY (id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payment_methods_name_unique') THEN
+          ALTER TABLE payment_methods ADD CONSTRAINT payment_methods_name_unique UNIQUE (name);
+        END IF;
+      EXCEPTION WHEN OTHERS THEN
+        NULL;
+      END $$;
     `).catch((err) => console.warn('⚠️ Column alter notice:', err.message));
         // 3. Run all versioned migrations (schema_version)
         await (0, migrationRunner_1.default)(activeDb);

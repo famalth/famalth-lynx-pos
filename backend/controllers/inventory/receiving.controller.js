@@ -134,7 +134,10 @@ const createReceiving = async (req, res) => {
             }
             if (String(purchaseOrder.approval_status || 'APPROVED').toUpperCase() !== 'APPROVED') {
                 await t.rollback();
-                return res.status(400).json({ success: false, message: 'Purchase order must be approved before receiving goods' });
+                return res.status(400).json({
+                    success: false,
+                    message: 'Purchase order must be approved before receiving goods'
+                });
             }
         }
         const billNo = String(supplier_bill_no || '').trim();

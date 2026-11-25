@@ -108,22 +108,17 @@ async function startBackupJob(client, config) {
                     logMessage(`Created backup directory at: ${BACKUP_DIR}`);
                 }
                 logMessage(`Hourly backup job started for outlet [${outletCode}]. Securing into proprietary .fambak archive...`);
-
                 const { TenantBackupService } = require('../services/tenantBackup.service');
                 const activeDb = propertyDb.sequelize || propertyDb;
                 const status = getBackupStatus(outletCode);
-
                 const fambakResult = await retry(() => TenantBackupService.createFambakBackup(activeDb, {
                     scope: 'OUTLET',
                     outletCode: outletCode,
                     saveToDrive: status.isCloudEnabled
                 }));
-
                 const finalFilePath = fambakResult.filePath;
                 const fileName = fambakResult.filename;
-
                 logMessage(`Secured .fambak archive created: ${fileName} (${fambakResult.sizePretty}, ${fambakResult.totalRecords} records).`);
-
                 // Verify archive integrity
                 const fileBuf = fs_1.default.readFileSync(finalFilePath);
                 const manifest = await TenantBackupService.inspectBackupManifest(fileBuf);
@@ -131,12 +126,10 @@ async function startBackupJob(client, config) {
                     throw new Error("Backup integrity verification failed: empty manifest.");
                 }
                 logMessage(`Archive verified: format=${manifest.format}, scope=${manifest.scope}, tables=${manifest.tables.length}, total_records=${manifest.totalRecords}.`);
-
                 if (status.isCloudEnabled) {
                     updateSyncSuccess(outletCode);
                     logMessage("Cloud sync recorded successfully.");
                 }
-
                 cleanOldLocalBackups(BACKUP_DIR, 500);
                 logMessage("Hourly backup job execution finished.");
             }

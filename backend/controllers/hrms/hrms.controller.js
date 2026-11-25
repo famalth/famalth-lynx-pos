@@ -36,22 +36,30 @@ exports.getSalaryComponents = async (req, res) => {
             },
             order: [['id', 'ASC']]
         });
-        return res.json({ success: true, data });
+        const seenComp = new Set();
+        const unique = data.filter((item) => {
+            const k = (item.name || '').toLowerCase().trim();
+            if (!k || seenComp.has(k))
+                return false;
+            seenComp.add(k);
+            return true;
+        });
+        return res.json({ success: true, data: unique });
     }
     catch (err) {
         return res.status(500).json({ success: false, message: err.message });
     }
 };
 exports.createSalaryComponent = async (req, res) => {
-  try {
-    const { hr_salary_components } = req.propertyDb.models;
-    const office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
-    const data = await hr_salary_components.create({
-      ...req.body,
-      office_id,
-      outlet_id: req.user.outlet_id,
-      created_by: req.user.id
-    });
+    try {
+        const { hr_salary_components } = req.propertyDb.models;
+        const office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
+        const data = await hr_salary_components.create({
+            ...req.body,
+            office_id,
+            outlet_id: req.user.outlet_id,
+            created_by: req.user.id
+        });
         return res.json({ success: true, data });
     }
     catch (err) {
@@ -74,50 +82,58 @@ exports.updateSalaryComponent = async (req, res) => {
     }
 };
 exports.getPayStructures = async (req, res) => {
-  try {
-    const { hr_pay_structures, hr_salary_components, hr_offices } = req.propertyDb.models;
-    const { office_id } = req.query;
-    const outlet_id = req.user ? req.user.outlet_id : (req.outlet_id || 1);
-    const where = {
-      [Op.or]: [
-        { outlet_id },
-        { outlet_id: 1 },
-        { outlet_id: null }
-      ]
-    };
-    if (office_id && office_id !== 'all' && office_id !== '0') {
-      where[Op.and] = [{ office_id: { [Op.or]: [office_id, null] } }];
-    }
-    const data = await hr_pay_structures.findAll({
-      where,
-      include: [
-        {
-          model: hr_salary_components,
-          as: 'components',
-          required: false,
-          through: { attributes: [] }
-        },
-        ...(hr_offices ? [{ model: hr_offices, as: 'office', required: false, attributes: ['id', 'office_code', 'office_name'] }] : [])
-      ],
-      order: [['id', 'ASC']]
-    });
-    return res.json({ success: true, data });
+    try {
+        const { hr_pay_structures, hr_salary_components, hr_offices } = req.propertyDb.models;
+        const { office_id } = req.query;
+        const outlet_id = req.user ? req.user.outlet_id : (req.outlet_id || 1);
+        const where = {
+            [Op.or]: [
+                { outlet_id },
+                { outlet_id: 1 },
+                { outlet_id: null }
+            ]
+        };
+        if (office_id && office_id !== 'all' && office_id !== '0') {
+            where[Op.and] = [{ office_id: { [Op.or]: [office_id, null] } }];
+        }
+        const data = await hr_pay_structures.findAll({
+            where,
+            include: [
+                {
+                    model: hr_salary_components,
+                    as: 'components',
+                    required: false,
+                    through: { attributes: [] }
+                },
+                ...(hr_offices ? [{ model: hr_offices, as: 'office', required: false, attributes: ['id', 'office_code', 'office_name'] }] : [])
+            ],
+            order: [['id', 'ASC']]
+        });
+        const seenComp = new Set();
+        const unique = data.filter((item) => {
+            const k = (item.name || '').toLowerCase().trim();
+            if (!k || seenComp.has(k))
+                return false;
+            seenComp.add(k);
+            return true;
+        });
+        return res.json({ success: true, data: unique });
     }
     catch (err) {
         return res.status(500).json({ success: false, message: err.message });
     }
 };
 exports.createPayStructure = async (req, res) => {
-  try {
-    const { hr_pay_structures, hr_pay_structure_components } = req.propertyDb.models;
-    const { name, description, is_active, componentIds, office_id } = req.body;
-    const structure = await hr_pay_structures.create({
-      name,
-      description: description || null,
-      is_active: is_active !== false,
-      office_id: office_id && office_id !== 'all' && office_id !== '0' ? parseInt(office_id) : null,
-      outlet_id: req.user.outlet_id
-    });
+    try {
+        const { hr_pay_structures, hr_pay_structure_components } = req.propertyDb.models;
+        const { name, description, is_active, componentIds, office_id } = req.body;
+        const structure = await hr_pay_structures.create({
+            name,
+            description: description || null,
+            is_active: is_active !== false,
+            office_id: office_id && office_id !== 'all' && office_id !== '0' ? parseInt(office_id) : null,
+            outlet_id: req.user.outlet_id
+        });
         // Attach any pre-selected component IDs
         if (Array.isArray(componentIds) && componentIds.length > 0) {
             await hr_pay_structure_components.bulkCreate(componentIds.map(cId => ({ pay_structure_id: structure.id, salary_component_id: cId })));
@@ -143,22 +159,30 @@ exports.getLeaveTypes = async (req, res) => {
             },
             order: [['id', 'ASC']]
         });
-        return res.json({ success: true, data });
+        const seenComp = new Set();
+        const unique = data.filter((item) => {
+            const k = (item.name || '').toLowerCase().trim();
+            if (!k || seenComp.has(k))
+                return false;
+            seenComp.add(k);
+            return true;
+        });
+        return res.json({ success: true, data: unique });
     }
     catch (err) {
         return res.status(500).json({ success: false, message: err.message });
     }
 };
 exports.createLeaveType = async (req, res) => {
-  try {
-    const { hr_leave_types } = req.propertyDb.models;
-    const office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
-    const data = await hr_leave_types.create({
-      ...req.body,
-      office_id,
-      outlet_id: req.user.outlet_id,
-      created_by: req.user.id
-    });
+    try {
+        const { hr_leave_types } = req.propertyDb.models;
+        const office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
+        const data = await hr_leave_types.create({
+            ...req.body,
+            office_id,
+            outlet_id: req.user.outlet_id,
+            created_by: req.user.id
+        });
         return res.json({ success: true, data });
     }
     catch (err) {
@@ -179,25 +203,33 @@ exports.getShifts = async (req, res) => {
             },
             order: [['id', 'ASC']]
         });
-        return res.json({ success: true, data });
+        const seenComp = new Set();
+        const unique = data.filter((item) => {
+            const k = (item.name || '').toLowerCase().trim();
+            if (!k || seenComp.has(k))
+                return false;
+            seenComp.add(k);
+            return true;
+        });
+        return res.json({ success: true, data: unique });
     }
     catch (err) {
         return res.status(500).json({ success: false, message: err.message });
     }
 };
 exports.createShift = async (req, res) => {
-  try {
-    const { hr_shifts } = req.propertyDb.models;
-    const office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
-    const data = await hr_shifts.create({
-      name: req.body.name,
-      start_time: req.body.start_time,
-      end_time: req.body.end_time,
-      grace_period_mins: req.body.grace_period_mins ?? 15,
-      weekly_offs: req.body.weekly_offs ?? ["Sunday"],
-      office_id,
-      outlet_id: req.user.outlet_id
-    });
+    try {
+        const { hr_shifts } = req.propertyDb.models;
+        const office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
+        const data = await hr_shifts.create({
+            name: req.body.name,
+            start_time: req.body.start_time,
+            end_time: req.body.end_time,
+            grace_period_mins: req.body.grace_period_mins ?? 15,
+            weekly_offs: req.body.weekly_offs ?? ["Sunday"],
+            office_id,
+            outlet_id: req.user.outlet_id
+        });
         return res.json({ success: true, data: data.toJSON() });
     }
     catch (err) {
@@ -218,21 +250,29 @@ exports.getDesignations = async (req, res) => {
             },
             order: [['id', 'ASC']]
         });
-        return res.json({ success: true, data });
+        const seenComp = new Set();
+        const unique = data.filter((item) => {
+            const k = (item.name || '').toLowerCase().trim();
+            if (!k || seenComp.has(k))
+                return false;
+            seenComp.add(k);
+            return true;
+        });
+        return res.json({ success: true, data: unique });
     }
     catch (err) {
         return res.status(500).json({ success: false, message: err.message });
     }
 };
 exports.createDesignation = async (req, res) => {
-  try {
-    const { hr_designations } = req.propertyDb.models;
-    const office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
-    const data = await hr_designations.create({
-      name: req.body.name,
-      office_id,
-      outlet_id: req.user.outlet_id
-    });
+    try {
+        const { hr_designations } = req.propertyDb.models;
+        const office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
+        const data = await hr_designations.create({
+            name: req.body.name,
+            office_id,
+            outlet_id: req.user.outlet_id
+        });
         return res.json({ success: true, data: data.toJSON() });
     }
     catch (err) {
@@ -262,7 +302,15 @@ exports.getEmployees = async (req, res) => {
             ],
             order: [['id', 'ASC']]
         });
-        return res.json({ success: true, data });
+        const seenComp = new Set();
+        const unique = data.filter((item) => {
+            const k = (item.name || '').toLowerCase().trim();
+            if (!k || seenComp.has(k))
+                return false;
+            seenComp.add(k);
+            return true;
+        });
+        return res.json({ success: true, data: unique });
     }
     catch (err) {
         return res.status(500).json({ success: false, message: err.message });
@@ -373,12 +421,91 @@ exports.createEmployee = async (req, res) => {
         if (existing) {
             return res.status(400).json({ success: false, message: `Employee code '${empCode}' is already in use by another employee.` });
         }
+        // Validate unique contact_email if provided
+        const contactEmail = (employeeData.contact_email || '').toString().trim();
+        if (contactEmail) {
+            const existingEmail = await hr_employees.findOne({
+                where: {
+                    contact_email: { [Op.iLike]: contactEmail },
+                    outlet_id: req.user.outlet_id,
+                    status: { [Op.ne]: 'Terminated' }
+                }
+            });
+            if (existingEmail) {
+                return res.status(400).json({
+                    success: false,
+                    message: `The email '${contactEmail}' is already assigned to employee '${existingEmail.full_name}' (${existingEmail.employee_code}). Each employee must have a unique email address, or sign in using their unique Employee Code.`
+                });
+            }
+        }
+        // Resolve Office (Mandatory)
+        const { hr_offices } = req.propertyDb.models;
+        let officeId = employeeData.office_id ? parseInt(employeeData.office_id) : null;
+        if (!officeId) {
+            const defOffice = await hr_offices.findOne({
+                where: { outlet_id: req.user.outlet_id, is_active: true },
+                order: [['id', 'ASC']]
+            });
+            if (defOffice)
+                officeId = defOffice.id;
+        }
+        if (!officeId) {
+            return res.status(400).json({ success: false, message: 'Office selection is mandatory. Please select an Office/Branch.' });
+        }
+        // Hash Initial Password
+        const bcryptModule = require('bcryptjs');
+        const rawPass = String(employeeData.initial_password || employeeData.password || '123456').trim();
+        const passHash = await bcryptModule.hash(rawPass, 10);
+        delete employeeData.initial_password;
+        delete employeeData.password;
         const employee = await hr_employees.create({
             ...employeeData,
             employee_code: empCode,
+            office_id: officeId,
+            password_hash: passHash,
             outlet_id: req.user.outlet_id,
             created_by: req.user.id
         });
+        // Send Welcome Email if contact_email is available
+        if (employee.contact_email && employee.contact_email.trim() !== '') {
+            try {
+                const { sendMail } = require('../../services/email.service');
+                const assignedOffice = await hr_offices.findByPk(officeId);
+                const welcomeHtml = `
+          <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 22px; border: 1px solid #E2E8F0; border-radius: 12px; background: #ffffff;">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <h2 style="color: #1E3A8A; margin: 0;">Welcome to the Team!</h2>
+              <p style="color: #16A34A; font-weight: bold; margin-top: 4px;">Employee App Login Credentials</p>
+            </div>
+            <div style="background: #F8FAFC; border-radius: 8px; padding: 18px; border: 1px solid #E2E8F0;">
+              <p style="margin: 0 0 10px 0; color: #1E293B; font-size: 15px;">Hello <strong>${employee.full_name}</strong>,</p>
+              <p style="margin: 0 0 14px 0; color: #475569; font-size: 14px; line-height: 1.5;">
+                Your employee profile has been created. Use the following credentials to sign in to the Employee Mobile App:
+              </p>
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 6px 0; color: #64748B; font-size: 13px;">Employee Code:</td><td style="padding: 6px 0; font-weight: bold; color: #1E293B;">${empCode}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748B; font-size: 13px;">Registered Email:</td><td style="padding: 6px 0; font-weight: bold; color: #1E293B;">${employee.contact_email}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748B; font-size: 13px;">Assigned Office:</td><td style="padding: 6px 0; font-weight: bold; color: #1E293B;">${assignedOffice ? assignedOffice.office_name : 'Head Office'}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748B; font-size: 13px;">Initial Password:</td><td style="padding: 6px 0; font-weight: bold; color: #2563EB; font-family: monospace; font-size: 15px;">${rawPass}</td></tr>
+              </table>
+              <p style="margin: 14px 0 0 0; color: #64748B; font-size: 12px; line-height: 1.4;">
+                💡 You can mark your daily geotagged GPS check-in/out and change your password anytime in the app using OTP verification.
+              </p>
+            </div>
+          </div>
+        `;
+                sendMail({
+                    db: req.propertyDb,
+                    outlet_id: req.user.outlet_id,
+                    to: employee.contact_email,
+                    subject: `🎉 Your Employee Login Credentials - ${empCode}`,
+                    html: welcomeHtml
+                }).catch(mailErr => console.warn('[WELCOME EMAIL NOTICE]', mailErr.message));
+            }
+            catch (emailErr) {
+                console.warn('[WELCOME EMAIL ERROR]', emailErr.message);
+            }
+        }
         const leaveTypes = await hr_leave_types.findAll({
             where: { is_active: true, outlet_id: req.user.outlet_id }
         });
@@ -423,6 +550,30 @@ exports.updateEmployee = async (req, res) => {
                 return res.status(400).json({ success: false, message: `Employee code '${employeeData.employee_code}' is already in use by another employee.` });
             }
         }
+        if (employeeData.contact_email && String(employeeData.contact_email).trim() !== '') {
+            const emailTrim = String(employeeData.contact_email).trim();
+            const existingEmail = await hr_employees.findOne({
+                where: {
+                    contact_email: { [Op.iLike]: emailTrim },
+                    outlet_id: req.user.outlet_id,
+                    id: { [Op.ne]: req.params.id },
+                    status: { [Op.ne]: 'Terminated' }
+                }
+            });
+            if (existingEmail) {
+                return res.status(400).json({
+                    success: false,
+                    message: `The email '${emailTrim}' is already assigned to employee '${existingEmail.full_name}' (${existingEmail.employee_code}). Each employee must have a unique email address, or sign in using their unique Employee Code.`
+                });
+            }
+        }
+        if (employeeData.password && String(employeeData.password).trim() !== '') {
+            const bcryptModule = require('bcryptjs');
+            employeeData.password_hash = await bcryptModule.hash(String(employeeData.password).trim(), 10);
+            delete employeeData.password;
+        }
+        if (employeeData.initial_password)
+            delete employeeData.initial_password;
         const [updated] = await hr_employees.update(employeeData, {
             where: { id: req.params.id, outlet_id: req.user.outlet_id }
         });
@@ -462,18 +613,26 @@ exports.updateEmployee = async (req, res) => {
 };
 exports.terminateEmployee = async (req, res) => {
     try {
-        const { hr_employees } = req.propertyDb.models;
+        const { hr_employees, hr_attendance_punches } = req.propertyDb.models;
         const { terminated_date, termination_reason } = req.body;
+        const termDate = terminated_date || moment().format('YYYY-MM-DD');
         const [updated] = await hr_employees.update({
             status: 'Terminated',
-            terminated_date,
-            termination_reason
+            terminated_date: termDate,
+            termination_reason: termination_reason || 'Employment Terminated'
         }, {
             where: { id: req.params.id, outlet_id: req.user.outlet_id }
         });
         if (!updated)
             return res.status(404).json({ success: false, message: 'Not found' });
-        return res.json({ success: true, message: 'Employee terminated' });
+        // Clean up any attendance punches on or after termination date
+        await hr_attendance_punches.destroy({
+            where: {
+                employee_id: req.params.id,
+                punch_date: { [Op.gte]: termDate }
+            }
+        });
+        return res.json({ success: true, message: 'Employee terminated and subsequent attendance records cleared.' });
     }
     catch (err) {
         return res.status(500).json({ success: false, message: err.message });
@@ -484,10 +643,12 @@ exports.unbindEmployeeDevice = async (req, res) => {
         const { hr_employees } = req.propertyDb.models;
         const { id } = req.params;
         const emp = await hr_employees.findByPk(id);
-        if (!emp) return res.status(404).json({ success: false, message: 'Employee not found' });
+        if (!emp)
+            return res.status(404).json({ success: false, message: 'Employee not found' });
         await emp.update({ bound_device_id: null, bound_device_info: null });
         return res.json({ success: true, message: `Device binding for ${emp.full_name} has been reset successfully. Staff may now bind a new phone.` });
-    } catch (err) {
+    }
+    catch (err) {
         return res.status(500).json({ success: false, message: err.message });
     }
 };
@@ -499,7 +660,6 @@ async function recalculateLeaveBalances(employeeId, outletId, propertyDb) {
         const leaveTypes = await hr_leave_types.findAll({
             where: { is_active: true, outlet_id: outletId }
         });
-
         const startOfYear = `${currentYear}-01-01`;
         const endOfYear = `${currentYear}-12-31`;
         const allPunches = hr_attendance_punches ? await hr_attendance_punches.findAll({
@@ -509,13 +669,12 @@ async function recalculateLeaveBalances(employeeId, outletId, propertyDb) {
                 outlet_id: outletId
             }
         }) : [];
-
         const punchByDate = {};
         allPunches.forEach(p => {
             const dateStr = p.punch_date ? moment(p.punch_date).format('YYYY-MM-DD') : null;
-            if (dateStr) punchByDate[dateStr] = p;
+            if (dateStr)
+                punchByDate[dateStr] = p;
         });
-
         for (const lt of leaveTypes) {
             const [bal] = await hr_leave_balances.findOrCreate({
                 where: {
@@ -530,10 +689,8 @@ async function recalculateLeaveBalances(employeeId, outletId, propertyDb) {
                     created_by: null
                 }
             });
-
             const fullLeaveDates = new Set();
             const halfLeaveDates = new Set();
-
             if (hr_leave_applications) {
                 const apps = await hr_leave_applications.findAll({
                     where: {
@@ -543,7 +700,6 @@ async function recalculateLeaveBalances(employeeId, outletId, propertyDb) {
                         outlet_id: outletId
                     }
                 });
-
                 for (const app of apps) {
                     const start = moment(app.start_date);
                     const end = moment(app.end_date);
@@ -555,24 +711,24 @@ async function recalculateLeaveBalances(employeeId, outletId, propertyDb) {
                         }
                         if (p && p.status === 'Half Day') {
                             halfLeaveDates.add(dStr);
-                        } else {
+                        }
+                        else {
                             fullLeaveDates.add(dStr);
                         }
                     }
                 }
             }
-
             allPunches.forEach(p => {
                 if (p.leave_type_id === lt.id && p.status === 'Leave' && !p.punch_in) {
                     const dStr = moment(p.punch_date).format('YYYY-MM-DD');
                     if (p.hours_worked > 0 && p.hours_worked <= 4) {
                         halfLeaveDates.add(dStr);
-                    } else {
+                    }
+                    else {
                         fullLeaveDates.add(dStr);
                     }
                 }
             });
-
             const totalUsed = fullLeaveDates.size + (halfLeaveDates.size * 0.5);
             bal.used_quota = totalUsed;
             await bal.save();
@@ -586,7 +742,7 @@ exports.recalculateLeaveBalances = recalculateLeaveBalances;
 exports.getAttendance = async (req, res) => {
     try {
         const { hr_attendance_punches, hr_employees, hr_offices } = req.propertyDb.models;
-        const { employee_id, month, office_id, punch_date } = req.query; // month format YYYY-MM
+        const { employee_id, month, office_id, punch_date, date, include_terminated } = req.query; // month format YYYY-MM
         const where = { outlet_id: req.user.outlet_id };
         if (employee_id)
             where.employee_id = employee_id;
@@ -596,17 +752,28 @@ exports.getAttendance = async (req, res) => {
                 { '$employee.office_id$': office_id }
             ];
         }
-        if (punch_date)
-            where.punch_date = punch_date;
+        const targetDate = punch_date || date;
+        if (targetDate)
+            where.punch_date = targetDate;
         if (month) {
             const startDate = moment(month, 'YYYY-MM').startOf('month').format('YYYY-MM-DD');
             const endDate = moment(month, 'YYYY-MM').endOf('month').format('YYYY-MM-DD');
             where.punch_date = { [Op.between]: [startDate, endDate] };
         }
+        const empWhere = {};
+        if (include_terminated !== 'true') {
+            empWhere.status = { [Op.ne]: 'Terminated' };
+        }
         const data = await hr_attendance_punches.findAll({
             where,
             include: [
-                { model: hr_employees, as: 'employee', required: false, attributes: ['id', 'employee_code', 'full_name', 'contact_email', 'mobile', 'office_id'] },
+                {
+                    model: hr_employees,
+                    as: 'employee',
+                    required: true,
+                    where: empWhere,
+                    attributes: ['id', 'employee_code', 'full_name', 'contact_email', 'mobile', 'office_id', 'status', 'terminated_date']
+                },
                 { model: hr_offices, as: 'office', required: false, attributes: ['id', 'office_code', 'office_name', 'radius_meters', 'latitude', 'longitude'] }
             ],
             order: [['punch_date', 'DESC'], ['id', 'DESC']]
@@ -640,6 +807,11 @@ exports.punchIn = async (req, res) => {
         }
         const today = moment().format('YYYY-MM-DD');
         const now = moment().toDate();
+        const empRecord = await hr_employees.findByPk(employee_id);
+        if (!empRecord || empRecord.status === 'Terminated' || (empRecord.terminated_date && today >= empRecord.terminated_date)) {
+            return res.status(400).json({ success: false, message: 'Cannot mark attendance: employee is terminated or inactive.' });
+        }
+        const resolvedOfficeId = req.body.office_id || empRecord?.office_id || null;
         const [punch, created] = await hr_attendance_punches.findOrCreate({
             where: { employee_id, punch_date: today, outlet_id: req.user.outlet_id },
             defaults: {
@@ -647,7 +819,8 @@ exports.punchIn = async (req, res) => {
                 punch_source: 'System',
                 status: 'Present',
                 outlet_id: req.user.outlet_id,
-                created_by: req.user.id
+                created_by: req.user.id,
+                office_id: resolvedOfficeId
             }
         });
         if (!created) {
@@ -690,10 +863,20 @@ exports.punchOut = async (req, res) => {
             employee_id = emp.id;
         }
         const today = moment().format('YYYY-MM-DD');
+        const yesterday = moment().subtract(1, 'days').format('YYYY-MM-DD');
         const now = moment().toDate();
-        const punch = await hr_attendance_punches.findOne({
+        let punch = await hr_attendance_punches.findOne({
             where: { employee_id, punch_date: today, outlet_id: req.user.outlet_id }
         });
+        // Check overnight open punch from yesterday if no open punch today
+        if (!punch || !punch.punch_in || punch.punch_out) {
+            const yPunch = await hr_attendance_punches.findOne({
+                where: { employee_id, punch_date: yesterday, outlet_id: req.user.outlet_id, punch_out: null }
+            });
+            if (yPunch && yPunch.punch_in) {
+                punch = yPunch;
+            }
+        }
         if (!punch || !punch.punch_in) {
             return res.status(400).json({ success: false, message: 'Must punch in first' });
         }
@@ -703,28 +886,37 @@ exports.punchOut = async (req, res) => {
         const employee = await hr_employees.findByPk(employee_id, {
             include: [{ model: hr_shifts, as: 'shift' }]
         });
+        if (!employee || employee.status === 'Terminated' || (employee.terminated_date && today >= employee.terminated_date)) {
+            return res.status(400).json({ success: false, message: 'Cannot mark punch-out: employee is terminated or inactive.' });
+        }
         punch.punch_out = now;
         const start = moment(punch.punch_in);
         const end = moment(now);
-        const workedMinutes = end.diff(start, 'minutes');
+        let workedMinutes = end.diff(start, 'minutes');
+        if (workedMinutes < 0)
+            workedMinutes += 24 * 60;
         punch.hours_worked = parseFloat((workedMinutes / 60).toFixed(2));
         if (employee && employee.shift) {
             const shift = employee.shift;
-            const shiftStartStr = `${today} ${shift.start_time}`;
+            const shiftStartStr = `${punch.punch_date} ${shift.start_time}`;
             const shiftStart = moment(shiftStartStr, 'YYYY-MM-DD HH:mm:ss');
-            const shiftEndStr = `${today} ${shift.end_time}`;
+            const shiftEndStr = `${punch.punch_date} ${shift.end_time}`;
             const shiftEnd = moment(shiftEndStr, 'YYYY-MM-DD HH:mm:ss');
             let shiftDurationMins = shiftEnd.diff(shiftStart, 'minutes');
             if (shiftDurationMins < 0)
                 shiftDurationMins += 24 * 60;
             const shiftDurationHours = shiftDurationMins / 60;
+            // If punch-in is within 5 hours of shift start, calculate lateness;
+            // otherwise, employee worked cross-shift (e.g. night-shift employee working daytime), so lateness = 0
+            const startDiffMins = Math.abs(start.diff(shiftStart, 'minutes'));
             const graceLimit = shiftStart.clone().add(shift.grace_period_mins || 0, 'minutes');
-            if (start.isAfter(graceLimit)) {
+            if (startDiffMins <= 300 && start.isAfter(graceLimit)) {
                 punch.lateness_mins = start.diff(shiftStart, 'minutes');
             }
             else {
                 punch.lateness_mins = 0;
             }
+            // Calculate overtime: any hours worked beyond shift duration count as overtime
             if (punch.hours_worked > shiftDurationHours) {
                 punch.overtime_hours = parseFloat((punch.hours_worked - shiftDurationHours).toFixed(2));
             }
@@ -734,7 +926,7 @@ exports.punchOut = async (req, res) => {
             if (punch.hours_worked < shiftDurationHours / 2) {
                 punch.status = 'Absent';
             }
-            else if (punch.hours_worked < shiftDurationHours) {
+            else if (punch.hours_worked < (shiftDurationHours - 1.0)) {
                 punch.status = 'Half-Day';
             }
             else {
@@ -766,9 +958,13 @@ exports.manualAttendance = async (req, res) => {
             return res.status(400).json({ success: false, message: `Attendance editing is locked. Payroll for ${latestLockedRun.pay_period} (or a later month) has already been approved and paid!` });
         }
         let resolvedOfficeId = office_id;
-        if (!resolvedOfficeId && employee_id) {
+        if (employee_id) {
             const emp = await hr_employees.findByPk(employee_id);
-            resolvedOfficeId = emp?.office_id || null;
+            if (!emp || emp.status === 'Terminated' || (emp.terminated_date && punch_date >= emp.terminated_date)) {
+                return res.status(400).json({ success: false, message: 'Cannot edit or record attendance: employee is terminated or inactive.' });
+            }
+            if (!resolvedOfficeId)
+                resolvedOfficeId = emp?.office_id || null;
         }
         let computedHours = 0;
         if (hours_worked !== undefined && hours_worked !== null) {
@@ -776,7 +972,8 @@ exports.manualAttendance = async (req, res) => {
         }
         else if (punch_in && punch_out) {
             let diffMins = moment(punch_out).diff(moment(punch_in), 'minutes');
-            if (diffMins < 0) diffMins += 1440;
+            if (diffMins < 0)
+                diffMins += 1440; // Crosses midnight
             computedHours = parseFloat((diffMins / 60).toFixed(2));
         }
         let finalPunchOut = punch_out || null;
@@ -836,10 +1033,10 @@ exports.getLeaves = async (req, res) => {
     try {
         const { hr_leave_applications, hr_employees, hr_leave_types, hr_offices } = req.propertyDb.models;
         const { employee_id, status, office_id } = req.query;
-        const where = {};
-        if (req.user && req.user.outlet_id && req.user.role !== 'Admin' && req.user.role !== 'Superadmin') {
-            where[Op.or] = [{ outlet_id: req.user.outlet_id }, { outlet_id: null }, { outlet_id: 0 }];
-        }
+        const outletWhere = (req.user && req.user.outlet_id && req.user.role !== 'Admin' && req.user.role !== 'Superadmin')
+            ? { [Op.or]: [{ outlet_id: req.user.outlet_id }, { outlet_id: null }, { outlet_id: 0 }] }
+            : {};
+        const where = { ...outletWhere };
         if (employee_id)
             where.employee_id = employee_id;
         if (status)
@@ -960,7 +1157,8 @@ exports.approveLeave = async (req, res) => {
                     punch.punch_source = 'Leave';
                     punch.updated_by = req.user?.id || 1;
                     punch.leave_type_id = app.leave_type_id;
-                    if (!punch.office_id && officeId) punch.office_id = officeId;
+                    if (!punch.office_id && officeId)
+                        punch.office_id = officeId;
                     await punch.save();
                 }
             }
@@ -1007,7 +1205,8 @@ exports.getLoans = async (req, res) => {
         const where = {};
         if (req.user && req.user.outlet_id && req.user.role !== 'Admin' && req.user.role !== 'Superadmin') {
             where[Op.or] = [{ outlet_id: req.user.outlet_id }, { outlet_id: null }, { outlet_id: 0 }];
-        } else if (req.query.outlet_id) {
+        }
+        else if (req.query.outlet_id) {
             where.outlet_id = req.query.outlet_id;
         }
         if (employee_id)
@@ -1032,54 +1231,59 @@ exports.createLoan = async (req, res) => {
     const transaction = await req.propertyDb.transaction();
     try {
         const { hr_loans, hr_employees, expenses, expense_categories, cash_ledger } = req.propertyDb.models;
-        const { loan_amount, employee_id, payment_method } = req.body;
+        const { loan_amount, employee_id, payment_method, status } = req.body;
+        const initialStatus = status || 'Pending';
         const data = await hr_loans.create({
             ...req.body,
+            status: initialStatus,
             remaining_balance: loan_amount,
             outlet_id: req.user.outlet_id,
             created_by: req.user.id
         }, { transaction });
-        const emp = await hr_employees.findByPk(employee_id, { transaction });
-        const empName = emp ? emp.full_name : 'Employee';
-        const empCode = emp ? emp.employee_code : '';
-        const method = payment_method || 'Cash';
-        // Log Expense
-        let categoryId = null;
-        if (expenses && expense_categories) {
-            const [category] = await expense_categories.findOrCreate({
-                where: { category_name: 'Loans & Advances', outlet_id: req.user.outlet_id },
-                defaults: { category_name: 'Loans & Advances', user_id: req.user.id },
-                transaction
-            });
-            categoryId = category.id;
-            await expenses.create({
-                category_id: categoryId,
-                base_amount: parseFloat(loan_amount),
-                net_payable_amount: parseFloat(loan_amount),
-                payment_date: new Date(),
-                expense_note: `Loan Reference #${data.id} issued to ${empName} (${empCode})`,
-                payment_method: method,
-                status: 'Paid',
-                outlet_id: req.user.outlet_id,
-                created_by: req.user.id
-            }, { transaction });
-        }
-        // Log Cash Ledger
-        if (cash_ledger) {
-            await cash_ledger.create({
-                outlet_id: req.user.outlet_id,
-                txn_date: moment().format('YYYY-MM-DD'),
-                transaction_type: 'EXPENSE',
-                reference_type: 'LOAN',
-                reference_id: data.id.toString(),
-                reference_no: `LOAN-ISSUED-${data.id}`,
-                party_name: empName,
-                payment_method: method,
-                notes: `Loan Reference #${data.id} issued to ${empName} (${empCode})`,
-                amount_out: parseFloat(loan_amount),
-                amount_in: 0,
-                created_by: req.user.id
-            }, { transaction });
+        // Only log expense and cash ledger if created as already approved/paid/active
+        if (initialStatus === 'Approved' || initialStatus === 'Paid' || initialStatus === 'Active') {
+            const emp = await hr_employees.findByPk(employee_id, { transaction });
+            const empName = emp ? emp.full_name : 'Employee';
+            const empCode = emp ? emp.employee_code : '';
+            const method = payment_method || 'Cash';
+            // Log Expense
+            let categoryId = null;
+            if (expenses && expense_categories) {
+                const [category] = await expense_categories.findOrCreate({
+                    where: { category_name: 'Loans & Advances', outlet_id: req.user.outlet_id },
+                    defaults: { category_name: 'Loans & Advances', user_id: req.user.id },
+                    transaction
+                });
+                categoryId = category.id;
+                await expenses.create({
+                    category_id: categoryId,
+                    base_amount: parseFloat(loan_amount),
+                    net_payable_amount: parseFloat(loan_amount),
+                    payment_date: new Date(),
+                    expense_note: `Loan Reference #${data.id} issued to ${empName} (${empCode})`,
+                    payment_method: method,
+                    status: 'Paid',
+                    outlet_id: req.user.outlet_id,
+                    created_by: req.user.id
+                }, { transaction });
+            }
+            // Log Cash Ledger
+            if (cash_ledger) {
+                await cash_ledger.create({
+                    outlet_id: req.user.outlet_id,
+                    txn_date: moment().format('YYYY-MM-DD'),
+                    transaction_type: 'EXPENSE',
+                    reference_type: 'LOAN',
+                    reference_id: data.id.toString(),
+                    reference_no: `LOAN-ISSUED-${data.id}`,
+                    party_name: empName,
+                    payment_method: method,
+                    notes: `Loan Reference #${data.id} issued to ${empName} (${empCode})`,
+                    amount_out: parseFloat(loan_amount),
+                    amount_in: 0,
+                    created_by: req.user.id
+                }, { transaction });
+            }
         }
         await transaction.commit();
         return res.json({ success: true, data });
@@ -1090,17 +1294,70 @@ exports.createLoan = async (req, res) => {
     }
 };
 exports.updateLoanStatus = async (req, res) => {
+    const transaction = await req.propertyDb.transaction();
     try {
-        const { hr_loans } = req.propertyDb.models;
+        const { hr_loans, hr_employees, expenses, expense_categories, cash_ledger } = req.propertyDb.models;
         const { status } = req.body;
-        const [updated] = await hr_loans.update({ status }, {
-            where: { id: req.params.id, outlet_id: req.user.outlet_id }
+        const loan = await hr_loans.findOne({
+            where: { id: req.params.id, outlet_id: req.user.outlet_id },
+            transaction
         });
-        if (!updated)
-            return res.status(404).json({ success: false, message: 'Not found' });
+        if (!loan) {
+            await transaction.rollback();
+            return res.status(404).json({ success: false, message: 'Loan not found' });
+        }
+        const prevStatus = loan.status;
+        loan.status = status;
+        await loan.save({ transaction });
+        // When transitioning to Approved/Paid/Active, disburse and log expense & cash ledger if not already recorded
+        if ((status === 'Approved' || status === 'Paid' || status === 'Active') &&
+            (prevStatus === 'Pending' || prevStatus === 'Pending Approval' || prevStatus === 'Draft')) {
+            const emp = await hr_employees.findByPk(loan.employee_id, { transaction });
+            const empName = emp ? emp.full_name : 'Employee';
+            const empCode = emp ? emp.employee_code : '';
+            const method = loan.payment_method || 'Cash';
+            // Log Expense
+            if (expenses && expense_categories) {
+                const [category] = await expense_categories.findOrCreate({
+                    where: { category_name: 'Loans & Advances', outlet_id: req.user.outlet_id },
+                    defaults: { category_name: 'Loans & Advances', user_id: req.user.id },
+                    transaction
+                });
+                await expenses.create({
+                    category_id: category.id,
+                    base_amount: parseFloat(loan.loan_amount),
+                    net_payable_amount: parseFloat(loan.loan_amount),
+                    payment_date: new Date(),
+                    expense_note: `Loan Reference #${loan.id} disbursed to ${empName} (${empCode})`,
+                    payment_method: method,
+                    status: 'Paid',
+                    outlet_id: req.user.outlet_id,
+                    created_by: req.user.id
+                }, { transaction });
+            }
+            // Log Cash Ledger
+            if (cash_ledger) {
+                await cash_ledger.create({
+                    outlet_id: req.user.outlet_id,
+                    txn_date: moment().format('YYYY-MM-DD'),
+                    transaction_type: 'EXPENSE',
+                    reference_type: 'LOAN',
+                    reference_id: loan.id.toString(),
+                    reference_no: `LOAN-ISSUED-${loan.id}`,
+                    party_name: empName,
+                    payment_method: method,
+                    notes: `Loan Reference #${loan.id} disbursed to ${empName} (${empCode})`,
+                    amount_out: parseFloat(loan.loan_amount),
+                    amount_in: 0,
+                    created_by: req.user.id
+                }, { transaction });
+            }
+        }
+        await transaction.commit();
         return res.json({ success: true, message: 'Status updated' });
     }
     catch (err) {
+        await transaction.rollback();
         return res.status(500).json({ success: false, message: err.message });
     }
 };
@@ -1134,12 +1391,12 @@ exports.previewPayroll = async (req, res) => {
         const holidayDates = holidays.map(h => h.holiday_date);
         const { hr_pay_structures, hr_salary_components } = req.propertyDb.models;
         const { office_id } = req.body || {};
-    const empWhere = { status: 'Active', outlet_id: req.user.outlet_id };
-    if (office_id && office_id !== 'all' && office_id !== '0') {
-      empWhere.office_id = office_id;
-    }
-    const employees = await hr_employees.findAll({
-      where: empWhere,
+        const empWhere = { status: 'Active', outlet_id: req.user.outlet_id };
+        if (office_id && office_id !== 'all' && office_id !== '0') {
+            empWhere.office_id = office_id;
+        }
+        const employees = await hr_employees.findAll({
+            where: empWhere,
             include: [
                 { model: hr_shifts, as: 'shift' },
                 {
@@ -1291,10 +1548,10 @@ exports.previewPayroll = async (req, res) => {
             let divisor = totalDaysInMonth;
             if (calculationMethod === 'Fixed Days') {
                 divisor = fixedWorkingDays || 26;
-            } else if (calculationMethod === 'Working Days') {
+            }
+            else if (calculationMethod === 'Working Days') {
                 divisor = Math.max(1, totalDaysInMonth - weekly_offs_count - holidays_count);
             }
-            // Verified present days + half days + approved paid leaves:
             const salary_days = present + (0.5 * half_day) + on_leave;
             const prorated_salary_days = Math.min(divisor, salary_days);
             const base = parseFloat(emp.base_salary) || 0;
@@ -1333,7 +1590,7 @@ exports.previewPayroll = async (req, res) => {
                         ...loanOutletFilter
                     }
                 });
-                loans.forEach(loan => {
+                loans.forEach((loan) => {
                     const emi = parseFloat(loan.monthly_emi || 0);
                     const bal = parseFloat(loan.remaining_balance || loan.loan_amount || 0);
                     loan_deduction += Math.min(emi > 0 ? emi : bal, bal);
@@ -1358,6 +1615,7 @@ exports.previewPayroll = async (req, res) => {
                 penalties += pendingPenalties.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
             }
             let empBonuses = 0;
+            let empArrears = 0;
             if (hr_arrears && !salaryOverrideZero) {
                 const arrs = await hr_arrears.findAll({
                     where: {
@@ -1367,7 +1625,16 @@ exports.previewPayroll = async (req, res) => {
                         outlet_id: req.user.outlet_id
                     }
                 });
-                empBonuses = arrs.reduce((sum, a) => sum + parseFloat(a.amount || 0), 0);
+                for (const a of arrs) {
+                    const r = (a.reason || '').toLowerCase();
+                    const amt = parseFloat(a.amount || 0);
+                    if (r.includes('arrear')) {
+                        empArrears += amt;
+                    }
+                    else {
+                        empBonuses += amt;
+                    }
+                }
             }
             const hourlyRate = base / divisor / empWorkingHoursPerDay;
             const overtimePay = salaryOverrideZero ? 0 : parseFloat((total_overtime_hours * hourlyRate * (holidayOvertimeMultiplier || 1.5)).toFixed(2));
@@ -1460,6 +1727,12 @@ exports.previewPayroll = async (req, res) => {
             if (penalties > 0) {
                 breakdown['Disciplinary Penalties & Shortages'] = penalties;
             }
+            if (empArrears > 0) {
+                breakdown['Arrear'] = empArrears;
+            }
+            if (empBonuses > 0) {
+                breakdown['Bonus'] = empBonuses;
+            }
             const absent_deduction_amount = salaryOverrideZero ? 0 : ((base / divisor) * absentDays);
             breakdown.attendance_analytics = {
                 total_working_hours,
@@ -1485,7 +1758,7 @@ exports.previewPayroll = async (req, res) => {
             else {
                 gross_earnings = prorated_salary;
             }
-            const gross = gross_earnings + commissions + overtimePay + empBonuses;
+            const gross = gross_earnings + commissions + overtimePay + empBonuses + empArrears;
             const total_deductions = loan_deduction + penalties + extraDeductions + less_hours_debit;
             const net = gross - total_deductions;
             results.push({
@@ -1498,7 +1771,7 @@ exports.previewPayroll = async (req, res) => {
                 unpaid_leave_deduction_amount,
                 salary_days: prorated_salary_days,
                 prorated_salary,
-                commissions, bonuses: empBonuses, arrears: 0,
+                commissions, bonuses: empBonuses, arrears: empArrears,
                 overtime_pay: overtimePay,
                 earned_comp_offs: 0,
                 gross_pay: gross,
@@ -1652,10 +1925,7 @@ exports.runPayroll = async (req, res) => {
             }
             const { hr_penalties } = req.propertyDb.models;
             if (hr_penalties && d.penalty_deduction > 0) {
-                await hr_penalties.update(
-                    { status: 'Deducted', payroll_run_id: run.id },
-                    { where: { employee_id: d.employee_id, status: 'Pending', pay_period: { [Op.lte]: pay_period } } }
-                );
+                await hr_penalties.update({ status: 'Deducted', payroll_run_id: run.id }, { where: { employee_id: d.employee_id, status: 'Pending', pay_period: { [Op.lte]: pay_period } } });
             }
             // Credit Earned Comp-Offs to employee leave balance
             if (d.earned_comp_offs > 0) {
@@ -1691,7 +1961,7 @@ exports.runPayroll = async (req, res) => {
                     await balance.save();
                 }
             }
-            if (d.bonuses > 0 && hr_arrears) {
+            if (((d.bonuses && d.bonuses > 0) || (d.arrears && d.arrears > 0)) && hr_arrears) {
                 await hr_arrears.update({ status: 'Paid' }, { where: { employee_id: d.employee_id, payment_month: { [Op.lte]: pay_period }, status: { [Op.in]: ['Pending', 'Pending Approval', 'Approved'] }, outlet_id: req.user.outlet_id } });
             }
         }
@@ -2015,17 +2285,18 @@ exports.getHandovers = async (req, res) => {
 // ==================== UPDATE & DELETE MASTERS ====================
 // DESIGNATIONS
 exports.updateDesignation = async (req, res) => {
-  try {
-    const { hr_designations } = req.propertyDb.models;
-    const { id } = req.params;
-    const { name, is_active } = req.body;
-    const item = await hr_designations.findOne({ where: { id, outlet_id: req.user.outlet_id } });
-    if (!item) return res.status(404).json({ success: false, message: 'Designation not found' });
-    const payload = { name, is_active: is_active !== false };
-    if ('office_id' in req.body) {
-      payload.office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
-    }
-    await item.update(payload);
+    try {
+        const { hr_designations } = req.propertyDb.models;
+        const { id } = req.params;
+        const { name, is_active } = req.body;
+        const item = await hr_designations.findOne({ where: { id, outlet_id: req.user.outlet_id } });
+        if (!item)
+            return res.status(404).json({ success: false, message: 'Designation not found' });
+        const payload = { name, is_active: is_active !== false };
+        if ('office_id' in req.body) {
+            payload.office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
+        }
+        await item.update(payload);
         return res.json({ success: true, data: item });
     }
     catch (err) {
@@ -2053,17 +2324,18 @@ exports.deleteDesignation = async (req, res) => {
 };
 // SHIFTS
 exports.updateShift = async (req, res) => {
-  try {
-    const { hr_shifts } = req.propertyDb.models;
-    const { id } = req.params;
-    const { name, start_time, end_time, grace_period_mins, weekly_offs, is_active } = req.body;
-    const item = await hr_shifts.findOne({ where: { id, outlet_id: req.user.outlet_id } });
-    if (!item) return res.status(404).json({ success: false, message: 'Shift not found' });
-    const payload = { name, start_time, end_time, grace_period_mins, weekly_offs, is_active: is_active !== false };
-    if ('office_id' in req.body) {
-      payload.office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
-    }
-    await item.update(payload);
+    try {
+        const { hr_shifts } = req.propertyDb.models;
+        const { id } = req.params;
+        const { name, start_time, end_time, grace_period_mins, weekly_offs, is_active } = req.body;
+        const item = await hr_shifts.findOne({ where: { id, outlet_id: req.user.outlet_id } });
+        if (!item)
+            return res.status(404).json({ success: false, message: 'Shift not found' });
+        const payload = { name, start_time, end_time, grace_period_mins, weekly_offs, is_active: is_active !== false };
+        if ('office_id' in req.body) {
+            payload.office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
+        }
+        await item.update(payload);
         return res.json({ success: true, data: item });
     }
     catch (err) {
@@ -2091,17 +2363,18 @@ exports.deleteShift = async (req, res) => {
 };
 // LEAVE TYPES
 exports.updateLeaveType = async (req, res) => {
-  try {
-    const { hr_leave_types } = req.propertyDb.models;
-    const { id } = req.params;
-    const { name, annual_quota, is_paid, is_active } = req.body;
-    const item = await hr_leave_types.findOne({ where: { id, outlet_id: req.user.outlet_id } });
-    if (!item) return res.status(404).json({ success: false, message: 'Leave type not found' });
-    const payload = { name, annual_quota, is_paid, is_active: is_active !== false };
-    if ('office_id' in req.body) {
-      payload.office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
-    }
-    await item.update(payload);
+    try {
+        const { hr_leave_types } = req.propertyDb.models;
+        const { id } = req.params;
+        const { name, annual_quota, is_paid, is_active } = req.body;
+        const item = await hr_leave_types.findOne({ where: { id, outlet_id: req.user.outlet_id } });
+        if (!item)
+            return res.status(404).json({ success: false, message: 'Leave type not found' });
+        const payload = { name, annual_quota, is_paid, is_active: is_active !== false };
+        if ('office_id' in req.body) {
+            payload.office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
+        }
+        await item.update(payload);
         return res.json({ success: true, data: item });
     }
     catch (err) {
@@ -2158,10 +2431,10 @@ exports.updatePayStructure = async (req, res) => {
         if (!item)
             return res.status(404).json({ success: false, message: 'Pay structure not found' });
         const updatePayload = { name, description: description || null, is_active: is_active !== false };
-    if ('office_id' in req.body) {
-      updatePayload.office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
-    }
-    await item.update(updatePayload);
+        if ('office_id' in req.body) {
+            updatePayload.office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
+        }
+        await item.update(updatePayload);
         if (Array.isArray(componentIds)) {
             // Clear old components and bulk insert new ones
             await hr_pay_structure_components.destroy({ where: { pay_structure_id: id } });
@@ -2439,17 +2712,17 @@ exports.createBonusOrArrear = async (req, res) => {
     try {
         const { hr_arrears, hr_employees } = req.propertyDb.models;
         const { employee_id, amount, reason, payment_month, type, payment_mode, payment_method } = req.body;
-        if (!employee_id) return res.status(400).json({ success: false, message: 'Employee is required' });
+        if (!employee_id)
+            return res.status(400).json({ success: false, message: 'Employee is required' });
         const amt = parseFloat(amount || 0);
-        if (isNaN(amt) || amt <= 0) return res.status(400).json({ success: false, message: 'Valid amount is required' });
-
+        if (isNaN(amt) || amt <= 0)
+            return res.status(400).json({ success: false, message: 'Valid amount is required' });
         const emp = await hr_employees.findByPk(employee_id);
-        if (!emp) return res.status(404).json({ success: false, message: 'Employee not found' });
-
+        if (!emp)
+            return res.status(404).json({ success: false, message: 'Employee not found' });
         const month = payment_month || moment().format('YYYY-MM');
         const isInstant = payment_mode === 'Instant';
         const status = isInstant ? 'Paid' : 'Pending Approval';
-
         const arrear = await hr_arrears.create({
             outlet_id: req.user?.outlet_id || emp.outlet_id || 1,
             employee_id: parseInt(employee_id),
@@ -2459,13 +2732,12 @@ exports.createBonusOrArrear = async (req, res) => {
             status,
             created_by: req.user?.id || 1
         });
-
         return res.json({ success: true, data: arrear, message: `${type || 'Arrear/Bonus'} of ₹${amt.toFixed(2)} recorded successfully.` });
-    } catch (err) {
+    }
+    catch (err) {
         return res.status(500).json({ success: false, message: err.message });
     }
 };
-
 exports.bulkBonus = async (req, res) => {
     const transaction = await req.propertyDb.transaction();
     try {
@@ -2621,14 +2893,22 @@ exports.getApprovals = async (req, res) => {
             include: [{ model: hr_employees, as: 'employee', required: false, attributes: ['id', 'full_name', 'employee_code', 'office_id'] }],
             order: [['id', 'DESC']]
         });
-        const bonuses = await hr_arrears.findAll({
+        const pendingArrearsAndBonuses = await hr_arrears.findAll({
             where: { ...outletWhere, status: 'Pending Approval' },
             include: [{ model: hr_employees, as: 'employee', required: false, attributes: ['id', 'full_name', 'employee_code', 'office_id'] }],
             order: [['id', 'DESC']]
         });
+        const bonuses = pendingArrearsAndBonuses.filter((b) => {
+            const r = (b.reason || '').toLowerCase();
+            return !r.includes('arrear');
+        });
+        const arrears = pendingArrearsAndBonuses.filter((b) => {
+            const r = (b.reason || '').toLowerCase();
+            return r.includes('arrear');
+        });
         return res.json({
             success: true,
-            data: { leaves, loans, revisions, bonuses }
+            data: { leaves, loans, revisions, bonuses, arrears }
         });
     }
     catch (err) {
@@ -2720,7 +3000,7 @@ exports.approveBonus = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Bonus not found' });
         // Check if it is an instant payment or a monthly payroll cycle payout
         const isInstant = bon.reason && bon.reason.includes('(Instant)');
-        bon.status = isInstant ? 'Paid' : 'Pending';
+        bon.status = isInstant ? 'Paid' : 'Approved';
         await bon.save();
         if (isInstant) {
             const amount = parseFloat(bon.amount) || 0.0;
@@ -2944,7 +3224,8 @@ exports.autoWeeklyOffs = async (req, res) => {
                             hours_worked: 0.0,
                             overtime_hours: 0.0,
                             lateness_mins: 0,
-                            punch_source: 'System'
+                            punch_source: 'System',
+                            office_id: emp.office_id || null
                         });
                         createdCount++;
                     }
@@ -3132,7 +3413,10 @@ exports.bulkImportAttendance = async (req, res) => {
                     : moment(`${punchDate} ${outStr}`, 'YYYY-MM-DD HH:mm').toDate();
             }
             if (punchInDate && punchOutDate) {
-                const diffMs = punchOutDate.getTime() - punchInDate.getTime();
+                let diffMs = punchOutDate.getTime() - punchInDate.getTime();
+                if (diffMs < 0) {
+                    diffMs += 24 * 60 * 60 * 1000;
+                }
                 hoursWorked = Math.max(0, parseFloat((diffMs / (1000 * 60 * 60)).toFixed(2)));
             }
             let status = row.status || (hoursWorked >= 4.0 ? 'Present' : (hoursWorked > 0 ? 'Half-Day' : 'Present'));
@@ -3145,8 +3429,14 @@ exports.bulkImportAttendance = async (req, res) => {
             if (matchedEmp.shift && matchedEmp.shift.start_time) {
                 const shiftStart = moment(`${punchDate} ${matchedEmp.shift.start_time}`, 'YYYY-MM-DD HH:mm:ss');
                 const inMoment = moment(punchInDate);
-                if (inMoment.isAfter(shiftStart)) {
+                const startDiffMins = Math.abs(inMoment.diff(shiftStart, 'minutes'));
+                // If punch-in is within 5 hours of shift start, calculate lateness;
+                // otherwise, employee worked cross-shift (e.g. night-shift employee working daytime), so lateness = 0
+                if (startDiffMins <= 300 && inMoment.isAfter(shiftStart)) {
                     latenessMins = inMoment.diff(shiftStart, 'minutes');
+                }
+                else {
+                    latenessMins = 0;
                 }
                 if (matchedEmp.shift.end_time) {
                     const shiftEnd = moment(`${punchDate} ${matchedEmp.shift.end_time}`, 'YYYY-MM-DD HH:mm:ss');
@@ -3179,6 +3469,7 @@ exports.bulkImportAttendance = async (req, res) => {
                     status,
                     punch_source: 'Excel_Import',
                     remarks: row.remarks || 'Imported via Excel Attendance',
+                    office_id: matchedEmp.office_id || null,
                     updated_by: req.user.id
                 },
                 transaction
@@ -3438,7 +3729,6 @@ exports.receiveBiometricPushWebhook = async (req, res) => {
         return res.status(500).json({ ret: 0, success: false, message: err.message });
     }
 };
-
 // ==================== PENALTIES & SHORTAGES ====================
 exports.getPenalties = async (req, res) => {
     try {
@@ -3448,37 +3738,38 @@ exports.getPenalties = async (req, res) => {
         if (req.user && req.user.outlet_id && req.user.role !== 'Admin' && req.user.role !== 'Superadmin') {
             where[Op.or] = [{ outlet_id: req.user.outlet_id }, { outlet_id: null }, { outlet_id: 0 }];
         }
-        if (employee_id) where.employee_id = employee_id;
-        if (status) where.status = status;
-        if (pay_period) where.pay_period = pay_period;
-
-        if (!hr_penalties) return res.json({ success: true, data: [] });
-
+        if (employee_id)
+            where.employee_id = employee_id;
+        if (status)
+            where.status = status;
+        if (pay_period)
+            where.pay_period = pay_period;
+        if (!hr_penalties)
+            return res.json({ success: true, data: [] });
         const data = await hr_penalties.findAll({
             where,
             include: [{ model: hr_employees, as: 'employee', required: false, attributes: ['id', 'full_name', 'employee_code', 'office_id'] }],
             order: [['penalty_date', 'DESC'], ['id', 'DESC']]
         });
         return res.json({ success: true, data });
-    } catch (err) {
+    }
+    catch (err) {
         return res.status(500).json({ success: false, message: err.message });
     }
 };
-
 exports.createPenalty = async (req, res) => {
     try {
         const { hr_penalties, hr_employees } = req.propertyDb.models;
         const { employee_id, amount, reason, category, penalty_date, pay_period } = req.body;
-
-        if (!employee_id) return res.status(400).json({ success: false, message: 'Employee is required' });
+        if (!employee_id)
+            return res.status(400).json({ success: false, message: 'Employee is required' });
         const amt = parseFloat(amount || 0);
-        if (isNaN(amt) || amt <= 0) return res.status(400).json({ success: false, message: 'Valid penalty amount is required' });
-
+        if (isNaN(amt) || amt <= 0)
+            return res.status(400).json({ success: false, message: 'Valid penalty amount is required' });
         const emp = await hr_employees.findByPk(employee_id);
         const outletId = req.user?.outlet_id || emp?.outlet_id || 1;
         const pDate = penalty_date || moment().format('YYYY-MM-DD');
         const period = pay_period || moment(pDate).format('YYYY-MM');
-
         const penalty = await hr_penalties.create({
             outlet_id: outletId,
             employee_id: parseInt(employee_id),
@@ -3490,29 +3781,28 @@ exports.createPenalty = async (req, res) => {
             status: 'Pending',
             created_by: req.user?.id || 1
         });
-
         return res.json({ success: true, data: penalty, message: `Penalty of ₹${amt.toFixed(2)} recorded successfully and queued for salary deduction.` });
-    } catch (err) {
+    }
+    catch (err) {
         return res.status(500).json({ success: false, message: err.message });
     }
 };
-
 exports.deletePenalty = async (req, res) => {
     try {
         const { hr_penalties } = req.propertyDb.models;
         const { id } = req.params;
         const penalty = await hr_penalties.findByPk(id);
-        if (!penalty) return res.status(404).json({ success: false, message: 'Penalty not found' });
+        if (!penalty)
+            return res.status(404).json({ success: false, message: 'Penalty not found' });
         await penalty.destroy();
         return res.json({ success: true, message: 'Penalty removed successfully' });
-    } catch (err) {
+    }
+    catch (err) {
         return res.status(500).json({ success: false, message: err.message });
     }
 };
-
 // Export new Office Master, Employee Portal Auth, Geotagged Punch, and Dashboard Overview functions
 const portalCtrl = require('./hrms_office_portal.controller');
 Object.assign(exports, portalCtrl);
-
 module.exports = exports;
 exports.default = exports;
