@@ -4,6 +4,9 @@ import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/api/api_client.dart';
+import '../../core/config/app_config.dart';
+import '../dashboard/server_config_screen.dart';
+import 'driver_app_splash_screen.dart';
 
 class DriverPortalScreen extends StatefulWidget {
   const DriverPortalScreen({super.key});
@@ -142,7 +145,25 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Login Error: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Login Error: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 6),
+            action: SnackBarAction(
+              label: 'Configure Server',
+              textColor: Colors.amberAccent,
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ServerConfigScreen(
+                      nextScreen: DriverAppSplashScreen(),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
         );
       }
     } finally {
@@ -594,6 +615,44 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
   Widget _buildLoginView() {
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        actions: [
+          TextButton.icon(
+            icon: const Icon(Icons.dns_outlined, size: 18, color: Color(0xFF008060)),
+            label: Text(
+              AppConfig.baseUrl.replaceAll('https://', '').replaceAll('http://', ''),
+              style: const TextStyle(fontSize: 12, color: Color(0xFF008060), fontWeight: FontWeight.bold),
+            ),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const ServerConfigScreen(
+                    nextScreen: DriverAppSplashScreen(),
+                  ),
+                ),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.qr_code_scanner_rounded, color: Color(0xFF008060)),
+            tooltip: 'Configure / Scan Server QR',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const ServerConfigScreen(
+                    nextScreen: DriverAppSplashScreen(),
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
@@ -690,7 +749,40 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
                       ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                       : const Text('Sign In as Driver', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 14),
+
+                // Connected Server Display & Shortcut
+                InkWell(
+                  borderRadius: BorderRadius.circular(6),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const ServerConfigScreen(
+                          nextScreen: DriverAppSplashScreen(),
+                        ),
+                      ),
+                    );
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.cloud_outlined, size: 14, color: Colors.grey),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            'Connected to: ${AppConfig.baseUrl} (Tap to change)',
+                            style: const TextStyle(fontSize: 11, color: Colors.grey, decoration: TextDecoration.underline),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
                 Text(
                   'Persistent Session: You will stay logged in on this device until you explicitly log out or the admin deactivates your account.',
                   textAlign: TextAlign.center,
@@ -729,6 +821,20 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.dns_outlined),
+            tooltip: 'Server Settings',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const ServerConfigScreen(
+                    nextScreen: DriverAppSplashScreen(),
+                  ),
+                ),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh Trips',

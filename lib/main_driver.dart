@@ -13,7 +13,7 @@ import 'controllers/transport/transport_controller.dart';
 import 'core/config/app_config.dart';
 import 'core/config/date_time_service.dart';
 import 'main.dart'; // Reuses MyApp and global navigation/snackbar keys
-import 'screens/transport/driver_portal_screen.dart';
+import 'screens/transport/driver_app_splash_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,7 +33,7 @@ void main() async {
         ChangeNotifierProvider(create: (_) => PropertyInfoController()..load()),
         ChangeNotifierProvider(create: (_) => TransportController()),
       ],
-      child: const MyApp(homeWidget: DriverPortalScreen()),
+      child: const MyApp(homeWidget: DriverAppSplashScreen()),
     ),
   );
 }
