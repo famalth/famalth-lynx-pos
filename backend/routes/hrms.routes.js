@@ -9,7 +9,7 @@ const authRaw = require('../middlewares/auth.middleware');
 const auth = typeof authRaw === 'function' ? authRaw : (authRaw.authMiddleware || authRaw.default);
 const propRaw = require('../middlewares/propertyContext.middleware');
 const propertyContext = typeof propRaw === 'function' ? propRaw : (propRaw.propertyContextMiddleware || propRaw.default || ((req, _res, next) => next()));
-const ctrl = require('../controllers/hrms/hrms.controller.ts');
+const ctrl = require('../controllers/hrms/hrms.controller');
 router.use(propertyContext);
 // Public Webhook for Biometric Machines / Devices (Push logs)
 router.post('/biometric-punch', ctrl.receiveBiometricPushWebhook);

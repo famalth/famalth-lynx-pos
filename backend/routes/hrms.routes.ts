@@ -6,7 +6,7 @@ const auth = typeof authRaw === 'function' ? authRaw : (authRaw.authMiddleware |
 const propRaw = require('../middlewares/propertyContext.middleware');
 const propertyContext = typeof propRaw === 'function' ? propRaw : (propRaw.propertyContextMiddleware || propRaw.default || ((req: any, _res: any, next: any) => next()));
 
-const ctrl = require('../controllers/hrms/hrms.controller.ts');
+const ctrl = require('../controllers/hrms/hrms.controller');
 
 router.use(propertyContext);
 
