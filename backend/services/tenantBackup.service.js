@@ -724,24 +724,84 @@ class TenantBackupService {
         }
         return null;
     }
-    static async deleteBackup(filename, outletCode, isSuperAdmin = false) {
+    static async ensureCloudSnapshotTable(activeDb) {
+        if (!activeDb)
+            return;
+        await activeDb.query(`
+      CREATE TABLE IF NOT EXISTS cloud_backup_snapshots (
+        id SERIAL PRIMARY KEY,
+        outlet_id INTEGER NOT NULL DEFAULT 0,
+        outlet_code VARCHAR(64) NOT NULL,
+        filename VARCHAR(255) NOT NULL UNIQUE,
+        scope VARCHAR(20) NOT NULL DEFAULT 'OUTLET',
+        size_bytes INTEGER NOT NULL DEFAULT 0,
+        file_base64 TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `).catch(() => { });
+    }
+    static async readBackupBuffer(activeDb, filename, outletCode, isSuperAdmin = false) {
         const filePath = this.resolveBackupFilePath(filename, outletCode, isSuperAdmin);
-        if (!filePath) {
-            return { success: false, message: 'Backup snapshot not found on disk or permission denied.' };
+        if (filePath && fs_1.default.existsSync(filePath)) {
+            return await promises_1.default.readFile(filePath);
         }
+        // Fallback to PostgreSQL cloud_backup_snapshots (survives Render ephemeral disk resets)
+        if (!activeDb)
+            return null;
+        const sanitized = path_1.default.basename(filename);
+        const isEnterpriseFile = sanitized.includes('enterprise') || sanitized.includes('system_full') || sanitized.includes('_all_');
+        if (isEnterpriseFile && !isSuperAdmin)
+            return null;
+        try {
+            await this.ensureCloudSnapshotTable(activeDb);
+            const whereClause = isSuperAdmin
+                ? `filename = $1`
+                : `filename = $1 AND LOWER(TRIM(outlet_code)) = LOWER(TRIM($2))`;
+            const bind = isSuperAdmin ? [sanitized] : [sanitized, String(outletCode || '').trim()];
+            const rows = await activeDb.query(`SELECT file_base64 FROM cloud_backup_snapshots WHERE ${whereClause} LIMIT 1;`, { bind, type: sequelize_1.QueryTypes.SELECT });
+            if (Array.isArray(rows) && rows.length > 0 && rows[0]?.file_base64) {
+                return Buffer.from(rows[0].file_base64, 'base64');
+            }
+        }
+        catch (_) { }
+        return null;
+    }
+    static async deleteBackup(filename, outletCode, isSuperAdmin = false, activeDb) {
+        const sanitized = path_1.default.basename(filename);
+        const filePath = this.resolveBackupFilePath(filename, outletCode, isSuperAdmin);
         if (!isSuperAdmin && outletCode) {
-            const isAllowed = filePath.includes(path_1.default.join('outlets', outletCode)) || filename.includes(outletCode);
+            const isAllowed = (filePath && filePath.includes(path_1.default.join('outlets', outletCode))) || sanitized.includes(outletCode);
             if (!isAllowed) {
                 return { success: false, message: 'Access denied: You can only delete your own outlet backups.' };
             }
         }
-        try {
-            await promises_1.default.unlink(filePath);
-            return { success: true };
+        let deletedAny = false;
+        if (filePath && fs_1.default.existsSync(filePath)) {
+            try {
+                await promises_1.default.unlink(filePath);
+                deletedAny = true;
+            }
+            catch (err) {
+                return { success: false, message: err.message || 'File deletion failed.' };
+            }
         }
-        catch (err) {
-            return { success: false, message: err.message || 'File deletion failed.' };
+        if (activeDb) {
+            try {
+                await this.ensureCloudSnapshotTable(activeDb);
+                const whereClause = isSuperAdmin
+                    ? `filename = $1`
+                    : `filename = $1 AND LOWER(TRIM(outlet_code)) = LOWER(TRIM($2))`;
+                const bind = isSuperAdmin ? [sanitized] : [sanitized, String(outletCode || '').trim()];
+                const [, meta] = await activeDb.query(`DELETE FROM cloud_backup_snapshots WHERE ${whereClause};`, { bind });
+                if ((meta?.rowCount || 0) > 0)
+                    deletedAny = true;
+            }
+            catch (_) { }
         }
+        if (!deletedAny) {
+            return { success: false, message: 'Backup snapshot not found or permission denied.' };
+        }
+        return { success: true };
     }
     /**
      * 6. Generate Complete Full-System Data Backup
@@ -1065,7 +1125,9 @@ class TenantBackupService {
         let allPublicTables = [];
         try {
             const tableRows = await activeDb.query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name;", { type: sequelize_1.QueryTypes.SELECT });
-            allPublicTables = tableRows.map((r) => r.table_name || r.TABLE_NAME).filter(Boolean);
+            allPublicTables = tableRows
+                .map((r) => r.table_name || r.TABLE_NAME)
+                .filter((t) => Boolean(t) && t !== 'cloud_backup_snapshots');
         }
         catch (_) {
             allPublicTables = [];
@@ -1269,6 +1331,41 @@ class TenantBackupService {
             await promises_1.default.copyFile(filePath, rootPath);
         }
         catch (_) { }
+        // Persist encrypted .fambak snapshot in PostgreSQL (capped at 3 latest per outlet & max 10MB to prevent DB bloat)
+        const MAX_DB_SNAPSHOT_BYTES = 10 * 1024 * 1024;
+        if (securedBuffer.length <= MAX_DB_SNAPSHOT_BYTES) {
+            try {
+                const snapOutletCode = isAll ? 'ALL' : (options.outletCode || `OUT_${options.outletId || 1}`);
+                await TenantBackupService.ensureCloudSnapshotTable(activeDb);
+                await activeDb.query(`INSERT INTO cloud_backup_snapshots (outlet_id, outlet_code, filename, scope, size_bytes, file_base64, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+         ON CONFLICT (filename) DO UPDATE SET
+           size_bytes = EXCLUDED.size_bytes,
+           file_base64 = EXCLUDED.file_base64,
+           created_at = CURRENT_TIMESTAMP;`, {
+                    bind: [
+                        isAll ? 0 : (options.outletId || 1),
+                        snapOutletCode,
+                        filename,
+                        isAll ? 'ALL' : 'OUTLET',
+                        securedBuffer.length,
+                        securedBuffer.toString('base64'),
+                    ],
+                });
+                // Keep only the 3 most recent snapshots per outlet_code in PostgreSQL
+                await activeDb.query(`DELETE FROM cloud_backup_snapshots
+           WHERE LOWER(TRIM(outlet_code)) = LOWER(TRIM($1))
+             AND id NOT IN (
+               SELECT id FROM cloud_backup_snapshots
+               WHERE LOWER(TRIM(outlet_code)) = LOWER(TRIM($1))
+               ORDER BY created_at DESC
+               LIMIT 3
+             );`, { bind: [snapOutletCode] });
+            }
+            catch (dbSnapErr) {
+                console.warn('⚠️ Could not persist .fambak snapshot to PostgreSQL:', dbSnapErr.message);
+            }
+        }
         let driveStatus;
         if (options.saveToDrive) {
             try {
@@ -1814,7 +1911,7 @@ class TenantBackupService {
     /**
      * 13. List Cloud Snapshots & Remote Backups
      */
-    static async listCloudSnapshots(outletCode, isSuperAdmin = false) {
+    static async listCloudSnapshots(outletCode, isSuperAdmin = false, activeDb) {
         const searchRoots = getBackupSearchRoots();
         const allowed = ['.fambak', '.posbak', '.enc', '.zip'];
         const collected = [];
@@ -1855,6 +1952,35 @@ class TenantBackupService {
                     downloadUrl: `/api/backup/download/${encodeURIComponent(f.name)}`,
                 });
             }
+        }
+        // Merge snapshots persisted in PostgreSQL (survives Render ephemeral disk resets)
+        if (activeDb) {
+            try {
+                await this.ensureCloudSnapshotTable(activeDb);
+                const queryAll = isSuperAdmin && (!outletCode || outletCode === 'ALL');
+                const dbRows = queryAll
+                    ? await activeDb.query(`SELECT filename, outlet_code, scope, size_bytes, created_at FROM cloud_backup_snapshots ORDER BY created_at DESC LIMIT 100;`, { type: sequelize_1.QueryTypes.SELECT })
+                    : await activeDb.query(`SELECT filename, outlet_code, scope, size_bytes, created_at FROM cloud_backup_snapshots WHERE LOWER(TRIM(outlet_code)) = LOWER(TRIM($1)) ORDER BY created_at DESC LIMIT 100;`, { bind: [String(outletCode || '').trim()], type: sequelize_1.QueryTypes.SELECT });
+                for (const r of dbRows) {
+                    if (!r?.filename || seenFiles.has(r.filename))
+                        continue;
+                    seenFiles.add(r.filename);
+                    const created = r.created_at ? new Date(r.created_at) : new Date();
+                    const sizeBytes = Number(r.size_bytes || 0);
+                    collected.push({
+                        filename: r.filename,
+                        sizeBytes,
+                        sizePretty: formatBytes(sizeBytes),
+                        createdAt: created.toISOString(),
+                        timeAgo: timeSince(created),
+                        scope: r.scope || 'OUTLET',
+                        outletCode: r.outlet_code || outletCode || 'OUTLET',
+                        storageLocation: 'CLOUD_POSTGRES',
+                        downloadUrl: `/api/backup/download/${encodeURIComponent(r.filename)}`,
+                    });
+                }
+            }
+            catch (_) { }
         }
         return collected.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     }

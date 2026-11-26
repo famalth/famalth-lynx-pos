@@ -153,18 +153,18 @@ class BackupManagementController {
             if (!filename) {
                 return res.status(400).json({ success: false, message: 'Filename required.' });
             }
+            const activeDb = req.propertyDb;
             const userRole = String(req.user?.role || '').toUpperCase();
             const isSuperAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN';
             const outletCode = String(req.outlet_code || req.user?.outlet_code || req.outlet?.outlet_code || req.outlet?.code || '');
-            const filePath = tenantBackup_service_1.default.resolveBackupFilePath(filename, outletCode, isSuperAdmin);
-            if (!filePath || !fs_1.default.existsSync(filePath)) {
+            const fileBuffer = await tenantBackup_service_1.default.readBackupBuffer(activeDb, filename, outletCode, isSuperAdmin);
+            if (!fileBuffer || fileBuffer.length === 0) {
                 return res.status(404).json({ success: false, message: 'Backup file not found or access denied.' });
             }
-            const safeFilename = path_1.default.basename(filePath);
+            const safeFilename = path_1.default.basename(filename);
             res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
             res.setHeader('Content-Type', 'application/octet-stream');
-            const fileStream = fs_1.default.createReadStream(filePath);
-            return fileStream.pipe(res);
+            return res.send(fileBuffer);
         }
         catch (err) {
             console.error('downloadBackup error:', err);
@@ -191,10 +191,7 @@ class BackupManagementController {
                 fileBuffer = Buffer.from(base64, 'base64');
             }
             else if (filename) {
-                const filePath = tenantBackup_service_1.default.resolveBackupFilePath(filename, outletCode, isSuperAdmin);
-                if (filePath && fs_1.default.existsSync(filePath)) {
-                    fileBuffer = await promises_1.default.readFile(filePath);
-                }
+                fileBuffer = await tenantBackup_service_1.default.readBackupBuffer(req.propertyDb, filename, outletCode, isSuperAdmin);
             }
             if (!fileBuffer || fileBuffer.length === 0) {
                 return res.status(400).json({
@@ -230,7 +227,8 @@ class BackupManagementController {
             const isSuperAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN';
             const outletCode = String(req.outlet_code || req.user?.outlet_code || req.outlet?.outlet_code || req.outlet?.code || '');
             BackupManagementController.invalidateStatsCache();
-            const result = await tenantBackup_service_1.default.deleteBackup(filename, outletCode, isSuperAdmin);
+            const activeDb = req.propertyDb;
+            const result = await tenantBackup_service_1.default.deleteBackup(filename, outletCode, isSuperAdmin, activeDb);
             if (!result.success) {
                 return res.status(404).json({ success: false, message: result.message || 'Backup file not found or access denied.' });
             }
@@ -398,10 +396,7 @@ class BackupManagementController {
                 fileBuffer = Buffer.from(base64, 'base64');
             }
             else if (filename) {
-                const filePath = tenantBackup_service_1.default.resolveBackupFilePath(filename, outletCode, isSuperAdmin);
-                if (filePath && fs_1.default.existsSync(filePath)) {
-                    fileBuffer = await promises_1.default.readFile(filePath);
-                }
+                fileBuffer = await tenantBackup_service_1.default.readBackupBuffer(req.propertyDb, filename, outletCode, isSuperAdmin);
             }
             if (!fileBuffer || fileBuffer.length === 0) {
                 return res.status(400).json({
@@ -462,10 +457,7 @@ class BackupManagementController {
                 fileBuffer = Buffer.from(base64, 'base64');
             }
             else if (filename) {
-                const filePath = tenantBackup_service_1.default.resolveBackupFilePath(filename, userOutletCode, isSuperAdmin);
-                if (filePath && fs_1.default.existsSync(filePath)) {
-                    fileBuffer = await promises_1.default.readFile(filePath);
-                }
+                fileBuffer = await tenantBackup_service_1.default.readBackupBuffer(activeDb, filename, userOutletCode, isSuperAdmin);
             }
             if (!fileBuffer || fileBuffer.length === 0) {
                 return res.status(400).json({
@@ -560,7 +552,7 @@ class BackupManagementController {
                 '');
             // On Cloud server or remote client, always force outletCode isolation
             const targetOutlet = (isLocalServerSuperAdmin && requestedScope === 'ALL') ? 'ALL' : outletCode;
-            const snapshots = await tenantBackup_service_1.default.listCloudSnapshots(targetOutlet, isLocalServerSuperAdmin);
+            const snapshots = await tenantBackup_service_1.default.listCloudSnapshots(targetOutlet, isLocalServerSuperAdmin, req.propertyDb);
             return res.json({
                 success: true,
                 data: snapshots,

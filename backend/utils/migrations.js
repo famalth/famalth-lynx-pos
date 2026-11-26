@@ -5669,6 +5669,25 @@ COMMIT;
         ALTER TABLE hr_holidays ADD COLUMN IF NOT EXISTS office_id INTEGER;
       `);
         }
+    },
+    {
+        version: 135,
+        description: 'Add cloud_backup_snapshots table to persist .fambak backups in PostgreSQL across redeploys',
+        up: async (db) => {
+            await db.query(`
+        CREATE TABLE IF NOT EXISTS cloud_backup_snapshots (
+          id SERIAL PRIMARY KEY,
+          outlet_id INTEGER NOT NULL DEFAULT 0,
+          outlet_code VARCHAR(64) NOT NULL,
+          filename VARCHAR(255) NOT NULL UNIQUE,
+          scope VARCHAR(20) NOT NULL DEFAULT 'OUTLET',
+          size_bytes INTEGER NOT NULL DEFAULT 0,
+          file_base64 TEXT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_cloud_backup_snapshots_outlet ON cloud_backup_snapshots(outlet_code, created_at DESC);
+      `);
+        }
     }
 ];
 exports.default = exports.migrations;

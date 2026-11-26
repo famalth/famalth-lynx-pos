@@ -171,21 +171,21 @@ export class BackupManagementController {
         return res.status(400).json({ success: false, message: 'Filename required.' });
       }
 
+      const activeDb = (req as any).propertyDb;
       const userRole = String(req.user?.role || '').toUpperCase();
       const isSuperAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN';
       const outletCode = String((req as any).outlet_code || req.user?.outlet_code || req.outlet?.outlet_code || req.outlet?.code || '');
 
-      const filePath = TenantBackupService.resolveBackupFilePath(filename, outletCode, isSuperAdmin);
-      if (!filePath || !fs.existsSync(filePath)) {
+      const fileBuffer = await TenantBackupService.readBackupBuffer(activeDb, filename, outletCode, isSuperAdmin);
+      if (!fileBuffer || fileBuffer.length === 0) {
         return res.status(404).json({ success: false, message: 'Backup file not found or access denied.' });
       }
 
-      const safeFilename = path.basename(filePath);
+      const safeFilename = path.basename(filename);
       res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
       res.setHeader('Content-Type', 'application/octet-stream');
 
-      const fileStream = fs.createReadStream(filePath);
-      return fileStream.pipe(res);
+      return res.send(fileBuffer);
     } catch (err: any) {
       console.error('downloadBackup error:', err);
       return res.status(500).json({ success: false, message: err.message });
@@ -214,10 +214,7 @@ export class BackupManagementController {
       if (base64) {
         fileBuffer = Buffer.from(base64, 'base64');
       } else if (filename) {
-        const filePath = TenantBackupService.resolveBackupFilePath(filename, outletCode, isSuperAdmin);
-        if (filePath && fs.existsSync(filePath)) {
-          fileBuffer = await fsPromises.readFile(filePath);
-        }
+        fileBuffer = await TenantBackupService.readBackupBuffer((req as any).propertyDb, filename, outletCode, isSuperAdmin);
       }
 
       if (!fileBuffer || fileBuffer.length === 0) {
@@ -262,7 +259,8 @@ export class BackupManagementController {
       const outletCode = String((req as any).outlet_code || req.user?.outlet_code || req.outlet?.outlet_code || req.outlet?.code || '');
 
       BackupManagementController.invalidateStatsCache();
-      const result = await TenantBackupService.deleteBackup(filename, outletCode, isSuperAdmin);
+      const activeDb = (req as any).propertyDb;
+      const result = await TenantBackupService.deleteBackup(filename, outletCode, isSuperAdmin, activeDb);
       if (!result.success) {
         return res.status(404).json({ success: false, message: result.message || 'Backup file not found or access denied.' });
       }
@@ -444,10 +442,7 @@ export class BackupManagementController {
       if (base64) {
         fileBuffer = Buffer.from(base64, 'base64');
       } else if (filename) {
-        const filePath = TenantBackupService.resolveBackupFilePath(filename, outletCode, isSuperAdmin);
-        if (filePath && fs.existsSync(filePath)) {
-          fileBuffer = await fsPromises.readFile(filePath);
-        }
+        fileBuffer = await TenantBackupService.readBackupBuffer((req as any).propertyDb, filename, outletCode, isSuperAdmin);
       }
 
       if (!fileBuffer || fileBuffer.length === 0) {
@@ -524,10 +519,7 @@ export class BackupManagementController {
       if (base64) {
         fileBuffer = Buffer.from(base64, 'base64');
       } else if (filename) {
-        const filePath = TenantBackupService.resolveBackupFilePath(filename, userOutletCode, isSuperAdmin);
-        if (filePath && fs.existsSync(filePath)) {
-          fileBuffer = await fsPromises.readFile(filePath);
-        }
+        fileBuffer = await TenantBackupService.readBackupBuffer(activeDb, filename, userOutletCode, isSuperAdmin);
       }
 
       if (!fileBuffer || fileBuffer.length === 0) {
@@ -635,7 +627,7 @@ export class BackupManagementController {
       // On Cloud server or remote client, always force outletCode isolation
       const targetOutlet = (isLocalServerSuperAdmin && requestedScope === 'ALL') ? 'ALL' : outletCode;
 
-      const snapshots = await TenantBackupService.listCloudSnapshots(targetOutlet, isLocalServerSuperAdmin);
+      const snapshots = await TenantBackupService.listCloudSnapshots(targetOutlet, isLocalServerSuperAdmin, (req as any).propertyDb);
 
       return res.json({
         success: true,
