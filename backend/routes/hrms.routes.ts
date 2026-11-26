@@ -39,6 +39,12 @@ router.post('/offices', ctrl.createOffice);
 router.put('/offices/:id', ctrl.updateOffice);
 router.delete('/offices/:id', ctrl.deleteOffice);
 
+// Departments Master
+router.get('/departments', ctrl.getDepartments);
+router.post('/departments', ctrl.createDepartment);
+router.put('/departments/:id', ctrl.updateDepartment);
+router.delete('/departments/:id', ctrl.deleteDepartment);
+
 // Masters
 router.get('/salary-components', ctrl.getSalaryComponents);
 router.post('/salary-components', ctrl.createSalaryComponent);

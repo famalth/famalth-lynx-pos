@@ -20,6 +20,7 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
   List<Map<String, dynamic>> _salaryComps   = [];
   List<Map<String, dynamic>> _payStructures = [];
   List<Map<String, dynamic>> _offices       = [];
+  List<Map<String, dynamic>> _departments   = [];
   String _selectedOfficeFilter = 'all';
 
   bool _loading = true;
@@ -58,6 +59,7 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
         ApiClient.get(ApiEndpoints.hrmsSalaryComponents),
         ApiClient.get(ApiEndpoints.hrmsPayStructures),
         ApiClient.get(ApiEndpoints.hrmsOffices),
+        ApiClient.get(ApiEndpoints.hrmsDepartments),
       ]);
       setState(() {
         _leaveTypes    = _parseList(results[0]);
@@ -66,6 +68,7 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
         _salaryComps   = _parseList(results[3]);
         _payStructures = _parseList(results[4]);
         _offices       = _parseList(results[5]);
+        _departments   = _parseList(results[6]);
         _loading = false;
       });
     } catch (e) {
@@ -80,8 +83,8 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
       final seen = <String>{};
       final unique = <Map<String, dynamic>>[];
       for (final item in list) {
-        final code = (item['office_code'] ?? item['code'] ?? '').toString().trim().toLowerCase();
-        final name = (item['office_name'] ?? item['name'] ?? item['title'] ?? '').toString().trim().toLowerCase();
+        final code = (item['department_code'] ?? item['office_code'] ?? item['code'] ?? '').toString().trim().toLowerCase();
+        final name = (item['department_name'] ?? item['office_name'] ?? item['name'] ?? item['title'] ?? '').toString().trim().toLowerCase();
         final id = item['id']?.toString() ?? '';
         final key = code.isNotEmpty ? '$code--$name' : (name.isNotEmpty ? name : id);
         if (key.isNotEmpty && seen.contains(key)) continue;
@@ -599,6 +602,7 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
                     children: [
                       _buildOfficeFilterBar(),
                       _buildOffices(),
+                      _buildDepartments(),
                       _buildDesignations(),
                       _buildShifts(),
                       _buildLeaveTypes(),
@@ -1254,6 +1258,204 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
         ),
       ),
     );
+  }
+
+  // ═══ DEPARTMENTS ══════════════════════════════════════
+  Widget _buildDepartments() {
+    final filtered = _selectedOfficeFilter == 'all'
+        ? _departments
+        : _departments.where((d) => d['office_id'] == null || d['office_id']?.toString() == _selectedOfficeFilter).toList();
+    return _sectionCard(
+      title: 'Departments',
+      icon: Icons.corporate_fare_rounded,
+      iconColor: const Color(0xFF7C3AED),
+      iconBg: const Color(0xFFF5F3FF),
+      onAdd: _addDepartment,
+      body: filtered.isEmpty
+          ? _emptyRow('No departments matching filter. Tap Add →')
+          : Column(children: filtered.asMap().entries
+              .map((e) => Column(children: [
+                    _deptTile(e.value),
+                    if (e.key < filtered.length - 1) _rowDivider(),
+                  ]))
+              .toList()),
+    );
+  }
+
+  Widget _deptTile(Map<String, dynamic> d) {
+    final name   = (d['department_name'] ?? d['name'] ?? '').toString();
+    final code   = (d['department_code'] ?? d['code'] ?? '').toString();
+    final active = d['is_active'] != false;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(children: [
+        Container(
+          width: 36, height: 36,
+          decoration: BoxDecoration(
+              color: const Color(0xFF7C3AED).withAlpha(15),
+              borderRadius: BorderRadius.circular(9)),
+          child: const Icon(Icons.apartment_rounded, color: Color(0xFF7C3AED), size: 17),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Row(
+            children: [
+              Flexible(
+                child: Text(code.isNotEmpty ? '$name ($code)' : name,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14, color: _navy)),
+              ),
+              const SizedBox(width: 8),
+              _officeBadge(d['office_id']),
+            ],
+          ),
+        ),
+        _badge(active ? 'Active' : 'Inactive',
+            active ? const Color(0xFFECFDF5) : _grey10,
+            active ? _green : _grey40),
+        const SizedBox(width: 12),
+        IconButton(
+          icon: const Icon(Icons.edit_outlined, size: 18, color: _blue),
+          onPressed: () => _editDepartment(d),
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+        ),
+        const SizedBox(width: 10),
+        IconButton(
+          icon: const Icon(Icons.delete_outline, size: 18, color: _red),
+          onPressed: () => _deleteMaster(ApiEndpoints.hrmsDepartments, d['id'] as int, 'Department'),
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+        ),
+      ]),
+    );
+  }
+
+  Future<void> _addDepartment() async {
+    final nameCtrl = TextEditingController();
+    final codeCtrl = TextEditingController();
+    final descCtrl = TextEditingController();
+    String? selectedOfficeId = _selectedOfficeFilter == 'all' ? null : _selectedOfficeFilter;
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => _CompactDialogWidget(
+          title: 'Add Department',
+          icon: Icons.corporate_fare_rounded,
+          iconColor: const Color(0xFF7C3AED),
+          iconBg: const Color(0xFFF5F3FF),
+          body: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                autofocus: true,
+                style: const TextStyle(fontSize: 13),
+                decoration: _fieldDecor(
+                    'Department Name *', 'e.g. Sales / Accounting / HR', Icons.business_outlined),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: codeCtrl,
+                style: const TextStyle(fontSize: 13),
+                decoration: _fieldDecor(
+                    'Department Code (Optional)', 'e.g. SAL / ACC / HR', Icons.tag_outlined),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: descCtrl,
+                style: const TextStyle(fontSize: 13),
+                decoration: _fieldDecor(
+                    'Description (Optional)', 'Brief department summary', Icons.notes_outlined),
+              ),
+              const SizedBox(height: 10),
+              _buildOfficeSelector(
+                selectedOfficeId: selectedOfficeId,
+                onChanged: (v) => setS(() => selectedOfficeId = v),
+              ),
+            ],
+          ),
+          onSave: () async {
+            if (nameCtrl.text.trim().isEmpty) return false;
+            final payload = <String, dynamic>{
+              'department_name': nameCtrl.text.trim(),
+              'department_code': codeCtrl.text.trim().toUpperCase(),
+              'description': descCtrl.text.trim(),
+              'office_id': selectedOfficeId != null ? int.tryParse(selectedOfficeId!) : null,
+              'is_active': true,
+            };
+            await ApiClient.post(ApiEndpoints.hrmsDepartments, payload);
+            return true;
+          },
+        ),
+      ),
+    );
+    if (ok == true) _loadAll();
+  }
+
+  Future<void> _editDepartment(Map<String, dynamic> d) async {
+    final nameCtrl = TextEditingController(text: d['department_name']?.toString() ?? d['name']?.toString() ?? '');
+    final codeCtrl = TextEditingController(text: d['department_code']?.toString() ?? d['code']?.toString() ?? '');
+    final descCtrl = TextEditingController(text: d['description']?.toString() ?? '');
+    String? selectedOfficeId = d['office_id']?.toString();
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => _CompactDialogWidget(
+          title: 'Edit Department',
+          icon: Icons.corporate_fare_rounded,
+          iconColor: const Color(0xFF7C3AED),
+          iconBg: const Color(0xFFF5F3FF),
+          body: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                autofocus: true,
+                style: const TextStyle(fontSize: 13),
+                decoration: _fieldDecor(
+                    'Department Name *', 'e.g. Sales / Accounting / HR', Icons.business_outlined),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: codeCtrl,
+                style: const TextStyle(fontSize: 13),
+                decoration: _fieldDecor(
+                    'Department Code (Optional)', 'e.g. SAL / ACC / HR', Icons.tag_outlined),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: descCtrl,
+                style: const TextStyle(fontSize: 13),
+                decoration: _fieldDecor(
+                    'Description (Optional)', 'Brief department summary', Icons.notes_outlined),
+              ),
+              const SizedBox(height: 10),
+              _buildOfficeSelector(
+                selectedOfficeId: selectedOfficeId,
+                onChanged: (v) => setS(() => selectedOfficeId = v),
+              ),
+            ],
+          ),
+          onSave: () async {
+            if (nameCtrl.text.trim().isEmpty) return false;
+            final payload = <String, dynamic>{
+              'department_name': nameCtrl.text.trim(),
+              'department_code': codeCtrl.text.trim().toUpperCase(),
+              'description': descCtrl.text.trim(),
+              'office_id': selectedOfficeId != null ? int.tryParse(selectedOfficeId!) : null,
+              'is_active': d['is_active'] != false,
+            };
+            await ApiClient.put('${ApiEndpoints.hrmsDepartments}/${d['id']}', payload);
+            return true;
+          },
+        ),
+      ),
+    );
+    if (ok == true) _loadAll();
   }
 
   // ═══ DESIGNATIONS ════════════════════════════════════

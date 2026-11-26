@@ -1240,21 +1240,20 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                   final name = row['employee_name']?.toString() ?? row['employee']?['full_name']?.toString() ?? '—';
                   final code = row['employee_code']?.toString() ?? row['employee']?['employee_code']?.toString() ?? '—';
                   
+                  final breakdown = row['components_breakdown'] as Map<String, dynamic>?;
                   final basicVal = double.tryParse(row['prorated_salary']?.toString() ?? '0') ?? 0.0;
-                  final arrears = double.tryParse(row['arrears']?.toString() ?? '0') ?? 0.0;
-                  final commission = double.tryParse(row['commissions']?.toString() ?? row['sales_commission']?.toString() ?? '0') ?? 0.0;
+                  final arrears = double.tryParse(row['arrears']?.toString() ?? breakdown?['Arrear']?.toString() ?? breakdown?['arrears']?.toString() ?? '0') ?? 0.0;
+                  final commission = double.tryParse(row['commissions']?.toString() ?? row['sales_commission']?.toString() ?? breakdown?['Commission']?.toString() ?? breakdown?['sales_commission']?.toString() ?? '0') ?? 0.0;
                   
                   final loan = double.tryParse(row['loan_deduction']?.toString() ?? row['loan_emi']?.toString() ?? '0') ?? 0.0;
                   final penalties = double.tryParse(row['penalty_deduction']?.toString() ?? row['shortage_penalties']?.toString() ?? '0') ?? 0.0;
                   final emiPenalties = loan + penalties;
                   
-                  final bonus = double.tryParse(row['bonuses']?.toString() ?? '0') ?? 0.0;
+                  final bonus = double.tryParse(row['bonuses']?.toString() ?? breakdown?['Bonus']?.toString() ?? breakdown?['bonuses']?.toString() ?? '0') ?? 0.0;
                   final statutoryDeductions = double.tryParse(row['statutory_deductions']?.toString() ?? '0') ?? 0.0;
                   final net = double.tryParse(row['net_pay']?.toString() ?? '0') ?? 0.0;
                   
                   final paidDays = double.tryParse(row['salary_days']?.toString() ?? '0') ?? 0.0;
-                  
-                  final breakdown = row['components_breakdown'] as Map<String, dynamic>?;
                   final hra = _getBreakdownValue(breakdown, ['hra', 'house', 'rent', 'ha']);
                   final da = _getBreakdownValue(breakdown, ['da', 'dearness']);
                   final tcs = _getBreakdownValue(breakdown, ['tcs']);
@@ -1598,6 +1597,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                 final itemType = bon['type']?.toString() ?? bon['bonus_type']?.toString() ?? 'Bonus';
                 final amt = double.tryParse(bon['amount']?.toString() ?? '0') ?? 0;
                 final reason = bon['reason']?.toString() ?? '—';
+                final isInstant = reason.toLowerCase().contains('(instant)') || bon['payment_mode'] == 'Instant';
                 final month = bon['payment_month']?.toString() ?? '—';
                 final status = bon['status']?.toString() ?? 'Pending';
 
@@ -1622,7 +1622,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                   DataCell(Text(CurrencyService.format(amt), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF059669)))),
                   DataCell(Text(reason)),
                   DataCell(Text(month)),
-                  DataCell(_buildStatusChip(status)),
+                  DataCell(_buildStatusChip(status, type: itemType.toLowerCase(), isInstant: isInstant)),
                 ]);
               }).toList(),
             ),
@@ -2368,6 +2368,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                       final reason = arr['reason']?.toString() ?? 'Salary Arrear';
                       final month = arr['payment_month']?.toString() ?? '—';
                       final aStatus = arr['status']?.toString() ?? 'Pending Approval';
+                      final isInstant = reason.toLowerCase().contains('(instant)') || arr['payment_mode'] == 'Instant';
                       final isPending = aStatus.toLowerCase().contains('pending');
 
                       return DataRow(cells: [
@@ -2375,7 +2376,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                         DataCell(Text(reason)),
                         DataCell(Text(CurrencyService.format(amt), style: const TextStyle(color: Color(0xFF059669), fontWeight: FontWeight.bold))),
                         DataCell(Text(month)),
-                        DataCell(_buildStatusChip(aStatus)),
+                        DataCell(_buildStatusChip(aStatus, type: 'arrear', isInstant: isInstant)),
                         DataCell(
                           isPending
                               ? Row(
@@ -2383,12 +2384,12 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                                   children: [
                                     IconButton(
                                       icon: const Icon(Icons.check_circle_outline, color: Color(0xFF059669), size: 20),
-                                      onPressed: () => _approveBonus(arr['id'] as int),
+                                      onPressed: () => _approveArrear(arr['id'] as int),
                                       tooltip: 'Approve Arrear',
                                     ),
                                     IconButton(
                                       icon: const Icon(Icons.delete_outline, color: Color(0xFFDC2626), size: 18),
-                                      onPressed: () => _rejectBonus(arr['id'] as int),
+                                      onPressed: () => _rejectArrear(arr['id'] as int),
                                       tooltip: 'Delete / Reject Arrear',
                                     ),
                                   ],
@@ -2532,11 +2533,34 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
     }
   }
 
+  Future<void> _approveArrear(int id) async {
+    try {
+      final res = await ApiClient.put('/api/hrms/payroll/bonuses/$id/approve', {});
+      _loadTabContent();
+      final msg = res['message']?.toString() ?? 'Arrear approved!';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: const Color(0xFF059669)));
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
+  Future<void> _rejectArrear(int id) async {
+    try {
+      final res = await ApiClient.put('/api/hrms/payroll/bonuses/$id/reject', {});
+      _loadTabContent();
+      final msg = res['message']?.toString() ?? 'Arrear rejected!';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: const Color(0xFFDC2626)));
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
   Future<void> _approveBonus(int id) async {
     try {
-      await ApiClient.put('/api/hrms/payroll/bonuses/$id/approve', {});
+      final res = await ApiClient.put('/api/hrms/payroll/bonuses/$id/approve', {});
       _loadTabContent();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bonus approved!'), backgroundColor: Color(0xFF059669)));
+      final msg = res['message']?.toString() ?? 'Bonus approved!';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: const Color(0xFF059669)));
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
@@ -2544,9 +2568,10 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
 
   Future<void> _rejectBonus(int id) async {
     try {
-      await ApiClient.put('/api/hrms/payroll/bonuses/$id/reject', {});
+      final res = await ApiClient.put('/api/hrms/payroll/bonuses/$id/reject', {});
       _loadTabContent();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bonus rejected!'), backgroundColor: Color(0xFFDC2626)));
+      final msg = res['message']?.toString() ?? 'Bonus rejected!';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: const Color(0xFFDC2626)));
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
@@ -4092,45 +4117,58 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
     );
   }
 
-  Widget _buildStatusChip(String status) {
+  Widget _buildStatusChip(String status, {String? type, bool? isInstant}) {
     Color bg, fg;
+    final lower = status.toLowerCase().trim();
     String displayStatus = status.toUpperCase();
-    switch (status.toLowerCase()) {
-      case 'approved': 
-      case 'active':
-        bg = const Color(0xFFECFDF5); 
-        fg = const Color(0xFF059669); 
-        displayStatus = 'PAID';
-        break;
-      case 'paid': 
-        bg = const Color(0xFFECFDF5); 
-        fg = const Color(0xFF059669); 
-        displayStatus = 'PAID';
-        break;
-      case 'pending':
+
+    if (lower == 'paid' || lower == 'completed' || lower == 'disbursed') {
+      bg = const Color(0xFFECFDF5);
+      fg = const Color(0xFF059669);
+      displayStatus = 'PAID';
+    } else if (lower == 'approved' || lower == 'active') {
+      if (type == 'arrear' || type == 'bonus') {
+        if (isInstant == true) {
+          bg = const Color(0xFFECFDF5);
+          fg = const Color(0xFF059669);
+          displayStatus = 'PAID';
+        } else {
+          // Designated to be paid on salary, waiting for payroll run & payment
+          bg = const Color(0xFFFFFBEB);
+          fg = const Color(0xFFD97706);
+          displayStatus = 'PENDING (ON SALARY)';
+        }
+      } else {
+        bg = const Color(0xFFECFDF5);
+        fg = const Color(0xFF059669);
+        displayStatus = lower == 'active' ? 'ACTIVE' : 'APPROVED';
+      }
+    } else if (lower.contains('pending approval') || lower == 'pending_approval') {
+      bg = const Color(0xFFFFF7ED);
+      fg = const Color(0xFFEA580C);
+      displayStatus = 'PENDING APPROVAL';
+    } else if (lower == 'pending') {
+      if (type == 'arrear' || type == 'bonus') {
+        bg = const Color(0xFFFFFBEB);
+        fg = const Color(0xFFD97706);
+        displayStatus = 'PENDING (ON SALARY)';
+      } else {
         bg = const Color(0xFFFFF7ED);
         fg = const Color(0xFFEA580C);
         displayStatus = 'PENDING';
-        break;
-      case 'pending approval':
-      case 'pending_approval':
-        bg = const Color(0xFFFFF7ED);
-        fg = const Color(0xFFEA580C);
-        displayStatus = 'PENDING APPROVAL';
-        break;
-      case 'rejected':
-        bg = const Color(0xFFFEF2F2);
-        fg = const Color(0xFFDC2626);
-        displayStatus = 'REJECTED';
-        break;
-      case 'draft': 
-        bg = const Color(0xFFF3F4F6); 
-        fg = const Color(0xFF6B7280); 
-        displayStatus = 'DRAFT';
-        break;
-      default: 
-        bg = const Color(0xFFF3F4F6); 
-        fg = const Color(0xFF6B7280);
+      }
+    } else if (lower == 'rejected') {
+      bg = const Color(0xFFFEF2F2);
+      fg = const Color(0xFFDC2626);
+      displayStatus = 'REJECTED';
+    } else if (lower == 'draft') {
+      bg = const Color(0xFFF3F4F6);
+      fg = const Color(0xFF6B7280);
+      displayStatus = 'DRAFT';
+    } else {
+      bg = const Color(0xFFF3F4F6);
+      fg = const Color(0xFF6B7280);
+      displayStatus = status.toUpperCase();
     }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),

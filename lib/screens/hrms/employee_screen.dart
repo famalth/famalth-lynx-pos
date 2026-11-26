@@ -25,6 +25,7 @@ class _EmployeeScreenState extends State<EmployeeScreen> {
   List<Map<String, dynamic>> _shifts = [];
   List<Map<String, dynamic>> _payStructures = [];
   List<Map<String, dynamic>> _offices = [];
+  List<Map<String, dynamic>> _departments = [];
 
   @override
   void initState() {
@@ -56,6 +57,7 @@ class _EmployeeScreenState extends State<EmployeeScreen> {
         ApiClient.get(ApiEndpoints.hrmsShifts),
         ApiClient.get(ApiEndpoints.hrmsPayStructures),
         ApiClient.get('/api/hrms/offices'),
+        ApiClient.get(ApiEndpoints.hrmsDepartments),
       ]);
       setState(() {
         _employees = List<Map<String, dynamic>>.from(results[0]['data'] ?? []);
@@ -63,6 +65,7 @@ class _EmployeeScreenState extends State<EmployeeScreen> {
         _shifts = _deduplicateMasterList(List<Map<String, dynamic>>.from(results[2]['data'] ?? []), nameKey: 'name');
         _payStructures = _deduplicateMasterList(List<Map<String, dynamic>>.from(results[3]['data'] ?? []), nameKey: 'name');
         _offices = _deduplicateMasterList(List<Map<String, dynamic>>.from(results[4]['data'] ?? []), nameKey: 'office_name', codeKey: 'office_code');
+        _departments = _deduplicateMasterList(List<Map<String, dynamic>>.from(results[5]['data'] ?? []), nameKey: 'department_name', codeKey: 'department_code');
       });
     } catch (e) {
       // show empty list on error
@@ -255,6 +258,19 @@ class _EmployeeScreenState extends State<EmployeeScreen> {
     final officeName = emp['office'] != null
         ? (emp['office'] is Map ? (emp['office']['office_name'] ?? emp['office']['office_code'] ?? '') : emp['office'].toString())
         : (emp['office_name'] ?? '');
+
+    String departmentStr = '';
+    if (emp['departmentRef'] != null && emp['departmentRef'] is Map) {
+      departmentStr = (emp['departmentRef']['department_name'] ?? '').toString();
+    } else if (emp['department'] != null) {
+      departmentStr = emp['department'].toString();
+    } else if (emp['department_id'] != null) {
+      final deptId = emp['department_id'];
+      final found = _departments.firstWhere((d) => d['id'].toString() == deptId.toString(), orElse: () => {});
+      if (found.isNotEmpty) {
+        departmentStr = (found['department_name'] ?? found['name'] ?? '').toString();
+      }
+    }
     
     String shiftStr = '';
     if (emp['shift'] != null) {
@@ -364,6 +380,20 @@ class _EmployeeScreenState extends State<EmployeeScreen> {
                           ),
                           const SizedBox(width: 6),
                         ],
+                        if (departmentStr.isNotEmpty) ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                                color: const Color(0xFFF5F3FF),
+                                borderRadius: BorderRadius.circular(4)),
+                            child: Text('🏢 $departmentStr',
+                                style: const TextStyle(
+                                    color: Color(0xFF7C3AED),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600)),
+                          ),
+                          const SizedBox(width: 6),
+                        ],
                         if (approver1 != null)
                           _buildLevelBadge('Level 1'),
                         if (approver2 != null) ...[
@@ -421,6 +451,7 @@ class _EmployeeScreenState extends State<EmployeeScreen> {
       builder: (_) => _AddEmployeeForm(
         employees: _employees,
         initialOffices: _offices,
+        initialDepartments: _departments,
         initialPayStructures: _payStructures,
         initialDesignations: _designations,
         initialShifts: _shifts,
@@ -477,6 +508,7 @@ class _EmployeeScreenState extends State<EmployeeScreen> {
 class _AddEmployeeForm extends StatefulWidget {
   final List<Map<String, dynamic>> employees;
   final List<Map<String, dynamic>>? initialOffices;
+  final List<Map<String, dynamic>>? initialDepartments;
   final List<Map<String, dynamic>>? initialPayStructures;
   final List<Map<String, dynamic>>? initialDesignations;
   final List<Map<String, dynamic>>? initialShifts;
@@ -486,6 +518,7 @@ class _AddEmployeeForm extends StatefulWidget {
   const _AddEmployeeForm({
     required this.employees,
     this.initialOffices,
+    this.initialDepartments,
     this.initialPayStructures,
     this.initialDesignations,
     this.initialShifts,
@@ -507,6 +540,7 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
   List<Map<String, dynamic>> _designations = [];
   List<Map<String, dynamic>> _shifts = [];
   List<Map<String, dynamic>> _payStructures = [];
+  List<Map<String, dynamic>> _departments = [];
   List<Map<String, dynamic>> _users = [];
 
   // Sentinel int for the "+ Add New" item in dropdowns
@@ -526,6 +560,7 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
   DateTime? _hireDate;
   List<Map<String, dynamic>> _offices = [];
   int? _officeId;
+  int? _departmentId;
   final _passwordCtrl = TextEditingController(text: '123456');
   bool _obscurePassword = true;
   int? _designationId;
@@ -567,6 +602,9 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
     if (widget.initialShifts != null && widget.initialShifts!.isNotEmpty) {
       _shifts = List.from(widget.initialShifts!);
     }
+    if (widget.initialDepartments != null && widget.initialDepartments!.isNotEmpty) {
+      _departments = List.from(widget.initialDepartments!);
+    }
     _baseSalaryCtrl.addListener(() {
       if (mounted) setState(() {});
     });
@@ -590,6 +628,7 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
       _designationId = emp['designation_id'] as int?;
       _shiftId = emp['shift_id'] as int?;
       _officeId = emp['office_id'] as int?;
+      _departmentId = emp['department_id'] as int?;
       _requiresAttendance = emp['requires_attendance'] == true;
       _payIfUnmarked = emp['pay_if_unmarked'] == true;
       _approver1Id = emp['level1_approver_id'] as int?;
@@ -671,12 +710,17 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
           debugPrint('Offices err: $e');
           return {'success': false, 'data': <dynamic>[]};
         }),
+        ApiClient.get(ApiEndpoints.hrmsDepartments).catchError((e) {
+          debugPrint('Departments err: $e');
+          return {'success': false, 'data': <dynamic>[]};
+        }),
       ]);
 
       final allComponents = List<Map<String, dynamic>>.from(results[5]['data'] ?? []);
       final loadedDesigs = List<Map<String, dynamic>>.from(results[0]['data'] ?? []);
       final loadedShifts = List<Map<String, dynamic>>.from(results[1]['data'] ?? []);
       final loadedStructures = List<Map<String, dynamic>>.from(results[2]['data'] ?? []);
+      final loadedDepts = List<Map<String, dynamic>>.from(results[7]['data'] ?? (widget.initialDepartments ?? []));
 
       if (allComponents.isEmpty && loadedStructures.isEmpty && _payStructures.isEmpty && widget.employee == null) {
         if (mounted) {
@@ -717,6 +761,7 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
         _leaveTypes   = _EmployeeScreenState._deduplicateMasterList(List<Map<String, dynamic>>.from(results[4]['data'] ?? []), nameKey: 'name');
         final rawOffices = List<Map<String, dynamic>>.from(results[6]['data'] ?? (widget.initialOffices ?? []));
         _offices      = _EmployeeScreenState._deduplicateMasterList(rawOffices.isNotEmpty ? rawOffices : (widget.initialOffices ?? []), nameKey: 'office_name', codeKey: 'office_code');
+        _departments  = _EmployeeScreenState._deduplicateMasterList(loadedDepts.isNotEmpty ? loadedDepts : (widget.initialDepartments ?? []), nameKey: 'department_name', codeKey: 'department_code');
         if (_officeId == null && _offices.isNotEmpty) {
           _officeId = _offices.first['id'] as int?;
         }
@@ -794,6 +839,45 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
       setState(() {
         _offices.add(created);
         _officeId = (created['id'] as num?)?.toInt();
+      });
+    }
+  }
+
+  Future<void> _quickAddDepartment() async {
+    final nameCtrl = TextEditingController();
+    final codeCtrl = TextEditingController();
+    final descCtrl = TextEditingController();
+
+    final created = await showDialog<Map<String, dynamic>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _QuickAddDialog(
+        title: 'New Department',
+        icon: Icons.corporate_fare_rounded,
+        iconColor: const Color(0xFF7C3AED),
+        iconBg: const Color(0xFFF5F3FF),
+        fields: [
+          _QField(ctrl: nameCtrl, label: 'Department Name *', hint: 'e.g. Sales / Accounting / HR', icon: Icons.business),
+          _QField(ctrl: codeCtrl, label: 'Department Code (Optional)', hint: 'e.g. SAL / ACC / HR', icon: Icons.tag),
+          _QField(ctrl: descCtrl, label: 'Description (Optional)', hint: 'Brief department notes', icon: Icons.notes_outlined),
+        ],
+        onSave: () async {
+          if (nameCtrl.text.trim().isEmpty) return null;
+          final res = await ApiClient.post(ApiEndpoints.hrmsDepartments, {
+            'department_name': nameCtrl.text.trim(),
+            'department_code': codeCtrl.text.trim().toUpperCase(),
+            'description': descCtrl.text.trim(),
+            'office_id': _officeId,
+            'is_active': true,
+          });
+          return res['data'] as Map<String, dynamic>?;
+        },
+      ),
+    );
+    if (created != null) {
+      setState(() {
+        _departments.add(created);
+        _departmentId = (created['id'] as num?)?.toInt();
       });
     }
   }
@@ -904,6 +988,15 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Office / Branch is required! Please select or add an assigned office.'),
+            backgroundColor: Color(0xFFDC2626),
+          )
+        );
+        return false;
+      }
+      if (_departmentId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Department is required! Please select or add an assigned department.'),
             backgroundColor: Color(0xFFDC2626),
           )
         );
@@ -1040,6 +1133,9 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
     setState(() => _isSaving = true);
     try {
       final isEdit = widget.employee != null;
+      final deptObj = _departments.firstWhere((d) => d['id'] == _departmentId, orElse: () => {});
+      final deptName = (deptObj['department_name'] ?? deptObj['name'] ?? '').toString();
+
       final payload = {
         'full_name'          : _nameCtrl.text.trim(),
         'father_name'        : _fatherNameCtrl.text.trim(),
@@ -1050,6 +1146,9 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
         'date_of_birth'      : _dob?.toIso8601String().split('T')[0],
         'blood_group'        : _bloodGroup,
         'hire_date'          : _hireDate!.toIso8601String().split('T')[0],
+        'office_id'          : _officeId,
+        'department_id'      : _departmentId,
+        'department'         : deptName.isNotEmpty ? deptName : null,
         'designation_id'     : _designationId,
         'shift_id'           : _shiftId,
         'requires_attendance': _requiresAttendance,
@@ -1423,6 +1522,20 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
           addLabel: '+ Add New Office / Branch',
           onAddNew: _quickAddOffice,
           onChanged: (v) => setState(() => _officeId = v),
+        ),
+        const SizedBox(height: 12),
+        _smartDropdown<int>(
+          label: 'Department *',
+          icon: Icons.corporate_fare_rounded,
+          value: _departmentId,
+          items: _officeId == null
+              ? _departments
+              : _departments.where((d) => d['office_id'] == null || d['office_id'] == _officeId).toList(),
+          labelKey: 'department_name',
+          emptyHint: 'No departments configured — tap to add',
+          addLabel: '+ Add New Department',
+          onAddNew: _quickAddDepartment,
+          onChanged: (v) => setState(() => _departmentId = v),
         ),
         const SizedBox(height: 12),
         if (widget.employee == null) ...[

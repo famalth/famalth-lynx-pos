@@ -1,6 +1,35 @@
 import { Request, Response } from 'express';
 import { Op } from 'sequelize';
 
+async function reverseGeocodeCoords(lat: number, lng: number): Promise<string | null> {
+  try {
+    const url = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
+    if (res.ok) {
+      const data: any = await res.json();
+      const parts = new Set<string>();
+      if (data.locality) parts.add(data.locality);
+      if (data.city && data.city !== data.locality) parts.add(data.city);
+      if (data.principalSubdivision) parts.add(data.principalSubdivision);
+      if (parts.size === 0 && data.countryName) parts.add(data.countryName);
+      if (parts.size > 0) return Array.from(parts).join(', ');
+    }
+  } catch (_) {}
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, {
+      headers: { 'User-Agent': 'FamalthLynx/1.0 (pos@famalth.com)' },
+      signal: AbortSignal.timeout(3000)
+    });
+    if (res.ok) {
+      const data: any = await res.json();
+      if (data.display_name) {
+        return data.display_name.split(',').slice(0, 3).map((s: string) => s.trim()).join(', ');
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
 export class TransportController {
   // =========================================================================
   // VEHICLE MANAGEMENT
@@ -975,11 +1004,21 @@ export class TransportController {
         return res.status(403).json({ success: false, auto_logout: true, message: 'Account terminated or deactivated.' });
       }
 
+      let resolvedAddress = (address || '').toString().trim();
+      if (!resolvedAddress || resolvedAddress.startsWith('GPS Location (') || resolvedAddress.startsWith('(')) {
+        try {
+          const geoAddr = await reverseGeocodeCoords(Number(latitude), Number(longitude));
+          if (geoAddr) {
+            resolvedAddress = geoAddr;
+          }
+        } catch (_) {}
+      }
+
       const now = new Date();
       await driver.update({
         last_latitude: latitude,
         last_longitude: longitude,
-        last_location_address: address || driver.last_location_address,
+        last_location_address: resolvedAddress || driver.last_location_address,
         last_location_updated: now
       });
 
@@ -990,7 +1029,7 @@ export class TransportController {
           trip_id: trip_id || null,
           latitude,
           longitude,
-          address: address || null,
+          address: resolvedAddress || null,
           battery_level: battery_level || null,
           created_at: now
         }).catch(() => null);

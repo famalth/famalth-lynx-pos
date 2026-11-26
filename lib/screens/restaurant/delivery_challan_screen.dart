@@ -11,6 +11,7 @@ import '../../controllers/inventory/item_controller.dart';
 import '../../controllers/restaurant/restaurant_controller.dart';
 import '../../controllers/transport/transport_controller.dart';
 import '../../core/printing/pos_invoice_printer.dart';
+import '../../core/utils/geo_helper.dart';
 import '../inventory/salescreen.dart';
 
 class DeliveryChallanScreen extends StatefulWidget {
@@ -25,6 +26,8 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
   final ItemController _itemController = ItemController();
   final TextEditingController _searchCtrl = TextEditingController();
   String _selectedStatusFilter = 'ALL';
+  String _selectedDateFilter = 'ALL'; // 'ALL', 'TODAY', 'WEEK', 'MONTH', 'CUSTOM'
+  DateTimeRange? _customDateRange;
   bool _isInit = false;
 
   final NumberFormat _qtyFmt = NumberFormat.decimalPattern();
@@ -80,9 +83,42 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
     } catch (_) {}
   }
 
-  List<dynamic> _getFilteredChallans(List<dynamic> list) {
-    final query = _searchCtrl.text.trim().toLowerCase();
+  List<dynamic> _getDateFilteredChallans(List<dynamic> list) {
+    if (_selectedDateFilter == 'ALL') return list;
+
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayEnd = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
+    final weekStart = todayStart.subtract(Duration(days: now.weekday - 1));
+    final weekEnd = weekStart.add(const Duration(days: 7)).subtract(const Duration(milliseconds: 1));
+    final monthStart = DateTime(now.year, now.month, 1);
+    final monthEnd = DateTime(now.year, now.month + 1, 0, 23, 59, 59, 999);
+
     return list.where((item) {
+      final rawDate = item['challan_date'] ?? item['created_at'];
+      if (rawDate == null) return false;
+      final dt = DateTime.tryParse(rawDate.toString())?.toLocal();
+      if (dt == null) return false;
+
+      if (_selectedDateFilter == 'TODAY') {
+        return !dt.isBefore(todayStart) && !dt.isAfter(todayEnd);
+      } else if (_selectedDateFilter == 'WEEK') {
+        return !dt.isBefore(weekStart) && !dt.isAfter(weekEnd);
+      } else if (_selectedDateFilter == 'MONTH') {
+        return !dt.isBefore(monthStart) && !dt.isAfter(monthEnd);
+      } else if (_selectedDateFilter == 'CUSTOM' && _customDateRange != null) {
+        final start = DateTime(_customDateRange!.start.year, _customDateRange!.start.month, _customDateRange!.start.day);
+        final end = DateTime(_customDateRange!.end.year, _customDateRange!.end.month, _customDateRange!.end.day, 23, 59, 59, 999);
+        return !dt.isBefore(start) && !dt.isAfter(end);
+      }
+      return true;
+    }).toList();
+  }
+
+  List<dynamic> _getFilteredChallans(List<dynamic> list) {
+    final dateFiltered = _getDateFilteredChallans(list);
+    final query = _searchCtrl.text.trim().toLowerCase();
+    return dateFiltered.where((item) {
       final status = (item['status'] ?? '').toString().toUpperCase();
       final deliveryStatus = (item['delivery_status'] ?? '').toString().toUpperCase();
 
@@ -110,13 +146,14 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
     final ctrl = context.watch<RestaurantController>();
     final transportCtrl = context.watch<TransportController>();
     final allChallans = ctrl.challans;
+    final dateFiltered = _getDateFilteredChallans(allChallans);
     final filteredList = _getFilteredChallans(allChallans);
 
-    final totalCount = allChallans.length;
-    final inTransitCount = allChallans.where((c) => (c['delivery_status'] ?? '').toString().toUpperCase() == 'IN_TRANSIT').length;
-    final deliveredCount = allChallans.where((c) => (c['delivery_status'] ?? '').toString().toUpperCase() == 'DELIVERED').length;
-    final pendingCount = allChallans.where((c) => c['status'] == 'Issued').length;
-    final totalDispatchedQty = allChallans.fold<double>(
+    final totalCount = dateFiltered.length;
+    final inTransitCount = dateFiltered.where((c) => (c['delivery_status'] ?? '').toString().toUpperCase() == 'IN_TRANSIT').length;
+    final deliveredCount = dateFiltered.where((c) => (c['delivery_status'] ?? '').toString().toUpperCase() == 'DELIVERED').length;
+    final pendingCount = dateFiltered.where((c) => c['status'] == 'Issued').length;
+    final totalDispatchedQty = dateFiltered.fold<double>(
       0.0,
       (sum, c) => sum + (double.tryParse(c['total_qty']?.toString() ?? '0') ?? 0.0),
     );
@@ -240,76 +277,162 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // KPI Metrics Row
-            Row(
-              children: [
-                _buildKpiCard(
-                  title: 'Total Challans Issued',
-                  value: '$totalCount',
-                  subtitle: '${_qtyFmt.format(totalDispatchedQty)} Units Dispatched',
-                  icon: Icons.local_shipping_outlined,
-                  color: Colors.blue,
-                ),
-                const SizedBox(width: 12),
-                _buildKpiCard(
-                  title: 'In-Transit on Trucks',
-                  value: '$inTransitCount',
-                  subtitle: 'En route with Drivers',
-                  icon: Icons.directions_bus_filled_outlined,
-                  color: Colors.indigo,
-                ),
-                const SizedBox(width: 12),
-                _buildKpiCard(
-                  title: 'Delivered (OTP Verified)',
-                  value: '$deliveredCount',
-                  subtitle: 'Successfully Received',
-                  icon: Icons.task_alt,
-                  color: Colors.teal,
-                ),
-                const SizedBox(width: 12),
-                _buildKpiCard(
-                  title: 'Pending Invoicing',
-                  value: '$pendingCount',
-                  subtitle: 'Ready to Convert to Sale',
-                  icon: Icons.pending_actions_outlined,
-                  color: Colors.orange,
-                ),
-              ],
+            // KPI Metrics Row (Responsive Layout)
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isWide = constraints.maxWidth >= 900;
+                if (isWide) {
+                  return Row(
+                    children: [
+                      _buildKpiCard(
+                        title: 'Total Challans Issued',
+                        value: '$totalCount',
+                        subtitle: '${_qtyFmt.format(totalDispatchedQty)} Units Dispatched',
+                        icon: Icons.local_shipping_outlined,
+                        color: Colors.blue,
+                      ),
+                      const SizedBox(width: 12),
+                      _buildKpiCard(
+                        title: 'In-Transit on Trucks',
+                        value: '$inTransitCount',
+                        subtitle: 'En route with Drivers',
+                        icon: Icons.directions_bus_filled_outlined,
+                        color: Colors.indigo,
+                      ),
+                      const SizedBox(width: 12),
+                      _buildKpiCard(
+                        title: 'Delivered (OTP Verified)',
+                        value: '$deliveredCount',
+                        subtitle: 'Successfully Received',
+                        icon: Icons.task_alt,
+                        color: Colors.teal,
+                      ),
+                      const SizedBox(width: 12),
+                      _buildKpiCard(
+                        title: 'Pending Invoicing',
+                        value: '$pendingCount',
+                        subtitle: 'Ready to Convert to Sale',
+                        icon: Icons.pending_actions_outlined,
+                        color: Colors.orange,
+                      ),
+                    ],
+                  );
+                }
+
+                final cardWidth = constraints.maxWidth > 550
+                    ? (constraints.maxWidth - 12) / 2
+                    : constraints.maxWidth;
+
+                return Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    _buildKpiCard(
+                      title: 'Total Challans Issued',
+                      value: '$totalCount',
+                      subtitle: '${_qtyFmt.format(totalDispatchedQty)} Units Dispatched',
+                      icon: Icons.local_shipping_outlined,
+                      color: Colors.blue,
+                      width: cardWidth,
+                    ),
+                    _buildKpiCard(
+                      title: 'In-Transit on Trucks',
+                      value: '$inTransitCount',
+                      subtitle: 'En route with Drivers',
+                      icon: Icons.directions_bus_filled_outlined,
+                      color: Colors.indigo,
+                      width: cardWidth,
+                    ),
+                    _buildKpiCard(
+                      title: 'Delivered (OTP Verified)',
+                      value: '$deliveredCount',
+                      subtitle: 'Successfully Received',
+                      icon: Icons.task_alt,
+                      color: Colors.teal,
+                      width: cardWidth,
+                    ),
+                    _buildKpiCard(
+                      title: 'Pending Invoicing',
+                      value: '$pendingCount',
+                      subtitle: 'Ready to Convert to Sale',
+                      icon: Icons.pending_actions_outlined,
+                      color: Colors.orange,
+                      width: cardWidth,
+                    ),
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 16),
 
-            // Search & Filter Toolbar
+            // Search & Filter Toolbar (Responsive Status & Date Filters)
             Card(
               elevation: 0.5,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _searchCtrl,
-                        onChanged: (_) => setState(() {}),
-                        decoration: const InputDecoration(
-                          hintText: 'Search by Challan #, Customer Name, Phone, Truck #, or Driver...',
-                          prefixIcon: Icon(Icons.search, size: 20),
-                          isDense: true,
-                          border: InputBorder.none,
-                        ),
+                    TextField(
+                      controller: _searchCtrl,
+                      onChanged: (_) => setState(() {}),
+                      decoration: InputDecoration(
+                        hintText: 'Search by Challan #, Customer Name, Phone, Truck #, or Driver...',
+                        hintStyle: TextStyle(fontSize: 12.5, color: Colors.grey.shade500),
+                        prefixIcon: const Icon(Icons.search, size: 20),
+                        isDense: true,
+                        border: InputBorder.none,
+                        suffixIcon: _searchCtrl.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, size: 18),
+                                onPressed: () {
+                                  _searchCtrl.clear();
+                                  setState(() {});
+                                },
+                              )
+                            : null,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    SegmentedButton<String>(
-                      segments: const [
-                        ButtonSegment(value: 'ALL', label: Text('All')),
-                        ButtonSegment(value: 'IN_TRANSIT', label: Text('In-Transit')),
-                        ButtonSegment(value: 'DELIVERED', label: Text('Delivered')),
-                        ButtonSegment(value: 'ISSUED', label: Text('Pending Sale')),
+                    const Divider(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      alignment: WrapAlignment.spaceBetween,
+                      children: [
+                        // Status Filter Chips
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            _buildFilterChip('ALL', 'All Status', _selectedStatusFilter == 'ALL', (v) {
+                              setState(() => _selectedStatusFilter = 'ALL');
+                            }),
+                            _buildFilterChip('IN_TRANSIT', 'In-Transit', _selectedStatusFilter == 'IN_TRANSIT', (v) {
+                              setState(() => _selectedStatusFilter = 'IN_TRANSIT');
+                            }),
+                            _buildFilterChip('DELIVERED', 'Delivered', _selectedStatusFilter == 'DELIVERED', (v) {
+                              setState(() => _selectedStatusFilter = 'DELIVERED');
+                            }),
+                            _buildFilterChip('ISSUED', 'Pending Sale', _selectedStatusFilter == 'ISSUED', (v) {
+                              setState(() => _selectedStatusFilter = 'ISSUED');
+                            }),
+                          ],
+                        ),
+                        // Date Filter Chips: Today, Week, Month, Date Range
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            _buildDateChip('ALL', 'All Dates'),
+                            _buildDateChip('TODAY', 'Today'),
+                            _buildDateChip('WEEK', 'This Week'),
+                            _buildDateChip('MONTH', 'This Month'),
+                            _buildCustomDateChip(),
+                          ],
+                        ),
                       ],
-                      selected: {_selectedStatusFilter},
-                      onSelectionChanged: (set) {
-                        setState(() => _selectedStatusFilter = set.first);
-                      },
                     ),
                   ],
                 ),
@@ -347,7 +470,9 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                     : Container(
                         color: Colors.white,
                         width: double.infinity,
-                        child: DataTable(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: DataTable(
                           headingRowColor: WidgetStateProperty.all(const Color(0xFFF1F5F9)),
                           dataRowMaxHeight: 76,
                           columns: const [
@@ -571,6 +696,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                               ],
                             );
                           }).toList(),
+                        ),
                         ),
                       ),
               ),
@@ -1215,10 +1341,10 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final isNarrow = constraints.maxWidth < 650;
+                          final infoWidget = Row(
                             children: [
                               Container(
                                 padding: const EdgeInsets.all(8),
@@ -1229,36 +1355,29 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                                 child: const Icon(Icons.local_shipping, color: Colors.deepOrange),
                               ),
                               const SizedBox(width: 10),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Truck: ${vehicle['vehicle_number'] ?? 'N/A'} (${vehicle['vehicle_type'] ?? 'Truck'})',
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                                  ),
-                                  Text(
-                                    'Driver: ${driver['driver_name'] ?? 'Assigned'} (Ph: ${driver['phone'] ?? 'N/A'})',
-                                    style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-                                  ),
-                                  if (driver['last_location_address'] != null || driver['last_latitude'] != null)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 4.0),
-                                      child: Row(
-                                        children: [
-                                          const Icon(Icons.location_on, size: 14, color: Colors.green),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            'Live GPS: ${driver['last_location_address'] ?? "${driver['last_latitude']}, ${driver['last_longitude']}"}',
-                                            style: TextStyle(fontSize: 11, color: Colors.green.shade800, fontWeight: FontWeight.w600),
-                                          ),
-                                        ],
-                                      ),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Truck: ${vehicle['vehicle_number'] ?? 'N/A'} (${vehicle['vehicle_type'] ?? 'Truck'})',
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                                     ),
-                                ],
+                                    Text(
+                                      'Driver: ${driver['driver_name'] ?? 'Assigned'} (Ph: ${driver['phone'] ?? 'N/A'})',
+                                      style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                                    ),
+                                    _buildDriverLiveGpsWidget(driver),
+                                  ],
+                                ),
                               ),
                             ],
-                          ),
-                          Row(
+                          );
+
+                          final actionsWidget = Wrap(
+                            spacing: 8,
+                            runSpacing: 6,
+                            crossAxisAlignment: WrapCrossAlignment.center,
                             children: [
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -1272,7 +1391,6 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.blue.shade900),
                                 ),
                               ),
-                              const SizedBox(width: 8),
                               OutlinedButton.icon(
                                 style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
                                 onPressed: () async {
@@ -1286,8 +1404,28 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                                 label: const Text('Release Truck', style: TextStyle(fontSize: 11)),
                               ),
                             ],
-                          ),
-                        ],
+                          );
+
+                          if (isNarrow) {
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                infoWidget,
+                                const SizedBox(height: 10),
+                                actionsWidget,
+                              ],
+                            );
+                          }
+
+                          return Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(child: infoWidget),
+                              const SizedBox(width: 12),
+                              actionsWidget,
+                            ],
+                          );
+                        },
                       ),
                       const SizedBox(height: 12),
                       const Divider(),
@@ -1301,21 +1439,24 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    '${ch['challan_no']} - ${ch['customer_name']} (Qty: ${ch['total_qty']} Units)',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 12,
-                                      decoration: isDelivered ? TextDecoration.lineThrough : null,
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '${ch['challan_no']} - ${ch['customer_name']} (Qty: ${ch['total_qty']} Units)',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 12,
+                                        decoration: isDelivered ? TextDecoration.lineThrough : null,
+                                      ),
                                     ),
-                                  ),
-                                  if (ch['delivery_otp'] != null && !isDelivered)
-                                    Text('Delivery OTP: ${ch['delivery_otp']}', style: const TextStyle(fontSize: 11, color: Color(0xFF008060), fontWeight: FontWeight.bold)),
-                                ],
+                                    if (ch['delivery_otp'] != null && !isDelivered)
+                                      Text('Delivery OTP: ${ch['delivery_otp']}', style: const TextStyle(fontSize: 11, color: Color(0xFF008060), fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
                               ),
+                              const SizedBox(width: 8),
                               if (!isDelivered)
                                 FilledButton.tonal(
                                   onPressed: () => _openVerifyDeliveryDialog(ch),
@@ -2135,6 +2276,31 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
     final customerPhoneCtrl = TextEditingController();
     final destinationCtrl = TextEditingController();
     final eWayCtrl = TextEditingController();
+
+    customerPhoneCtrl.addListener(() {
+      final text = customerPhoneCtrl.text.trim();
+      if (text.length >= 10 && customerNameCtrl.text.trim().isEmpty) {
+        final digits = text.replaceAll(RegExp(r'\D'), '');
+        final last10 = digits.length >= 10 ? digits.substring(digits.length - 10) : digits;
+        final match = _registeredCustomers.firstWhere(
+          (c) {
+            final p = (c['customer_phone'] ?? c['phone'] ?? c['mobile'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+            return p.isNotEmpty && p.endsWith(last10);
+          },
+          orElse: () => <String, dynamic>{},
+        );
+        if (match.isNotEmpty) {
+          final nm = (match['customer_name'] ?? match['name'] ?? '').toString().trim();
+          final addr = (match['customer_address'] ?? match['address'] ?? match['shipping_address'] ?? '').toString().trim();
+          if (nm.isNotEmpty && customerNameCtrl.text.trim().isEmpty) {
+            customerNameCtrl.text = nm;
+          }
+          if (addr.isNotEmpty && destinationCtrl.text.trim().isEmpty) {
+            destinationCtrl.text = addr;
+          }
+        }
+      }
+    });
 
     int? assignedVehicleId;
     int? assignedDriverId;
@@ -3011,39 +3177,191 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
     required String subtitle,
     required IconData icon,
     required Color color,
+    double? width,
   }) {
-    return Expanded(
-      child: Card(
-        elevation: 0.5,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(icon, color: color, size: 24),
+    final card = Card(
+      elevation: 0.5,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
               ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title, style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 2),
-                    Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.grey.shade900)),
-                    const SizedBox(height: 2),
-                    Text(subtitle, style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
-                  ],
-                ),
+              child: Icon(icon, color: color, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: TextStyle(fontSize: 11.5, color: Colors.grey.shade600, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 2),
+                  Text(value, style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: Colors.grey.shade900)),
+                  const SizedBox(height: 2),
+                  Text(subtitle, style: TextStyle(fontSize: 10.5, color: Colors.grey.shade500), maxLines: 1, overflow: TextOverflow.ellipsis),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
+      ),
+    );
+
+    if (width != null) {
+      return SizedBox(width: width, child: card);
+    }
+    return Expanded(child: card);
+  }
+
+  Widget _buildFilterChip(String value, String label, bool isSelected, Function(bool) onSelected) {
+    return FilterChip(
+      label: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11.5,
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          color: isSelected ? Colors.white : Colors.black87,
+        ),
+      ),
+      selected: isSelected,
+      selectedColor: const Color(0xFF008060),
+      checkmarkColor: Colors.white,
+      showCheckmark: false,
+      backgroundColor: Colors.grey.shade100,
+      visualDensity: VisualDensity.compact,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: isSelected ? const Color(0xFF008060) : Colors.grey.shade300),
+      ),
+      onSelected: onSelected,
+    );
+  }
+
+  Widget _buildDateChip(String key, String label) {
+    final isSelected = _selectedDateFilter == key;
+    return FilterChip(
+      avatar: isSelected ? null : const Icon(Icons.calendar_today, size: 12, color: Colors.blueGrey),
+      label: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11.5,
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          color: isSelected ? Colors.white : Colors.blueGrey.shade800,
+        ),
+      ),
+      selected: isSelected,
+      selectedColor: const Color(0xFF0B5CAD),
+      checkmarkColor: Colors.white,
+      showCheckmark: false,
+      backgroundColor: Colors.blueGrey.shade50,
+      visualDensity: VisualDensity.compact,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: isSelected ? const Color(0xFF0B5CAD) : Colors.blueGrey.shade200),
+      ),
+      onSelected: (_) {
+        setState(() {
+          _selectedDateFilter = key;
+        });
+      },
+    );
+  }
+
+  Widget _buildCustomDateChip() {
+    final isSelected = _selectedDateFilter == 'CUSTOM';
+    String label = 'Date Range';
+    if (_customDateRange != null && isSelected) {
+      final f = DateFormat('dd MMM');
+      label = '${f.format(_customDateRange!.start)} - ${f.format(_customDateRange!.end)}';
+    }
+
+    return ActionChip(
+      avatar: Icon(Icons.date_range, size: 13, color: isSelected ? Colors.white : const Color(0xFF0B5CAD)),
+      label: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11.5,
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+          color: isSelected ? Colors.white : const Color(0xFF0B5CAD),
+        ),
+      ),
+      backgroundColor: isSelected ? const Color(0xFF0B5CAD) : Colors.blue.shade50,
+      visualDensity: VisualDensity.compact,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: isSelected ? const Color(0xFF0B5CAD) : Colors.blue.shade300),
+      ),
+      onPressed: () async {
+        final now = DateTime.now();
+        final picked = await showDateRangePicker(
+          context: context,
+          firstDate: DateTime(now.year - 2),
+          lastDate: DateTime(now.year + 1),
+          initialDateRange: _customDateRange ?? DateTimeRange(
+            start: now.subtract(const Duration(days: 7)),
+            end: now,
+          ),
+          builder: (context, child) {
+            return Theme(
+              data: Theme.of(context).copyWith(
+                colorScheme: const ColorScheme.light(
+                  primary: Color(0xFF008060),
+                  onPrimary: Colors.white,
+                ),
+              ),
+              child: child!,
+            );
+          },
+        );
+        if (picked != null) {
+          setState(() {
+            _customDateRange = picked;
+            _selectedDateFilter = 'CUSTOM';
+          });
+        }
+      },
+    );
+  }
+
+  Widget _buildDriverLiveGpsWidget(Map<String, dynamic> driver) {
+    final rawAddr = driver['last_location_address']?.toString();
+    final lat = driver['last_latitude'] != null ? double.tryParse(driver['last_latitude'].toString()) : null;
+    final lng = driver['last_longitude'] != null ? double.tryParse(driver['last_longitude'].toString()) : null;
+
+    if (rawAddr == null && lat == null) return const SizedBox.shrink();
+
+    // Trigger async geocode if needed
+    if (lat != null && lng != null) {
+      final key = '${lat.toStringAsFixed(3)},${lng.toStringAsFixed(3)}';
+      if (!GeoHelper.hasCached(key)) {
+        GeoHelper.reverseGeocode(lat, lng).then((res) {
+          if (res != null && mounted) setState(() {});
+        });
+      }
+    }
+
+    final displayText = GeoHelper.formatLocation(rawAddr, lat, lng);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 4.0),
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 4,
+        children: [
+          const Icon(Icons.location_on, size: 14, color: Colors.green),
+          Text(
+            'Live GPS: $displayText',
+            style: TextStyle(fontSize: 11, color: Colors.green.shade800, fontWeight: FontWeight.w600),
+          ),
+        ],
       ),
     );
   }

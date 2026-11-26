@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/api/api_client.dart';
 import '../../core/config/app_config.dart';
+import '../../core/utils/geo_helper.dart';
 import '../dashboard/server_config_screen.dart';
 import 'driver_app_splash_screen.dart';
 
@@ -67,6 +68,7 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
         final res = await ApiClient.get('/api/transport/driver/me', token: token, silent: true);
         if (res['success'] == true && res['driver'] != null) {
           _driverProfile = res['driver'];
+          _initLastLocationMsg();
           _startHourlyLocationTracking();
           await _fetchDriverTrips();
           setState(() => _isLoading = false);
@@ -354,6 +356,27 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
     });
   }
 
+  void _initLastLocationMsg() {
+    if (_driverProfile != null) {
+      final addr = _driverProfile!['last_location_address']?.toString();
+      final lat = _driverProfile!['last_latitude'] != null ? double.tryParse(_driverProfile!['last_latitude'].toString()) : null;
+      final lng = _driverProfile!['last_longitude'] != null ? double.tryParse(_driverProfile!['last_longitude'].toString()) : null;
+
+      if (addr != null && addr.isNotEmpty && !addr.startsWith('GPS Location (')) {
+        _lastLocationMsg = 'Live GPS: $addr';
+      } else if (lat != null && lng != null) {
+        _lastLocationMsg = 'Live GPS: (${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)})';
+        GeoHelper.reverseGeocode(lat, lng).then((resolved) {
+          if (resolved != null && mounted) {
+            setState(() {
+              _lastLocationMsg = 'Live GPS: $resolved (${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)})';
+            });
+          }
+        });
+      }
+    }
+  }
+
   Future<void> _sendGpsLocationPing({bool silent = false}) async {
     if (_driverToken == null) return;
     if (!silent) setState(() => _isUpdatingGps = true);
@@ -376,23 +399,35 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
         lng = pos.longitude;
       }
 
+      // Reverse geocode coordinates to human-readable address
+      String addressStr = '(${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)})';
+      try {
+        final human = await GeoHelper.reverseGeocode(lat, lng);
+        if (human != null && human.isNotEmpty) {
+          addressStr = human;
+        }
+      } catch (_) {}
+
       final res = await ApiClient.post(
         '/api/transport/driver/update-location',
         {
           'latitude': lat,
           'longitude': lng,
-          'address': 'GPS Location (${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)})',
+          'address': addressStr,
         },
         token: _driverToken,
       );
 
       if (res['success'] == true && mounted) {
         setState(() {
-          _lastLocationMsg = 'Live GPS synced at ${TimeOfDay.now().format(context)} (${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)})';
+          _lastLocationMsg = 'Live GPS synced at ${TimeOfDay.now().format(context)} • $addressStr';
         });
         if (!silent) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Live location sent to Owner Dashboard!'), backgroundColor: Color(0xFF008060)),
+            SnackBar(
+              content: Text('Live location ($addressStr) sent to Owner Dashboard!'),
+              backgroundColor: const Color(0xFF008060),
+            ),
           );
         }
       } else if (res['auto_logout'] == true) {
@@ -446,15 +481,27 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
           builder: (ctx, setDialogState) {
             return AlertDialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              insetPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 20),
+              titlePadding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              actionsPadding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
               title: Row(
                 children: [
                   const Icon(Icons.verified_user, color: Color(0xFF008060)),
                   const SizedBox(width: 8),
-                  Text('Verify Delivery OTP #${challan['challan_no']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  Expanded(
+                    child: Text(
+                      'Verify Delivery OTP #${challan['challan_no']}',
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                      softWrap: false,
+                    ),
+                  ),
                 ],
               ),
-              content: SizedBox(
-                width: 420,
+              content: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -488,7 +535,7 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
                         style: const TextStyle(fontSize: 20, letterSpacing: 6, fontWeight: FontWeight.bold),
                         textAlign: TextAlign.center,
                         decoration: const InputDecoration(
-                          hintText: '123456',
+                          hintText: '• • • • • •',
                           border: OutlineInputBorder(),
                           isDense: true,
                         ),
@@ -517,64 +564,81 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
                 ),
               ),
               actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dCtx),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton.icon(
-                  style: FilledButton.styleFrom(backgroundColor: const Color(0xFF008060)),
-                  onPressed: isSubmitting
-                      ? null
-                      : () async {
-                          final otp = otpCtrl.text.trim();
-                          if (otp.length < 6) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Please enter the complete 6-digit OTP')),
-                            );
-                            return;
-                          }
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 1,
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(dCtx),
+                        child: const Text('Cancel'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 2,
+                      child: FilledButton.icon(
+                        style: FilledButton.styleFrom(backgroundColor: const Color(0xFF008060)),
+                        onPressed: isSubmitting
+                            ? null
+                            : () async {
+                                final otp = otpCtrl.text.trim();
+                                if (otp.length < 6) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Please enter the complete 6-digit OTP')),
+                                  );
+                                  return;
+                                }
 
-                          setDialogState(() => isSubmitting = true);
-                          try {
-                            final res = await ApiClient.post(
-                              '/api/transport/verify-delivery',
-                              {
-                                'challan_id': challan['id'],
-                                'otp': otp,
-                                'receiver_name': receiverCtrl.text.trim(),
-                                'remark': remarkCtrl.text.trim(),
+                                setDialogState(() => isSubmitting = true);
+                                try {
+                                  final res = await ApiClient.post(
+                                    '/api/transport/verify-delivery',
+                                    {
+                                      'challan_id': challan['id'],
+                                      'otp': otp,
+                                      'receiver_name': receiverCtrl.text.trim(),
+                                      'remark': remarkCtrl.text.trim(),
+                                    },
+                                    token: _driverToken,
+                                  );
+
+                                  if (res['success'] == true) {
+                                    Navigator.pop(dCtx);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text('Challan #${challan['challan_no']} marked DELIVERED successfully!'),
+                                        backgroundColor: const Color(0xFF008060),
+                                      ),
+                                    );
+                                    await _fetchDriverTrips();
+                                    await _sendGpsLocationPing(silent: true);
+                                  } else {
+                                    setDialogState(() => isSubmitting = false);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(res['message'] ?? 'Invalid OTP entered. Please check with recipient.'),
+                                        backgroundColor: Colors.red,
+                                      ),
+                                    );
+                                  }
+                                } catch (e) {
+                                  setDialogState(() => isSubmitting = false);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Verification error: $e'), backgroundColor: Colors.red),
+                                  );
+                                }
                               },
-                              token: _driverToken,
-                            );
-
-                            if (res['success'] == true) {
-                              Navigator.pop(dCtx);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Challan #${challan['challan_no']} marked DELIVERED successfully!'),
-                                  backgroundColor: const Color(0xFF008060),
-                                ),
-                              );
-                              await _fetchDriverTrips();
-                              await _sendGpsLocationPing(silent: true);
-                            } else {
-                              setDialogState(() => isSubmitting = false);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(res['message'] ?? 'Invalid OTP entered. Please check with recipient.'),
-                                  backgroundColor: Colors.red,
-                                ),
-                              );
-                            }
-                          } catch (e) {
-                            setDialogState(() => isSubmitting = false);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Verification error: $e'), backgroundColor: Colors.red),
-                            );
-                          }
-                        },
-                  icon: const Icon(Icons.check_circle, size: 18),
-                  label: const Text('Verify OTP & Complete Delivery'),
+                        icon: isSubmitting
+                            ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                            : const Icon(Icons.check_circle, size: 16),
+                        label: Text(
+                          isSubmitting ? 'Verifying...' : 'Verify OTP',
+                          style: const TextStyle(fontSize: 12),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             );
@@ -892,47 +956,127 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
                   BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 8, offset: const Offset(0, 2)),
                 ],
               ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF008060).withValues(alpha: 0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.gps_fixed, color: Color(0xFF008060), size: 22),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final isNarrow = constraints.maxWidth < 450;
+                  if (isNarrow) {
+                    return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Row(
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Live Fleet GPS Tracking', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                            SizedBox(width: 6),
-                            Text('• Syncs Hourly', style: TextStyle(color: Color(0xFF008060), fontSize: 11, fontWeight: FontWeight.bold)),
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF008060).withValues(alpha: 0.1),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.gps_fixed, color: Color(0xFF008060), size: 20),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Wrap(
+                                    crossAxisAlignment: WrapCrossAlignment.center,
+                                    spacing: 6,
+                                    runSpacing: 2,
+                                    children: [
+                                      const Text('Live Fleet GPS Tracking', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF008060).withValues(alpha: 0.1),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: const Text('Syncs Hourly', style: TextStyle(color: Color(0xFF008060), fontSize: 10, fontWeight: FontWeight.bold)),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(_lastLocationMsg, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                                ],
+                              ),
+                            ),
                           ],
                         ),
-                        const SizedBox(height: 2),
-                        Text(_lastLocationMsg, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                        const SizedBox(height: 10),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: SizedBox(
+                            height: 32,
+                            child: OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFF008060),
+                                side: const BorderSide(color: Color(0xFF008060)),
+                                padding: const EdgeInsets.symmetric(horizontal: 10),
+                                visualDensity: VisualDensity.compact,
+                              ),
+                              onPressed: _isUpdatingGps ? null : () => _sendGpsLocationPing(silent: false),
+                              icon: _isUpdatingGps
+                                  ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2))
+                                  : const Icon(Icons.my_location, size: 14),
+                              label: const Text('Update GPS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                        ),
                       ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF008060),
-                      side: const BorderSide(color: Color(0xFF008060)),
-                      visualDensity: VisualDensity.compact,
-                    ),
-                    onPressed: _isUpdatingGps ? null : () => _sendGpsLocationPing(silent: false),
-                    icon: _isUpdatingGps
-                        ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.my_location, size: 14),
-                    label: const Text('Update GPS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                  ),
-                ],
+                    );
+                  }
+
+                  return Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF008060).withValues(alpha: 0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.gps_fixed, color: Color(0xFF008060), size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Wrap(
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              spacing: 6,
+                              children: [
+                                const Text('Live Fleet GPS Tracking', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF008060).withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text('Syncs Hourly', style: TextStyle(color: Color(0xFF008060), fontSize: 10, fontWeight: FontWeight.bold)),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Text(_lastLocationMsg, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF008060),
+                          side: const BorderSide(color: Color(0xFF008060)),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: _isUpdatingGps ? null : () => _sendGpsLocationPing(silent: false),
+                        icon: _isUpdatingGps
+                            ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Icon(Icons.my_location, size: 14),
+                        label: const Text('Update GPS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
             const SizedBox(height: 16),

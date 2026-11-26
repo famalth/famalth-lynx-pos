@@ -48,6 +48,22 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
   String? _boundDeviceInfo;
   int _selectedNavIndex = 0;
 
+  List<dynamic> _deduplicateLeaveBalances(List<dynamic> raw) {
+    final seen = <String>{};
+    final unique = <dynamic>[];
+    for (final item in raw) {
+      if (item is Map) {
+        final name = (item['name'] ?? item['leave_type_name'] ?? 'Leave').toString().trim().toLowerCase();
+        final id = (item['leave_type_id'] ?? item['id'] ?? '').toString();
+        final key = name.isNotEmpty ? name : id;
+        if (key.isNotEmpty && seen.contains(key)) continue;
+        if (key.isNotEmpty) seen.add(key);
+      }
+      unique.add(item);
+    }
+    return unique;
+  }
+
   // GPS Location State
   Position? _currentPosition;
   double? _distanceFromOffice;
@@ -93,7 +109,7 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
               _officeData = res['office'] ?? res['employee']?['office'];
               _shiftData = res['shift'] ?? res['employee']?['shift'];
               _todayAttendance = res['today_attendance'] ?? res['today_punch'];
-              _leaveBalances = res['leave_balances'] ?? [];
+              _leaveBalances = _deduplicateLeaveBalances(res['leave_balances'] ?? []);
               _myLeaves = res['my_leaves'] ?? [];
               _stats = res['stats'] ?? res['month_stats'] ?? {};
               _recentPunches = res['recent_punches'] ?? [];
@@ -170,7 +186,7 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
           _officeData = res['office'] ?? res['employee']?['office'] ?? _officeData;
           _shiftData = res['shift'] ?? res['employee']?['shift'] ?? _shiftData;
           _todayAttendance = res['today_attendance'] ?? res['today_punch'];
-          _leaveBalances = res['leave_balances'] ?? [];
+          _leaveBalances = _deduplicateLeaveBalances(res['leave_balances'] ?? []);
           _myLeaves = res['my_leaves'] ?? [];
           _stats = res['stats'] ?? res['month_stats'] ?? {};
           _recentPunches = res['recent_punches'] ?? [];

@@ -208,6 +208,7 @@ class ApiEndpoints {
   static const hrmsShifts = '/api/hrms/shifts';
   static const hrmsLeaveTypes = '/api/hrms/leave-types';
   static const hrmsDesignations = '/api/hrms/designations';
+  static const hrmsDepartments = '/api/hrms/departments';
   static const hrmsPayStructures = '/api/hrms/pay-structures';
   static const hrmsSalaryComponents = '/api/hrms/salary-components';
   static const hrmsLoans = '/api/hrms/loans';

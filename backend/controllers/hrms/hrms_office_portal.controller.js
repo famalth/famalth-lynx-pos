@@ -868,26 +868,34 @@ exports.getMyEmployeeProfile = async (req, res) => {
                 salary_slips: []
             });
         }
-        // Leave balances
+        // Leave balances (deduplicated by leave type to prevent repeating duplicate components)
         const balances = await hr_leave_balances.findAll({
             where: { employee_id: employee.id },
-            include: [{ model: hr_leave_types, as: 'leaveType' }]
+            include: [{ model: hr_leave_types, as: 'leaveType' }],
+            order: [['id', 'DESC']]
         });
-        const leaveSummary = balances.map((b) => {
+        const seenLeaveType = new Set();
+        const leaveSummary = [];
+        for (const b of balances) {
             const lt = b.leaveType || {};
+            const typeName = (lt.name || 'Leave').trim();
+            const typeKey = (typeName || `TYPE_${b.leave_type_id}`).toLowerCase().trim();
+            if (!typeKey || seenLeaveType.has(typeKey))
+                continue;
+            seenLeaveType.add(typeKey);
             const allocated = parseFloat(b.allocated_quota || 0);
             const used = parseFloat(b.used_quota || 0);
             const remaining = Math.max(0, allocated - used);
-            return {
+            leaveSummary.push({
                 id: b.id,
                 leave_type_id: b.leave_type_id,
-                name: lt.name || 'Leave',
+                name: typeName,
                 code: lt.code || 'LV',
                 allocated,
                 used,
                 remaining
-            };
-        });
+            });
+        }
         // Leave applications (my requests)
         let myLeaves = [];
         if (hr_leave_applications) {

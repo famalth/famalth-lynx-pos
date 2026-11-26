@@ -2,6 +2,41 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TransportController = void 0;
 const sequelize_1 = require("sequelize");
+async function reverseGeocodeCoords(lat, lng) {
+    try {
+        const url = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
+        if (res.ok) {
+            const data = await res.json();
+            const parts = new Set();
+            if (data.locality)
+                parts.add(data.locality);
+            if (data.city && data.city !== data.locality)
+                parts.add(data.city);
+            if (data.principalSubdivision)
+                parts.add(data.principalSubdivision);
+            if (parts.size === 0 && data.countryName)
+                parts.add(data.countryName);
+            if (parts.size > 0)
+                return Array.from(parts).join(', ');
+        }
+    }
+    catch (_) { }
+    try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, {
+            headers: { 'User-Agent': 'FamalthLynx/1.0 (pos@famalth.com)' },
+            signal: AbortSignal.timeout(3000)
+        });
+        if (res.ok) {
+            const data = await res.json();
+            if (data.display_name) {
+                return data.display_name.split(',').slice(0, 3).map((s) => s.trim()).join(', ');
+            }
+        }
+    }
+    catch (_) { }
+    return null;
+}
 class TransportController {
     // =========================================================================
     // VEHICLE MANAGEMENT
@@ -840,11 +875,21 @@ class TransportController {
             if (!driver || driver.status === 'TERMINATED' || driver.status === 'INACTIVE' || !driver.is_active) {
                 return res.status(403).json({ success: false, auto_logout: true, message: 'Account terminated or deactivated.' });
             }
+            let resolvedAddress = (address || '').toString().trim();
+            if (!resolvedAddress || resolvedAddress.startsWith('GPS Location (') || resolvedAddress.startsWith('(')) {
+                try {
+                    const geoAddr = await reverseGeocodeCoords(Number(latitude), Number(longitude));
+                    if (geoAddr) {
+                        resolvedAddress = geoAddr;
+                    }
+                }
+                catch (_) { }
+            }
             const now = new Date();
             await driver.update({
                 last_latitude: latitude,
                 last_longitude: longitude,
-                last_location_address: address || driver.last_location_address,
+                last_location_address: resolvedAddress || driver.last_location_address,
                 last_location_updated: now
             });
             if (req.propertyDb.models.transport_driver_locations) {
@@ -854,7 +899,7 @@ class TransportController {
                     trip_id: trip_id || null,
                     latitude,
                     longitude,
-                    address: address || null,
+                    address: resolvedAddress || null,
                     battery_level: battery_level || null,
                     created_at: now
                 }).catch(() => null);

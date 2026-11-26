@@ -145,11 +145,18 @@ export const createChallan = async (req: Request, res: Response): Promise<any> =
     if (customer_phone && customer_phone.trim().length > 0 && req.propertyDb.models.customers) {
       try {
         const cleanPhone = customer_phone.toString().trim();
+        const normDigits = cleanPhone.replace(/\D/g, '');
+        const last10 = normDigits.length >= 10 ? normDigits.slice(-10) : normDigits;
         const cleanName = (customer_name || '').toString().trim() || 'Retail Customer';
         const cleanAddress = (destination_address || '').toString().trim() || null;
 
         const existingCust = await req.propertyDb.models.customers.findOne({
-          where: {
+          where: last10.length >= 7 ? {
+            [Op.or]: [
+              { customer_phone: cleanPhone },
+              { customer_phone: { [Op.like]: `%${last10}` } }
+            ]
+          } : {
             customer_phone: cleanPhone
           },
           transaction: t
@@ -157,7 +164,7 @@ export const createChallan = async (req: Request, res: Response): Promise<any> =
 
         if (existingCust) {
           const updateData: any = {};
-          if ((!existingCust.customer_name || existingCust.customer_name === 'Retail Customer') && cleanName) {
+          if ((!existingCust.customer_name || existingCust.customer_name === 'Retail Customer') && cleanName && cleanName !== 'Retail Customer') {
             updateData.customer_name = cleanName;
           }
           if (!existingCust.customer_address && cleanAddress) {
