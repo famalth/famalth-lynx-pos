@@ -22,6 +22,7 @@ import 'package:provider/provider.dart';
 
 import '../../widgets/custom_focus_node.dart';
 import '../../widgets/virtual_payment_simulator_dialog.dart';
+import '../restaurant/captain_dashboard_screen.dart';
 import '../../controllers/sales/sales_controller.dart';
 import '../../controllers/settings/property_info_controller.dart';
 import '../../controllers/settings/system_settings_controller.dart';
@@ -11417,20 +11418,22 @@ class _SaleScreenState extends State<SaleScreen> {
                                                 label: const Text('Auto-Fill Cart', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                                               )
                                             else
-                                              OutlinedButton(
+                                              OutlinedButton.icon(
                                                 style: OutlinedButton.styleFrom(
                                                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                                 ),
                                                 onPressed: () {
                                                   Navigator.pop(dlgCtx);
-                                                  setState(() {
-                                                    _preloadedTableId = tId;
-                                                    _preloadedTableName = tName;
-                                                    _preloadedKotIds = [];
-                                                  });
+                                                  Navigator.push(
+                                                    context,
+                                                    MaterialPageRoute(
+                                                      builder: (_) => CaptainDashboardScreen(initialTableId: tId),
+                                                    ),
+                                                  );
                                                 },
-                                                child: const Text('Select Table', style: TextStyle(fontSize: 11)),
+                                                icon: const Icon(Icons.restaurant_menu, size: 13),
+                                                label: const Text('Take Order (Captain)', style: TextStyle(fontSize: 11)),
                                               ),
                                           ],
                                         ),

@@ -522,6 +522,13 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
       {'key': 'AUDIT_LOGS', 'label': 'Audit Logs'},
     ];
 
+    final masterModules = [
+      {'key': 'RETAIL_MASTERS', 'label': 'Retail Masters'},
+      {'key': 'HR_MASTERS', 'label': 'HR & Payroll Masters (Incl. Employees)'},
+      {'key': 'CLINIC_MASTERS', 'label': 'Clinic Masters'},
+      {'key': 'RESTAURANT_MASTERS', 'label': 'Restaurant Masters'},
+    ];
+
     final selectedModules = {'SALES', 'INVENTORY', 'PURCHASES', 'FINANCE', 'HRMS', 'CLINIC', 'AUDIT_LOGS'};
     String dateFilterType = 'OLDER_THAN';
     int olderThanYears = 5;
@@ -820,6 +827,68 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                         spacing: 8,
                         runSpacing: 6,
                         children: modules.map((m) {
+                          final key = m['key'] as String;
+                          final isSel = selectedModules.contains(key);
+                          return FilterChip(
+                            label: Text(m['label'] as String, style: TextStyle(fontSize: 12, color: isSel ? Colors.red.shade900 : null)),
+                            selected: isSel,
+                            selectedColor: Colors.red.withValues(alpha: 0.15),
+                            checkmarkColor: Colors.red.shade900,
+                            onSelected: isPurgeInProgress ? null : (selected) {
+                              setDialogState(() {
+                                if (selected) {
+                                  selectedModules.add(key);
+                                } else {
+                                  selectedModules.remove(key);
+                                }
+                              });
+                              fetchPreview();
+                            },
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            '3. Master Data to Purge (Excl. Users, Outlet-Scoped):',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
+                          ),
+                          TextButton(
+                            onPressed: isPurgeInProgress
+                                ? null
+                                : () {
+                                    setDialogState(() {
+                                      final allMasterKeys = masterModules.map((m) => m['key'] as String).toSet();
+                                      final hasAll = allMasterKeys.every((k) => selectedModules.contains(k));
+                                      if (hasAll) {
+                                        selectedModules.removeAll(allMasterKeys);
+                                      } else {
+                                        selectedModules.addAll(allMasterKeys);
+                                      }
+                                    });
+                                    fetchPreview();
+                                  },
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: Text(
+                              masterModules.every((m) => selectedModules.contains(m['key']))
+                                  ? 'Deselect All Masters'
+                                  : 'Delete All Master Data',
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.red),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: masterModules.map((m) {
                           final key = m['key'] as String;
                           final isSel = selectedModules.contains(key);
                           return FilterChip(

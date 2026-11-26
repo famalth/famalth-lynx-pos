@@ -47,9 +47,15 @@ class AppBrandingModel {
     final companyName =
         (json['company_name'] ?? defaults.companyName).toString().trim();
 
+    final rawProductName = _valueOrDefault(json['product_name'], defaults.productName);
+    final normalizedProductName =
+        rawProductName.toLowerCase() == 'famalth inventory'
+            ? defaults.productName
+            : rawProductName;
+
     return AppBrandingModel(
       companyName: companyName.isEmpty ? defaults.companyName : companyName,
-      productName: _valueOrDefault(json['product_name'], defaults.productName),
+      productName: normalizedProductName,
       supportEmail: _valueOrDefault(
         json['support_email'],
         defaults.supportEmail,

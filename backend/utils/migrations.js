@@ -5649,6 +5649,26 @@ COMMIT;
         );
       `);
         }
+    },
+    {
+        version: 133,
+        description: 'Normalize legacy Famalth Inventory product_name to FAMALTH LYNX in app_branding',
+        up: async (db) => {
+            await db.query(`
+        UPDATE app_branding
+        SET product_name = 'FAMALTH LYNX'
+        WHERE LOWER(TRIM(product_name)) = 'famalth inventory';
+      `);
+        }
+    },
+    {
+        version: 134,
+        description: 'Add office_id column to hr_holidays for office-specific or all-office holidays',
+        up: async (db) => {
+            await db.query(`
+        ALTER TABLE hr_holidays ADD COLUMN IF NOT EXISTS office_id INTEGER;
+      `);
+        }
     }
 ];
 exports.default = exports.migrations;

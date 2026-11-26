@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -88,6 +89,73 @@ void main() async {
 class MyApp extends StatelessWidget {
   final Widget? homeWidget;
   const MyApp({super.key, this.homeWidget});
+
+  Widget _resolveInitialHome() {
+    if (homeWidget != null) return homeWidget!;
+    if (!kIsWeb) return const SplashScreen();
+
+    Uri effectiveUri = Uri.base;
+    if ((effectiveUri.path.isEmpty || effectiveUri.path == '/') &&
+        effectiveUri.fragment.isNotEmpty) {
+      final frag = effectiveUri.fragment.startsWith('/')
+          ? effectiveUri.fragment
+          : '/${effectiveUri.fragment}';
+      final parsedFrag = Uri.tryParse(frag);
+      if (parsedFrag != null) {
+        effectiveUri = parsedFrag;
+      }
+    }
+
+    final path = effectiveUri.path;
+    final qp = effectiveUri.queryParameters;
+
+    if (path == '/dining' ||
+        path == '/table' ||
+        path == '/menu' ||
+        path.startsWith('/dining') ||
+        path.startsWith('/table') ||
+        path.startsWith('/menu')) {
+      return TableDiningScreen(
+        outletId: qp['outlet_id'] ?? qp['outlet'],
+        tableId: qp['table_id'] ?? qp['table'],
+        tableName: qp['table_name'],
+        seatNumber: qp['seat'] ?? qp['seat_no'] ?? qp['seat_id'],
+        clientTag: qp['client_tag'] ?? qp['bill'],
+      );
+    }
+
+    if (path == '/enterprise' ||
+        path == '/enterprise-console' ||
+        path == '/control-plane' ||
+        path.startsWith('/enterprise') ||
+        path.startsWith('/control-plane')) {
+      return const ControlPlaneLoginScreen();
+    }
+
+    if (path == '/clinic' ||
+        path == '/doctor' ||
+        path == '/appointments' ||
+        path == '/book-appointment' ||
+        path.startsWith('/clinic') ||
+        path.startsWith('/doctor') ||
+        path.startsWith('/appointments') ||
+        path.startsWith('/book-appointment')) {
+      return PublicAppointmentBookingScreen(
+        initialOutletId: qp['outlet_id'] ?? qp['outlet'],
+        initialDoctorName: qp['doctor'] ?? qp['doctor_name'],
+      );
+    }
+
+    if (path == '/driver' ||
+        path == '/driver-portal' ||
+        path == '/transport-driver' ||
+        path.startsWith('/driver') ||
+        path.startsWith('/transport-driver')) {
+      return const DriverPortalScreen();
+    }
+
+    return const SplashScreen();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -414,7 +482,13 @@ class MyApp extends StatelessWidget {
       },
       onGenerateRoute: (settings) {
         final uri = Uri.tryParse(settings.name ?? '');
-        if (uri != null && (uri.path == '/dining' || uri.path == '/table' || uri.path.startsWith('/dining') || uri.path.startsWith('/table'))) {
+        if (uri != null &&
+            (uri.path == '/dining' ||
+             uri.path == '/table' ||
+             uri.path == '/menu' ||
+             uri.path.startsWith('/dining') ||
+             uri.path.startsWith('/table') ||
+             uri.path.startsWith('/menu'))) {
           final outletId = uri.queryParameters['outlet_id'] ?? uri.queryParameters['outlet'];
           final tableId = uri.queryParameters['table_id'] ?? uri.queryParameters['table'];
           final tableName = uri.queryParameters['table_name'];
@@ -469,7 +543,7 @@ class MyApp extends StatelessWidget {
         return null;
       },
       home: AppLifecycleObserver(
-        child: homeWidget ?? const SplashScreen(),
+        child: _resolveInitialHome(),
       ),
     );
   }

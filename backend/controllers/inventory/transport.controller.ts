@@ -59,7 +59,7 @@ export class TransportController {
             model: (req as any).propertyDb.models.transport_drivers,
             as: 'current_driver',
             required: false,
-            attributes: ['id', 'driver_name', 'phone', 'license_number']
+            attributes: ['id', 'driver_name', 'phone', 'license_number', 'last_latitude', 'last_longitude', 'last_location_address', 'last_location_updated']
           }
         ],
         order: [['vehicle_number', 'ASC']]
@@ -255,7 +255,7 @@ export class TransportController {
       }
 
       let password_hash = null;
-      if (password && password.toString().trim().isNotEmpty) {
+      if (password && password.toString().trim().length > 0) {
         const bcrypt = require('bcryptjs');
         password_hash = await bcrypt.hash(password.toString().trim(), 10);
       } else {
@@ -706,9 +706,26 @@ export class TransportController {
           ]
         });
 
+        let driverData = plainVehicle.current_driver;
+        if (driverData && (driverData.last_latitude == null || driverData.last_longitude == null) && (req as any).propertyDb.models.transport_driver_locations) {
+          const latestLoc = await (req as any).propertyDb.models.transport_driver_locations.findOne({
+            where: { driver_id: driverData.id },
+            order: [['created_at', 'DESC']]
+          }).catch(() => null);
+          if (latestLoc) {
+            driverData = {
+              ...driverData,
+              last_latitude: latestLoc.latitude,
+              last_longitude: latestLoc.longitude,
+              last_location_address: latestLoc.address || driverData.last_location_address,
+              last_location_updated: latestLoc.created_at
+            };
+          }
+        }
+
         activeTrips.push({
           vehicle: plainVehicle,
-          driver: plainVehicle.current_driver,
+          driver: driverData,
           trip_id: plainVehicle.current_trip_id,
           challan_count: challans.length,
           challans

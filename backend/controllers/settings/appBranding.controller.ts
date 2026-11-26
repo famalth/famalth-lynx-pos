@@ -14,7 +14,7 @@ export interface AppBrandingData {
 
 export const defaultBranding: AppBrandingData = {
   company_name: 'Famalth Technologies',
-  product_name: 'Famalth Inventory',
+  product_name: 'FAMALTH LYNX',
   support_email: 'help@famalth.com',
   support_website: 'www.famalth.com',
   support_phone: '+91-00000-00000',

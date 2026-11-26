@@ -11,6 +11,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/auth/token_storage.dart';
+import '../../core/config/app_config.dart';
+import '../dashboard/server_config_screen.dart';
+import 'employee_app_splash_screen.dart';
 // import currency service
 
 class EmployeePortalScreen extends StatefulWidget {
@@ -1767,6 +1770,21 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
           ],
         ),
         actions: [
+          if (!_isLoggedIn)
+            IconButton(
+              icon: const Icon(Icons.dns_outlined, color: accentIndigo),
+              tooltip: 'Server Connection Settings',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ServerConfigScreen(
+                      nextScreen: EmployeeAppSplashScreen(),
+                    ),
+                  ),
+                );
+              },
+            ),
           if (_isLoggedIn) ...[
             IconButton(
               icon: const Icon(Icons.refresh_rounded, color: accentIndigo),
@@ -1935,6 +1953,41 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
                 child: _isLoggingIn
                     ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                     : const Text('Login to Employee App', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              ),
+              const SizedBox(height: 14),
+              InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const ServerConfigScreen(
+                        nextScreen: EmployeeAppSplashScreen(),
+                      ),
+                    ),
+                  );
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.dns_outlined, size: 14, color: Color(0xFF64748B)),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          'Server: ${AppConfig.baseUrl} (Tap to change)',
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            color: Color(0xFF64748B),
+                            decoration: TextDecoration.underline,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ],
           ),

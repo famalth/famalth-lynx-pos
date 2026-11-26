@@ -13,6 +13,7 @@ const zlib_1 = __importDefault(require("zlib"));
 const crypto_1 = __importDefault(require("crypto"));
 const sequelize_1 = require("sequelize");
 const postRestoreHealing_1 = require("../utils/postRestoreHealing");
+const masterDedupe_1 = require("../utils/masterDedupe");
 const archiver = require('archiver');
 const rootDir = process.pkg ? path_1.default.dirname(process.execPath) : process.cwd();
 const canonicalRootDir = path_1.default.basename(rootDir) === 'backend' ? path_1.default.dirname(rootDir) : rootDir;
@@ -1441,9 +1442,12 @@ class TenantBackupService {
         const masterEntityTables = new Set([
             'tax_groups', 'tax_group_components', 'item_groups', 'subcategories', 'brands',
             'system_settings', 'app_branding', 'paymentMethod', 'saleSource', 'numbering_settings',
-            'stock_locations', 'item_master', 'item_modifiers', 'item_boms',
-            'customers', 'supplier_master', 'restaurant_tables', 'table_reservations',
-            'hr_offices', 'hr_designations', 'hr_shifts', 'hr_holidays', 'hr_leave_types', 'hr_salary_components', 'hr_pay_structures', 'hr_employees', 'hr_biometric_devices', 'bank_accounts'
+            'stock_locations', 'item_master', 'item_modifiers', 'item_boms', 'product_templates', 'item_attributes',
+            'customers', 'suppliers', 'supplier_master', 'restaurant_tables', 'restaurant_floors', 'kitchen_stations', 'kot_printers', 'table_reservations',
+            'taxes_master', 'tax_profiles', 'document_sequences', 'bill_value_promos', 'sales_schemes',
+            'clinic_doctors', 'clinic_services', 'clinic_patients',
+            'transport_vehicles', 'transport_drivers',
+            'hr_offices', 'hr_departments', 'hr_designations', 'hr_shifts', 'hr_holidays', 'hr_leave_types', 'hr_salary_components', 'hr_pay_structures', 'hr_employees', 'hr_biometric_devices', 'bank_accounts'
         ]);
         // Topological dependency order: Independent Masters -> Purchases -> Sales -> Sales-Dependents -> Ledgers
         const restoreOrder = [
@@ -1576,9 +1580,13 @@ class TenantBackupService {
                     for (const item of safeChildDeletes) {
                         if (existingTables.size === 0 || existingTables.has(item.tbl)) {
                             try {
+                                await activeDb.query('SAVEPOINT sp_del', { transaction: t });
                                 await activeDb.query(item.q, { replacements: { destOutletId }, transaction: t });
+                                await activeDb.query('RELEASE SAVEPOINT sp_del', { transaction: t });
                             }
-                            catch (_) { }
+                            catch (_) {
+                                await activeDb.query('ROLLBACK TO SAVEPOINT sp_del', { transaction: t }).catch(() => {});
+                            }
                         }
                     }
                 }
@@ -1631,6 +1639,19 @@ class TenantBackupService {
                             if (rowCopy.level2_approver_id)
                                 rowCopy.level2_approver_id = null;
                         }
+                        // Prevent duplicate masters when IDs differ from auto-created records
+                        const shouldUpsert = options.overwriteExisting === true || masterEntityTables.has(tbl);
+                        if (masterDedupe_1.MASTER_NATURAL_KEYS[tbl]) {
+                            const existingMasterId = await (0, masterDedupe_1.findExistingMasterByNaturalKey)(activeDb, tbl, rowCopy, validColMap, t);
+                            if (existingMasterId !== null && existingMasterId !== rowCopy.id) {
+                                if (shouldUpsert && pks.includes('id')) {
+                                    rowCopy.id = existingMasterId;
+                                }
+                                else {
+                                    continue;
+                                }
+                            }
+                        }
                         const cols = Object.keys(rowCopy).filter(c => !validColMap || validColMap.has(c));
                         if (cols.length === 0)
                             continue;
@@ -1648,7 +1669,6 @@ class TenantBackupService {
                             return val;
                         });
                         // Upsert strategy: Overwrite on Rollback, or Merge upsert for Entity Masters
-                        const shouldUpsert = options.overwriteExisting === true || masterEntityTables.has(tbl);
                         let sql = `INSERT INTO "${tbl}" (${colList}) VALUES (${valPlaceholders})`;
                         if (shouldUpsert && pks.length > 0) {
                             const nonPkCols = cols.filter(c => !pks.includes(c));
@@ -1664,10 +1684,15 @@ class TenantBackupService {
                             sql += ` ON CONFLICT DO NOTHING;`;
                         }
                         try {
-                            await activeDb.query(sql, { bind: values, transaction: t });
-                            totalRecordsRestored++;
+                            await activeDb.query('SAVEPOINT sp_row', { transaction: t });
+                            const qRes = await activeDb.query(sql, { bind: values, transaction: t });
+                            await activeDb.query('RELEASE SAVEPOINT sp_row', { transaction: t });
+                            const affected = Number(qRes?.[1]?.rowCount ?? 1);
+                            totalRecordsRestored += (affected > 0 ? affected : 0);
                         }
-                        catch (_) { }
+                        catch (_) {
+                            await activeDb.query('ROLLBACK TO SAVEPOINT sp_row', { transaction: t }).catch(() => {});
+                        }
                     }
                     tablesRestored.push(tbl);
                 }
@@ -1714,13 +1739,26 @@ class TenantBackupService {
                         continue;
                     const pks = pkMap.get(tbl) || [];
                     for (const row of rows) {
-                        const cols = Object.keys(row).filter(c => !validColMap || validColMap.has(c));
+                        const rowCopy = { ...row };
+                        const shouldUpsert = options.overwriteExisting === true || masterEntityTables.has(tbl);
+                        if (masterDedupe_1.MASTER_NATURAL_KEYS[tbl]) {
+                            const existingMasterId = await (0, masterDedupe_1.findExistingMasterByNaturalKey)(activeDb, tbl, rowCopy, validColMap, t);
+                            if (existingMasterId !== null && existingMasterId !== rowCopy.id) {
+                                if (shouldUpsert && pks.includes('id')) {
+                                    rowCopy.id = existingMasterId;
+                                }
+                                else {
+                                    continue;
+                                }
+                            }
+                        }
+                        const cols = Object.keys(rowCopy).filter(c => !validColMap || validColMap.has(c));
                         if (cols.length === 0)
                             continue;
                         const colList = cols.map(c => `"${c}"`).join(', ');
                         const valPlaceholders = cols.map((_, idx) => `$${idx + 1}`).join(', ');
                         const values = cols.map(c => {
-                            const val = row[c];
+                            const val = rowCopy[c];
                             const dtype = validColMap ? validColMap.get(c) : null;
                             if (val !== null && typeof val === 'object' && !(val instanceof Date) && !Buffer.isBuffer(val)) {
                                 return JSON.stringify(val);
@@ -1730,7 +1768,6 @@ class TenantBackupService {
                             }
                             return val;
                         });
-                        const shouldUpsert = options.overwriteExisting === true || masterEntityTables.has(tbl);
                         let sql = `INSERT INTO "${tbl}" (${colList}) VALUES (${valPlaceholders})`;
                         if (shouldUpsert && pks.length > 0) {
                             const nonPkCols = cols.filter(c => !pks.includes(c));
@@ -1746,10 +1783,15 @@ class TenantBackupService {
                             sql += ` ON CONFLICT DO NOTHING;`;
                         }
                         try {
-                            await activeDb.query(sql, { bind: values, transaction: t });
-                            totalRecordsRestored++;
+                            await activeDb.query('SAVEPOINT sp_row', { transaction: t });
+                            const qRes = await activeDb.query(sql, { bind: values, transaction: t });
+                            await activeDb.query('RELEASE SAVEPOINT sp_row', { transaction: t });
+                            const affected = Number(qRes?.[1]?.rowCount ?? 1);
+                            totalRecordsRestored += (affected > 0 ? affected : 0);
                         }
-                        catch (_) { }
+                        catch (_) {
+                            await activeDb.query('ROLLBACK TO SAVEPOINT sp_row', { transaction: t }).catch(() => {});
+                        }
                     }
                     tablesRestored.push(tbl);
                 }

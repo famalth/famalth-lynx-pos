@@ -62,78 +62,15 @@ exports.login = async (req, res, next) => {
         }
 
         const cleanUser = (username || '').trim();
-        const outletCode = currentOutlet.outlet_code;
 
-        let user = await db.models.users.findOne({
+        // Strict outlet-scoped exact username lookup: prevent cross-outlet or wildcard username access
+        const user = await db.models.users.findOne({
             where: {
-                [Op.or]: [
-                    { username: { [Op.iLike]: cleanUser } },
-                    { username: { [Op.iLike]: `admin_${outletCode}` } },
-                    { username: { [Op.iLike]: `admin_${outletCode.toLowerCase()}` } },
-                    { username: { [Op.iLike]: `${cleanUser}_${outletCode.toLowerCase()}` } },
-                    { username: { [Op.iLike]: `${cleanUser}_${outletCode}` } }
-                ],
+                username: { [Op.iLike]: cleanUser },
                 outlet_id: currentOutlet.id,
                 is_active: true
             }
         });
-
-        if (!user && (cleanUser.toLowerCase() === 'admin' || cleanUser.toLowerCase() === `admin_${outletCode}`.toLowerCase())) {
-            user = await db.models.users.findOne({
-                where: {
-                    [Op.or]: [
-                        { username: { [Op.iLike]: `admin_${outletCode}` } },
-                        { username: { [Op.iLike]: 'admin' } }
-                    ],
-                    outlet_id: currentOutlet.id,
-                    is_active: true
-                }
-            });
-        }
-
-        if (!user) {
-            user = await db.models.users.findOne({
-                where: {
-                    [Op.or]: [
-                        { username: { [Op.iLike]: cleanUser } },
-                        { username: { [Op.iLike]: cleanUser.replace(/1$/, '') } },
-                        { username: { [Op.iLike]: `${cleanUser}1` } },
-                        { username: { [Op.iLike]: `${cleanUser}_${outletCode.toLowerCase()}` } },
-                        { username: { [Op.iLike]: `${cleanUser}_${outletCode}` } }
-                    ],
-                    outlet_id: currentOutlet.id,
-                    role: { [Op.in]: ['ADMIN', 'SUPER_ADMIN'] },
-                    is_active: true
-                }
-            });
-        }
-
-        if (!user && (cleanUser.toLowerCase() === 'famalth' || cleanUser.toLowerCase() === 'admin' || cleanUser.toLowerCase() === `admin_${outletCode}`.toLowerCase())) {
-            user = await db.models.users.findOne({
-                where: {
-                    outlet_id: currentOutlet.id,
-                    role: { [Op.in]: ['ADMIN', 'SUPER_ADMIN'] },
-                    is_active: true
-                }
-            });
-        }
-
-        // Global master admin fallback: If famalth or a SUPER_ADMIN exists globally in the system, allow authentication across all registered outlets
-        if (!user && (cleanUser.toLowerCase() === 'famalth' || cleanUser.toLowerCase() === 'superadmin' || cleanUser.toLowerCase() === 'admin')) {
-            const masterUser = await db.models.users.findOne({
-                where: {
-                    [Op.or]: [
-                        { username: { [Op.iLike]: cleanUser } },
-                        { username: { [Op.iLike]: 'famalth' } }
-                    ],
-                    role: { [Op.in]: ['ADMIN', 'SUPER_ADMIN', 'ENTERPRISE_ADMIN'] },
-                    is_active: true
-                }
-            });
-            if (masterUser) {
-                user = masterUser;
-            }
-        }
 
         if (!user || !user.is_active) {
             return res.status(401).json({ success: false, message: 'Invalid user for this outlet.' });

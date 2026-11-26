@@ -70,6 +70,7 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
           _driverProfile = res['driver'];
           _initLastLocationMsg();
           _startHourlyLocationTracking();
+          _sendGpsLocationPing(silent: true);
           await _fetchDriverTrips();
           setState(() => _isLoading = false);
           return;

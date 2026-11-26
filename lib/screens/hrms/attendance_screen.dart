@@ -1229,7 +1229,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                   const SizedBox(height: 6),
                   DropdownButtonFormField<int>(
                     value: selectedEmpId,
-                    items: _employeesList.map((e) {
+                    items: _employeesList.where((e) {
+                      final st = (e['status'] ?? 'Active').toString().toLowerCase();
+                      final isActiveFlag = e['is_active'] != false;
+                      return isActiveFlag && st != 'terminated' && st != 'inactive';
+                    }).map((e) {
                       return DropdownMenuItem<int>(
                         value: e['id'] as int,
                         child: Text(e['full_name'] ?? ''),
@@ -1459,6 +1463,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
   void _showHolidaysDialog() {
     final nameCtrl = TextEditingController();
     DateTime? selectedDate = DateTime.now();
+    int? selectedOfficeId; // null = All Offices
     
     showDialog(
       context: context,
@@ -1473,8 +1478,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
             ],
           ),
           content: SizedBox(
-            width: 400,
-            height: 400,
+            width: 420,
+            height: 450,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1489,6 +1494,27 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                   ),
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<int?>(
+                  value: selectedOfficeId,
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    labelText: 'Applicable Office',
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  items: [
+                    const DropdownMenuItem<int?>(
+                      value: null,
+                      child: Text('All Offices (Company-wide)', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                    ),
+                    ..._offices.map((o) => DropdownMenuItem<int?>(
+                      value: int.tryParse(o['id'].toString()),
+                      child: Text('${o['office_code'] ?? ''} - ${o['office_name'] ?? ''}', style: const TextStyle(fontSize: 12.5)),
+                    )),
+                  ],
+                  onChanged: (v) => setD(() => selectedOfficeId = v),
                 ),
                 const SizedBox(height: 8),
                 Row(
@@ -1524,6 +1550,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                           await ApiClient.post('/api/hrms/holidays', {
                             'name': nameCtrl.text.trim(),
                             'holiday_date': DateFormat('yyyy-MM-dd').format(selectedDate!),
+                            'office_id': selectedOfficeId,
                           });
                           nameCtrl.clear();
                           // Reload
@@ -1547,10 +1574,21 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                           separatorBuilder: (c, i) => const Divider(height: 1),
                           itemBuilder: (c, idx) {
                             final h = _holidaysList[idx];
+                            final hOfficeId = h['office_id'];
+                            String officeLabel = 'All Offices';
+                            if (hOfficeId != null) {
+                              final match = _offices.firstWhere(
+                                (o) => o['id'].toString() == hOfficeId.toString(),
+                                orElse: () => <String, dynamic>{},
+                              );
+                              officeLabel = match.isNotEmpty
+                                  ? '${match['office_name'] ?? match['office_code'] ?? 'Office #$hOfficeId'}'
+                                  : 'Office #$hOfficeId';
+                            }
                             return ListTile(
                               contentPadding: EdgeInsets.zero,
                               title: Text(h['name'] ?? '', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                              subtitle: Text(h['holiday_date'] ?? '', style: const TextStyle(fontSize: 11)),
+                              subtitle: Text('${h['holiday_date'] ?? ''}  •  $officeLabel', style: const TextStyle(fontSize: 11)),
                               trailing: IconButton(
                                 icon: const Icon(Icons.delete_outline, color: Colors.red, size: 18),
                                 onPressed: () async {

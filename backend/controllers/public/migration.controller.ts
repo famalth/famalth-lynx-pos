@@ -7,6 +7,7 @@ import { processBackup } from '../../modules/backupService';
 import { restoreFromEncBuffer, cleanDatabaseSchema } from '../../modules/restore';
 import { sign } from '../../utils/jwt.util';
 import loadConfig from '../../utils/decryptConfig';
+import { MASTER_NATURAL_KEYS, findExistingMasterByNaturalKey } from '../../utils/masterDedupe';
 
 const isCompiled = typeof (process as any).pkg !== 'undefined';
 const rootDir = isCompiled ? path.dirname(process.execPath) : process.cwd();
@@ -487,8 +488,21 @@ async function insertRowsBatch(
     const BATCH_SIZE = 50;
     let inserted = 0;
 
-    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-        const chunk = rows.slice(i, i + BATCH_SIZE);
+    let filteredRows = rows;
+    if (MASTER_NATURAL_KEYS[tableName]) {
+        const deduped: any[] = [];
+        for (const r of rows) {
+            const existingId = await findExistingMasterByNaturalKey(db, tableName, r, colSet);
+            if (existingId === null) {
+                deduped.push(r);
+            }
+        }
+        filteredRows = deduped;
+        if (filteredRows.length === 0) return 0;
+    }
+
+    for (let i = 0; i < filteredRows.length; i += BATCH_SIZE) {
+        const chunk = filteredRows.slice(i, i + BATCH_SIZE);
         const valuePlaceholders: string[] = [];
         const bindValues: any[] = [];
         let pIdx = 1;

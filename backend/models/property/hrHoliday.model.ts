@@ -2,6 +2,7 @@ module.exports = (sequelize, DataTypes) => {
     const HrHoliday = sequelize.define('hr_holidays', {
         id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
         outlet_id: { type: DataTypes.INTEGER, allowNull: false },
+        office_id: { type: DataTypes.INTEGER, allowNull: true },
         name: { type: DataTypes.STRING(150), allowNull: false },
         holiday_date: { type: DataTypes.DATEONLY, allowNull: false },
         is_recurring: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }

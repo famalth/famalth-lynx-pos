@@ -2637,11 +2637,18 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
       } catch (_) {}
     }
 
+    final activeEmps = (_employeesList.isNotEmpty
+            ? _employeesList
+            : _previewData.map((e) => Map<String, dynamic>.from(e)).toList())
+        .where((e) {
+      final st = (e['status'] ?? 'Active').toString().toLowerCase();
+      final isActiveFlag = e['is_active'] != false;
+      return isActiveFlag && st != 'terminated' && st != 'inactive';
+    }).toList();
+
     int? selectedEmpId;
-    if (_previewData.isNotEmpty) {
-      selectedEmpId = _previewData.first['employee_id'] as int?;
-    } else if (_employeesList.isNotEmpty) {
-      selectedEmpId = _employeesList.first['id'] as int?;
+    if (activeEmps.isNotEmpty) {
+      selectedEmpId = (activeEmps.first['id'] ?? activeEmps.first['employee_id']) as int?;
     }
 
     final amountCtrl = TextEditingController();
@@ -2677,15 +2684,24 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     ),
-                    items: (_employeesList.isNotEmpty ? _employeesList : _previewData).map((e) {
-                      final id = (e['id'] ?? e['employee_id']) as int;
-                      final name = e['full_name'] ?? e['employee_name'] ?? 'Employee';
-                      final code = e['employee_code'] ?? '';
-                      return DropdownMenuItem<int>(
-                        value: id,
-                        child: Text('$name ($code)', overflow: TextOverflow.ellipsis),
-                      );
-                    }).toList(),
+                    items: [
+                      DropdownMenuItem<int>(
+                        value: -1,
+                        child: Text(
+                          'All Active Employees (${activeEmps.length})',
+                          style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFDC2626)),
+                        ),
+                      ),
+                      ...activeEmps.map((e) {
+                        final id = (e['id'] ?? e['employee_id']) as int;
+                        final name = e['full_name'] ?? e['employee_name'] ?? 'Employee';
+                        final code = e['employee_code'] ?? '';
+                        return DropdownMenuItem<int>(
+                          value: id,
+                          child: Text('$name ($code)', overflow: TextOverflow.ellipsis),
+                        );
+                      }),
+                    ],
                     onChanged: (val) => setDState(() => selectedEmpId = val),
                   ),
                   const SizedBox(height: 12),
@@ -2756,26 +2772,50 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                 }
                 Navigator.pop(dctx);
                 try {
-                  final body = {
-                    'employee_id': selectedEmpId,
-                    'amount': amt,
-                    'category': category,
-                    'reason': reasonCtrl.text.trim().isEmpty ? 'Disciplinary fine' : reasonCtrl.text.trim(),
-                    'penalty_date': DateFormat('yyyy-MM-dd').format(DateTime.now()),
-                    'pay_period': period,
-                  };
-                  final res = await ApiClient.post('/api/hrms/penalties', body);
-                  if (res['success'] == true) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      content: Text(res['message'] ?? 'Penalty queued and adjusted into salary payroll.'),
-                      backgroundColor: const Color(0xFF059669),
-                    ));
+                  if (selectedEmpId == -1) {
+                    int successCount = 0;
+                    for (final e in activeEmps) {
+                      final empId = (e['id'] ?? e['employee_id']) as int;
+                      final body = {
+                        'employee_id': empId,
+                        'amount': amt,
+                        'category': category,
+                        'reason': reasonCtrl.text.trim().isEmpty ? 'Disciplinary fine' : reasonCtrl.text.trim(),
+                        'penalty_date': DateFormat('yyyy-MM-dd').format(DateTime.now()),
+                        'pay_period': period,
+                      };
+                      final res = await ApiClient.post('/api/hrms/penalties', body);
+                      if (res['success'] == true) successCount++;
+                    }
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text('Penalty applied to $successCount of ${activeEmps.length} active employees.'),
+                        backgroundColor: const Color(0xFF059669),
+                      ));
+                    }
                     _loadTabContent();
                   } else {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      content: Text(res['message'] ?? 'Failed to apply penalty.'),
-                      backgroundColor: const Color(0xFFDC2626),
-                    ));
+                    final body = {
+                      'employee_id': selectedEmpId,
+                      'amount': amt,
+                      'category': category,
+                      'reason': reasonCtrl.text.trim().isEmpty ? 'Disciplinary fine' : reasonCtrl.text.trim(),
+                      'penalty_date': DateFormat('yyyy-MM-dd').format(DateTime.now()),
+                      'pay_period': period,
+                    };
+                    final res = await ApiClient.post('/api/hrms/penalties', body);
+                    if (res['success'] == true) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text(res['message'] ?? 'Penalty queued and adjusted into salary payroll.'),
+                        backgroundColor: const Color(0xFF059669),
+                      ));
+                      _loadTabContent();
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text(res['message'] ?? 'Failed to apply penalty.'),
+                        backgroundColor: const Color(0xFFDC2626),
+                      ));
+                    }
                   }
                 } catch (e) {
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -3332,9 +3372,21 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
     try {
       final res = await ApiClient.get(ApiEndpoints.hrmsPayStructures);
       payStructures = List<Map<String, dynamic>>.from(res['data'] ?? []);
+      if (_employeesList.isEmpty) {
+        final empRes = await ApiClient.get(ApiEndpoints.hrmsEmployees);
+        if (empRes['success'] == true && empRes['data'] != null) {
+          _employeesList = List<Map<String, dynamic>>.from(empRes['data'] ?? []);
+        }
+      }
     } catch (_) {}
 
     if (mounted) Navigator.pop(context);
+
+    final activeRevisionEmps = _employeesList.where((e) {
+      final st = (e['status'] ?? 'Active').toString().toLowerCase();
+      final isActiveFlag = e['is_active'] != false;
+      return isActiveFlag && st != 'terminated' && st != 'inactive';
+    }).toList();
 
     String revisionType = 'Percentage';
     final valueCtrl = TextEditingController(text: '10');
@@ -3342,6 +3394,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
     String target = 'All';
     dynamic selectedGradeId;
     dynamic selectedOfficeTargetId;
+    int? selectedRevisionEmpId = activeRevisionEmps.isNotEmpty ? activeRevisionEmps.first['id'] as int? : null;
 
     showDialog(
       context: context,
@@ -3437,8 +3490,43 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                         }),
                       ),
                     ),
+                    SizedBox(
+                      width: 135,
+                      child: RadioListTile<String>(
+                        title: const Text('By Employee', style: TextStyle(fontSize: 12)),
+                        value: 'Employee',
+                        groupValue: target,
+                        activeColor: const Color(0xFFE03E2D),
+                        contentPadding: EdgeInsets.zero,
+                        onChanged: (v) => setDs(() {
+                          target = v!;
+                          if (activeRevisionEmps.isNotEmpty && selectedRevisionEmpId == null) {
+                            selectedRevisionEmpId = activeRevisionEmps.first['id'] as int?;
+                          }
+                        }),
+                      ),
+                    ),
                   ],
                 ),
+                if (target == 'Employee') ...[
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<int>(
+                    value: selectedRevisionEmpId,
+                    isExpanded: true,
+                    hint: const Text('Select Employee'),
+                    items: activeRevisionEmps
+                        .map((e) => DropdownMenuItem<int>(
+                              value: e['id'] as int,
+                              child: Text('${e['full_name'] ?? 'Employee'} (${e['employee_code'] ?? ''})', overflow: TextOverflow.ellipsis),
+                            ))
+                        .toList(),
+                    onChanged: (v) => setDs(() => selectedRevisionEmpId = v),
+                    decoration: InputDecoration(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ],
                 if (target == 'Office') ...[
                   const SizedBox(height: 8),
                   DropdownButtonFormField<dynamic>(
@@ -3538,11 +3626,19 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                   );
                   return;
                 }
+                if (target == 'Employee' && selectedRevisionEmpId == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Please select an employee')),
+                  );
+                  return;
+                }
                 try {
                   final payload = {
                     'type': revisionType,
                     'value': val,
                     'designation_id': target == 'Designation' ? selectedGradeId : null,
+                    'office_id': target == 'Office' ? selectedOfficeTargetId : null,
+                    'employee_ids': target == 'Employee' && selectedRevisionEmpId != null ? [selectedRevisionEmpId] : null,
                     'effective_date': DateFormat('yyyy-MM-dd').format(effectiveDate),
                   };
                   final res = await ApiClient.post('/api/hrms/payroll/bulk-revise', payload);
@@ -3904,11 +4000,18 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
       } catch (_) {}
     }
 
+    final activeEmps = (_employeesList.isNotEmpty
+            ? _employeesList
+            : _previewData.map((e) => Map<String, dynamic>.from(e)).toList())
+        .where((e) {
+      final st = (e['status'] ?? 'Active').toString().toLowerCase();
+      final isActiveFlag = e['is_active'] != false;
+      return isActiveFlag && st != 'terminated' && st != 'inactive';
+    }).toList();
+
     int? selectedEmpId;
-    if (_previewData.isNotEmpty) {
-      selectedEmpId = _previewData.first['employee_id'] as int?;
-    } else if (_employeesList.isNotEmpty) {
-      selectedEmpId = _employeesList.first['id'] as int?;
+    if (activeEmps.isNotEmpty) {
+      selectedEmpId = (activeEmps.first['id'] ?? activeEmps.first['employee_id']) as int?;
     }
 
     final amountCtrl = TextEditingController();
@@ -3946,15 +4049,24 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     ),
-                    items: (_employeesList.isNotEmpty ? _employeesList : _previewData).map((e) {
-                      final id = (e['id'] ?? e['employee_id']) as int;
-                      final name = e['full_name'] ?? e['employee_name'] ?? 'Employee';
-                      final code = e['employee_code'] ?? '';
-                      return DropdownMenuItem<int>(
-                        value: id,
-                        child: Text('$name ($code)', overflow: TextOverflow.ellipsis),
-                      );
-                    }).toList(),
+                    items: [
+                      DropdownMenuItem<int>(
+                        value: -1,
+                        child: Text(
+                          'All Active Employees (${activeEmps.length})',
+                          style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFDC2626)),
+                        ),
+                      ),
+                      ...activeEmps.map((e) {
+                        final id = (e['id'] ?? e['employee_id']) as int;
+                        final name = e['full_name'] ?? e['employee_name'] ?? 'Employee';
+                        final code = e['employee_code'] ?? '';
+                        return DropdownMenuItem<int>(
+                          value: id,
+                          child: Text('$name ($code)', overflow: TextOverflow.ellipsis),
+                        );
+                      }),
+                    ],
                     onChanged: (val) => setDState(() => selectedEmpId = val),
                   ),
                   const SizedBox(height: 12),
@@ -4071,36 +4183,68 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                   return;
                 }
                 try {
-                  final payload = {
-                    'employee_id': selectedEmpId,
-                    'amount': val,
-                    'type': itemType,
-                    'bonus_type': itemType,
-                    'payment_mode': paymentMode,
-                    'payment_method': paymentMode == 'Instant' ? paymentMethod : null,
-                    'reason': reasonCtrl.text.isEmpty ? '$itemType adjustment' : reasonCtrl.text,
-                    'payment_month': period,
-                  };
-                  final res = await ApiClient.post('/api/hrms/payroll/bonuses', payload);
-                  Navigator.pop(ctx);
-                  if (res['success'] == true) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(res['message'] ?? '$itemType added successfully!'),
-                        backgroundColor: const Color(0xFF059669),
-                      ),
-                    );
+                  if (selectedEmpId == -1) {
+                    int successCount = 0;
+                    for (final e in activeEmps) {
+                      final empId = (e['id'] ?? e['employee_id']) as int;
+                      final payload = {
+                        'employee_id': empId,
+                        'amount': val,
+                        'type': itemType,
+                        'bonus_type': itemType,
+                        'payment_mode': paymentMode,
+                        'payment_method': paymentMode == 'Instant' ? paymentMethod : null,
+                        'reason': reasonCtrl.text.isEmpty ? '$itemType adjustment' : reasonCtrl.text,
+                        'payment_month': period,
+                      };
+                      final res = await ApiClient.post('/api/hrms/payroll/bonuses', payload);
+                      if (res['success'] == true) successCount++;
+                    }
+                    Navigator.pop(ctx);
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('$itemType applied to $successCount of ${activeEmps.length} active employees!'),
+                          backgroundColor: const Color(0xFF059669),
+                        ),
+                      );
+                    }
                     _loadTabContent();
                     if (_tabController.index == 0) {
                       _fetchPreviewData();
                     }
                   } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(res['message'] ?? 'Failed to add $itemType'),
-                        backgroundColor: const Color(0xFFDC2626),
-                      ),
-                    );
+                    final payload = {
+                      'employee_id': selectedEmpId,
+                      'amount': val,
+                      'type': itemType,
+                      'bonus_type': itemType,
+                      'payment_mode': paymentMode,
+                      'payment_method': paymentMode == 'Instant' ? paymentMethod : null,
+                      'reason': reasonCtrl.text.isEmpty ? '$itemType adjustment' : reasonCtrl.text,
+                      'payment_month': period,
+                    };
+                    final res = await ApiClient.post('/api/hrms/payroll/bonuses', payload);
+                    Navigator.pop(ctx);
+                    if (res['success'] == true) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(res['message'] ?? '$itemType added successfully!'),
+                          backgroundColor: const Color(0xFF059669),
+                        ),
+                      );
+                      _loadTabContent();
+                      if (_tabController.index == 0) {
+                        _fetchPreviewData();
+                      }
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(res['message'] ?? 'Failed to add $itemType'),
+                          backgroundColor: const Color(0xFFDC2626),
+                        ),
+                      );
+                    }
                   }
                 } catch (e) {
                   Navigator.pop(ctx);

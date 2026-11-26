@@ -1678,7 +1678,7 @@ const activeDaysInPeriod = calcEnd.diff(calcStart, 'days') + 1;
       for (let d = moment(calcStart); d.isSameOrBefore(calcEnd); d.add(1, 'days')) {
         const dateStr = d.format('YYYY-MM-DD');
         const punch = punches.find(p => p.punch_date === dateStr);
-        const isHoliday = holidayDates.includes(dateStr);
+        const isHoliday = holidays.some((h: any) => h.holiday_date === dateStr && (h.office_id == null || h.office_id === emp.office_id));
         
         let isWeeklyOff = false;
         const shift = emp.shift || {};
@@ -2985,14 +2985,19 @@ exports.bulkRevise = async (req, res) => {
   const transaction = await req.propertyDb.transaction();
   try {
     const { hr_employees, hr_salary_revisions } = req.propertyDb.models;
-    const { type, value, designation_id, employee_ids, effective_date } = req.body;
+    const { type, value, designation_id, office_id, employee_ids, effective_date } = req.body;
     
     // Find target employees (designation_id represents Grade / pay_structure_id)
     const where: any = { status: 'Active', outlet_id: req.user.outlet_id };
     if (employee_ids && employee_ids.length > 0) {
       where.id = employee_ids;
-    } else if (designation_id) {
-      where.pay_structure_id = designation_id;
+    } else {
+      if (designation_id) {
+        where.pay_structure_id = designation_id;
+      }
+      if (office_id) {
+        where.office_id = office_id;
+      }
     }
     
     const employees = await hr_employees.findAll({ where, transaction });
@@ -3445,7 +3450,8 @@ exports.getHolidays = async (req, res) => {
 exports.createHoliday = async (req, res) => {
   try {
     const { hr_holidays, hr_employees, hr_attendance_punches, hr_payroll_runs } = req.propertyDb.models;
-    const { name, holiday_date, is_recurring } = req.body;
+    const { name, holiday_date, is_recurring, office_id } = req.body;
+    const parsedOfficeId = (office_id !== undefined && office_id !== null && `${office_id}`.trim() !== '') ? Number(office_id) : null;
 
     const monthStr = moment(holiday_date).format('YYYY-MM');
     const latestLockedRun = await hr_payroll_runs.findOne({
@@ -3459,14 +3465,19 @@ exports.createHoliday = async (req, res) => {
     // 1. Create holiday record
     const holiday = await hr_holidays.create({
       outlet_id: req.user.outlet_id,
+      office_id: parsedOfficeId,
       name,
       holiday_date,
       is_recurring: !!is_recurring
     });
 
-    // 2. Batch mark attendance as Holiday for all active employees on that date
+    // 2. Batch mark attendance as Holiday for active employees (all or matching office)
+    const empWhere: any = { outlet_id: req.user.outlet_id, status: 'Active' };
+    if (parsedOfficeId !== null) {
+      empWhere.office_id = parsedOfficeId;
+    }
     const employees = await hr_employees.findAll({
-      where: { outlet_id: req.user.outlet_id, status: 'Active' }
+      where: empWhere
     });
 
     for (const emp of employees) {
@@ -3505,7 +3516,7 @@ exports.createHoliday = async (req, res) => {
 
 exports.deleteHoliday = async (req, res) => {
   try {
-    const { hr_holidays, hr_attendance_punches, hr_payroll_runs } = req.propertyDb.models;
+    const { hr_holidays, hr_employees, hr_attendance_punches, hr_payroll_runs } = req.propertyDb.models;
     const { id } = req.params;
 
     const holiday = await hr_holidays.findOne({
@@ -3523,17 +3534,26 @@ exports.deleteHoliday = async (req, res) => {
     }
 
     const dateStr = holiday.holiday_date;
+    const holidayOfficeId = holiday.office_id;
 
     await holiday.destroy();
 
-    // Revert/delete the System-created Holiday punches for this date
+    // Revert/delete the System-created Holiday punches for this date (scoped by office if applicable)
+    const punchWhere: any = {
+      outlet_id: req.user.outlet_id,
+      punch_date: dateStr,
+      status: 'Holiday',
+      punch_source: 'System'
+    };
+    if (holidayOfficeId != null) {
+      const officeEmps = await hr_employees.findAll({
+        where: { outlet_id: req.user.outlet_id, office_id: holidayOfficeId },
+        attributes: ['id']
+      });
+      punchWhere.employee_id = officeEmps.map((e: any) => e.id);
+    }
     await hr_attendance_punches.destroy({
-      where: {
-        outlet_id: req.user.outlet_id,
-        punch_date: dateStr,
-        status: 'Holiday',
-        punch_source: 'System'
-      }
+      where: punchWhere
     });
 
     return res.json({ success: true, message: 'Holiday deleted and attendance reverted successfully' });

@@ -10,6 +10,7 @@ const sequelize_1 = require("sequelize");
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const restore_1 = require("../../modules/restore");
 const jwt_util_1 = require("../../utils/jwt.util");
+const masterDedupe_1 = require("../../utils/masterDedupe");
 const isCompiled = typeof process.pkg !== 'undefined';
 const rootDir = isCompiled ? path_1.default.dirname(process.execPath) : process.cwd();
 const { sendOtpEmail } = require('../../modules/emailService');
@@ -481,8 +482,21 @@ async function insertRowsBatch(db, tableName, rows, targetColumns, columnMetadat
     const colList = validCols.map(c => `"${c}"`).join(', ');
     const BATCH_SIZE = 50;
     let inserted = 0;
-    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-        const chunk = rows.slice(i, i + BATCH_SIZE);
+    let filteredRows = rows;
+    if (masterDedupe_1.MASTER_NATURAL_KEYS[tableName]) {
+        const deduped = [];
+        for (const r of rows) {
+            const existingId = await (0, masterDedupe_1.findExistingMasterByNaturalKey)(db, tableName, r, colSet);
+            if (existingId === null) {
+                deduped.push(r);
+            }
+        }
+        filteredRows = deduped;
+        if (filteredRows.length === 0)
+            return 0;
+    }
+    for (let i = 0; i < filteredRows.length; i += BATCH_SIZE) {
+        const chunk = filteredRows.slice(i, i + BATCH_SIZE);
         const valuePlaceholders = [];
         const bindValues = [];
         let pIdx = 1;

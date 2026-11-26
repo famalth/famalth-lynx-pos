@@ -88,6 +88,41 @@ exports.RETENTION_TABLES = [
     { table: 'audit_logs', module: 'AUDIT_LOGS', dateColumn: 'created_at' },
     { table: 'night_audit_details', module: 'AUDIT_LOGS', isChild: true, parentTable: 'night_audit_runs', parentFk: 'audit_run_id' },
     { table: 'night_audit_runs', module: 'AUDIT_LOGS', dateColumn: 'created_at' },
+    // 11. Outlet-Scoped Master Data (Excluding Users)
+    // HR & Payroll Masters (employees & payroll setup scoped strictly to outlet_id)
+    { table: 'hr_penalties', module: 'HR_MASTERS', dateColumn: 'created_at' },
+    { table: 'hr_employees', module: 'HR_MASTERS', dateColumn: 'created_at' },
+    { table: 'hr_departments', module: 'HR_MASTERS', dateColumn: 'created_at' },
+    { table: 'hr_designations', module: 'HR_MASTERS', dateColumn: 'created_at' },
+    { table: 'hr_offices', module: 'HR_MASTERS', dateColumn: 'created_at' },
+    { table: 'hr_shifts', module: 'HR_MASTERS', dateColumn: 'created_at' },
+    { table: 'hr_pay_structures', module: 'HR_MASTERS', dateColumn: 'created_at' },
+    { table: 'hr_salary_components', module: 'HR_MASTERS', dateColumn: 'created_at' },
+    { table: 'hr_leave_types', module: 'HR_MASTERS', dateColumn: 'created_at' },
+    { table: 'hr_holidays', module: 'HR_MASTERS', dateColumn: 'created_at' },
+    // Retail Masters (excluding users)
+    { table: 'bill_value_promos', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
+    { table: 'sales_schemes', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
+    { table: 'item_master', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
+    { table: 'product_templates', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
+    { table: 'item_attributes', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
+    { table: 'customers', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
+    { table: 'suppliers', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
+    { table: 'tax_group_components', module: 'RETAIL_MASTERS', isChild: true, parentTable: 'tax_groups', parentFk: 'tax_group_id' },
+    { table: 'tax_groups', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
+    { table: 'taxes_master', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
+    { table: 'tax_profiles', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
+    { table: 'stock_locations', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
+    { table: 'document_sequences', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
+    // Clinic Masters
+    { table: 'clinic_doctors', module: 'CLINIC_MASTERS', dateColumn: 'created_at' },
+    { table: 'clinic_services', module: 'CLINIC_MASTERS', dateColumn: 'created_at' },
+    { table: 'clinic_patients', module: 'CLINIC_MASTERS', dateColumn: 'created_at' },
+    // Restaurant Masters
+    { table: 'restaurant_tables', module: 'RESTAURANT_MASTERS', dateColumn: 'created_at' },
+    { table: 'restaurant_floors', module: 'RESTAURANT_MASTERS', dateColumn: 'created_at' },
+    { table: 'kitchen_stations', module: 'RESTAURANT_MASTERS', dateColumn: 'created_at' },
+    { table: 'kot_printers', module: 'RESTAURANT_MASTERS', dateColumn: 'created_at' },
 ];
 class DataRetentionService {
     /**

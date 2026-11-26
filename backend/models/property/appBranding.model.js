@@ -14,7 +14,7 @@ module.exports = (sequelize, DataTypes) => {
         product_name: {
             type: DataTypes.STRING(255),
             allowNull: false,
-            defaultValue: 'Famalth Inventory'
+            defaultValue: 'FAMALTH LYNX'
         },
         support_email: {
             type: DataTypes.STRING(255),

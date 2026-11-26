@@ -4,7 +4,7 @@ exports.saveBranding = exports.getBranding = exports.defaultBranding = void 0;
 const audit = require('../../services/audit.service');
 exports.defaultBranding = {
     company_name: 'Famalth Technologies',
-    product_name: 'Famalth Inventory',
+    product_name: 'FAMALTH LYNX',
     support_email: 'help@famalth.com',
     support_website: 'www.famalth.com',
     support_phone: '+91-00000-00000',

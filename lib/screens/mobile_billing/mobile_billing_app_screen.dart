@@ -140,7 +140,7 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
 
   // Multi-Industry Modules & Telemetry
   bool _isRestaurantEnabled = TokenStorage.isRestaurantModuleActiveSync();
-  bool _isClinicEnabled = TokenStorage.isClinicModuleActiveSync();
+  bool _isClinicEnabled = false;
   bool _isHrmsEnabled = TokenStorage.isHrmsModuleActiveSync();
   bool _isClinicOnly = false;
   bool _isHrmsOnly = TokenStorage.isHrmsOnlySync();
@@ -202,20 +202,17 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
     try {
       final mod = await TokenStorage.getBusinessModule();
       final isRest = ModuleCapability.hasRestaurant(mod);
-      final isClinic = ModuleCapability.hasClinic(mod);
+      // Clinic features are intentionally hidden in the Mobile Billing App
+      const bool isClinic = false;
       final isHrms = ModuleCapability.hasHrms(mod);
-      final isClinicOnly = ModuleCapability.isClinicOnly(mod);
+      const bool isClinicOnly = false;
       final isHrmsOnly = ModuleCapability.isHrmsOnly(mod);
 
       String view = 'RETAIL';
-      if (isClinicOnly) {
-        view = 'CLINIC';
-      } else if (ModuleCapability.hasRetail(mod)) {
+      if (ModuleCapability.hasRetail(mod)) {
         view = 'RETAIL';
       } else if (isRest) {
         view = 'RESTAURANT';
-      } else if (isClinic) {
-        view = 'CLINIC';
       } else {
         view = 'RETAIL';
       }

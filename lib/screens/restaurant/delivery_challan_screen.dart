@@ -1916,12 +1916,12 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
   // DIALOG: ADD / EDIT DRIVER
   // =========================================================================
   void _openDriverDialog({Map<String, dynamic>? existing}) {
-    final nameCtrl = TextEditingController(text: existing?['driver_name'] ?? '');
-    final phoneCtrl = TextEditingController(text: existing?['phone'] ?? '');
-    final emailCtrl = TextEditingController(text: existing?['email'] ?? '');
+    final nameCtrl = TextEditingController(text: existing?['driver_name']?.toString() ?? '');
+    final phoneCtrl = TextEditingController(text: existing?['phone']?.toString() ?? '');
+    final emailCtrl = TextEditingController(text: existing?['email']?.toString() ?? '');
     final passwordCtrl = TextEditingController();
-    final dlCtrl = TextEditingController(text: existing?['license_number'] ?? '');
-    final addressCtrl = TextEditingController(text: existing?['address'] ?? '');
+    final dlCtrl = TextEditingController(text: existing?['license_number']?.toString() ?? '');
+    final addressCtrl = TextEditingController(text: existing?['address']?.toString() ?? '');
     String status = existing?['status'] ?? 'AVAILABLE';
 
     showDialog(
@@ -1980,7 +1980,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                         obscureText: true,
                         decoration: InputDecoration(
                           labelText: existing == null ? 'Initial App Password *' : 'Update Password (Optional)',
-                          hintText: existing == null ? 'Default: 123456' : 'Leave empty to keep current',
+                          hintText: existing == null ? 'Default: 123456' : 'Encrypted (enter new password to change)',
                           border: const OutlineInputBorder(),
                           isDense: true,
                         ),
@@ -3332,11 +3332,26 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
   }
 
   Widget _buildDriverLiveGpsWidget(Map<String, dynamic> driver) {
-    final rawAddr = driver['last_location_address']?.toString();
+    final rawAddr = driver['last_location_address']?.toString().trim();
     final lat = driver['last_latitude'] != null ? double.tryParse(driver['last_latitude'].toString()) : null;
     final lng = driver['last_longitude'] != null ? double.tryParse(driver['last_longitude'].toString()) : null;
 
-    if (rawAddr == null && lat == null) return const SizedBox.shrink();
+    if ((rawAddr == null || rawAddr.isEmpty) && lat == null) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 4.0),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.location_searching, size: 13, color: Colors.orange.shade700),
+            const SizedBox(width: 4),
+            Text(
+              'Live GPS: Waiting for driver location...',
+              style: TextStyle(fontSize: 11, color: Colors.orange.shade800, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+      );
+    }
 
     // Trigger async geocode if needed
     if (lat != null && lng != null) {
