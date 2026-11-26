@@ -473,8 +473,31 @@ class BackupManagementController {
                     message: 'No backup file payload or valid filename provided for restore.',
                 });
             }
-            let effectiveTargetCode = String(targetOutletCode || userOutletCode || '').trim();
-            let effectiveTargetId = Number(targetOutletId || req.outlet_id || req.user?.outlet_id || 0);
+            const userOutletId = Number(req.outlet_id || req.user?.outlet_id || 0);
+            if (!isSuperAdmin && requestedScope === 'ALL') {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Only Super Admins can restore all outlets at once.',
+                });
+            }
+            if (!isSuperAdmin && targetOutletId && Number(targetOutletId) !== userOutletId) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Cross-outlet restore denied: you can only restore into your own outlet.',
+                });
+            }
+            if (!isSuperAdmin && targetOutletCode && userOutletCode && String(targetOutletCode).trim().toLowerCase() !== userOutletCode.trim().toLowerCase()) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Cross-outlet restore denied: you can only restore into your own outlet.',
+                });
+            }
+            let effectiveTargetCode = isSuperAdmin
+                ? String(targetOutletCode || userOutletCode || '').trim()
+                : userOutletCode.trim();
+            let effectiveTargetId = isSuperAdmin
+                ? Number(targetOutletId || userOutletId)
+                : userOutletId;
             if (effectiveTargetCode && !effectiveTargetId) {
                 try {
                     const [oRow] = await activeDb.query(`SELECT id, outlet_code FROM outlets WHERE outlet_code = :code LIMIT 1;`, { replacements: { code: effectiveTargetCode }, type: sequelize_1.QueryTypes.SELECT });

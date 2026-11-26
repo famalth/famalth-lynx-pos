@@ -384,6 +384,7 @@ class BackupService {
     DateTime? endDate,
     List<String>? modules,
     bool backupFirst = true,
+    bool resetSettingsToDefault = false,
     String? recipientEmail,
     bool allOutlets = false,
     String? outletCode,
@@ -401,6 +402,8 @@ class BackupService {
       if (modules != null && modules.isNotEmpty) 'modules': modules,
       'backup_first': backupFirst,
       'createBackupFirst': backupFirst,
+      'reset_settings_to_default': resetSettingsToDefault,
+      'resetSettingsToDefault': resetSettingsToDefault,
       if (recipientEmail != null && recipientEmail.trim().isNotEmpty)
         'recipient_email': recipientEmail.trim(),
       if (recipientEmail != null && recipientEmail.trim().isNotEmpty)

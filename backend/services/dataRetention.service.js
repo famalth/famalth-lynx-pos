@@ -81,8 +81,11 @@ exports.RETENTION_TABLES = [
     { table: 'expense_entries', module: 'FINANCE', dateColumn: 'created_at' },
     { table: 'expenses', module: 'FINANCE', dateColumn: 'created_at' },
     { table: 'daily_opening_balances', module: 'FINANCE', dateColumn: 'created_at' },
+    { table: 'voucher_lines', module: 'FINANCE', isChild: true, parentTable: 'accounting_vouchers', parentFk: 'voucher_id' },
     { table: 'accounting_vouchers', module: 'FINANCE', dateColumn: 'created_at' },
-    // 10. Stock Ledger, Notifications, Audits, Night Audit
+    // 10. Stock Ledger, Stock Transfers, Notifications, Audits, Night Audit
+    { table: 'stock_transfer_items', module: 'INVENTORY', isChild: true, parentTable: 'stock_transfer_headers', parentFk: 'transfer_id' },
+    { table: 'stock_transfer_headers', module: 'INVENTORY', dateColumn: 'created_at' },
     { table: 'stock_ledger', module: 'INVENTORY', dateColumn: 'created_at' },
     { table: 'system_notifications', module: 'AUDIT_LOGS', dateColumn: 'created_at' },
     { table: 'audit_logs', module: 'AUDIT_LOGS', dateColumn: 'created_at' },
@@ -113,7 +116,6 @@ exports.RETENTION_TABLES = [
     { table: 'taxes_master', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
     { table: 'tax_profiles', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
     { table: 'stock_locations', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
-    { table: 'document_sequences', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
     // Clinic Masters
     { table: 'clinic_doctors', module: 'CLINIC_MASTERS', dateColumn: 'created_at' },
     { table: 'clinic_services', module: 'CLINIC_MASTERS', dateColumn: 'created_at' },
@@ -337,16 +339,40 @@ class DataRetentionService {
         let totalDeletedRecords = 0;
         const breakdown = [];
         await activeDb.transaction(async (t) => {
+            // Break circular/self-referential FKs before scoped deletions
+            const fkBreaks = isAllOutlets
+                ? [
+                    `UPDATE "sales_headers" SET original_sale_id = NULL, previous_sale_id = NULL, replaced_by_sale_id = NULL;`,
+                    `UPDATE "kot_headers" SET sales_header_id = NULL;`,
+                    `UPDATE "hr_employees" SET level1_approver_id = NULL, level2_approver_id = NULL;`,
+                ]
+                : [
+                    `UPDATE "sales_headers" SET original_sale_id = NULL, previous_sale_id = NULL, replaced_by_sale_id = NULL WHERE outlet_id = :outletId;`,
+                    `UPDATE "kot_headers" SET sales_header_id = NULL WHERE outlet_id = :outletId;`,
+                    `UPDATE "hr_employees" SET level1_approver_id = NULL, level2_approver_id = NULL WHERE outlet_id = :outletId;`,
+                ];
+            for (const q of fkBreaks) {
+                try {
+                    await activeDb.query('SAVEPOINT sp_fk', { transaction: t });
+                    await activeDb.query(q, { replacements: { outletId }, transaction: t });
+                    await activeDb.query('RELEASE SAVEPOINT sp_fk', { transaction: t });
+                }
+                catch (_) {
+                    await activeDb.query('ROLLBACK TO SAVEPOINT sp_fk', { transaction: t }).catch(() => {});
+                }
+            }
             // Child tables first, parents last
             for (const def of selectedTables) {
                 const replacements = {};
                 const whereClause = this.buildFilterClause(def, options, replacements);
                 const queryStr = `DELETE FROM "${def.table}" ${whereClause};`;
                 try {
+                    await activeDb.query('SAVEPOINT sp_purge', { transaction: t });
                     const [, meta] = await activeDb.query(queryStr, {
                         replacements,
                         transaction: t,
                     });
+                    await activeDb.query('RELEASE SAVEPOINT sp_purge', { transaction: t });
                     const rowCount = typeof meta === 'number' ? meta : (meta?.rowCount || 0);
                     if (rowCount > 0) {
                         breakdown.push({ table: def.table, deleted: rowCount });
@@ -354,16 +380,45 @@ class DataRetentionService {
                     }
                 }
                 catch (delErr) {
+                    await activeDb.query('ROLLBACK TO SAVEPOINT sp_purge', { transaction: t }).catch(() => {});
                     console.warn(`[RETENTION] Warning deleting from ${def.table}: ${delErr.message}`);
                 }
             }
             // Realign bank account opening balances if all finance was cleared
             if (options.modules?.includes('FINANCE') || options.modules?.includes('ALL') || !options.modules) {
                 try {
+                    await activeDb.query('SAVEPOINT sp_bank', { transaction: t });
                     const bankWhere = isAllOutlets ? '' : 'WHERE outlet_id = :outletId';
                     await activeDb.query(`UPDATE "bank_accounts" SET opening_balance = 0.00, current_balance = 0.00 ${bankWhere};`, { replacements: { outletId }, transaction: t });
+                    await activeDb.query('RELEASE SAVEPOINT sp_bank', { transaction: t });
                 }
-                catch (_) { }
+                catch (_) {
+                    await activeDb.query('ROLLBACK TO SAVEPOINT sp_bank', { transaction: t }).catch(() => {});
+                }
+            }
+            // Optional: Reset sequences & outlet operational settings to default (preserves property_info, outlets, admin_<outletCode>, Gmail/SMTP & WhatsApp config)
+            if (options.resetSettingsToDefault === true) {
+                const resetQueries = isAllOutlets
+                    ? [
+                        `UPDATE "document_sequences" SET next_number = 1;`,
+                        `UPDATE "numbering_settings" SET next_number = 1;`,
+                        `UPDATE "outlet_settings" SET settings = '{}';`,
+                    ]
+                    : [
+                        `UPDATE "document_sequences" SET next_number = 1 WHERE outlet_id = :outletId;`,
+                        `UPDATE "numbering_settings" SET next_number = 1 WHERE outlet_id = :outletId;`,
+                        `UPDATE "outlet_settings" SET settings = '{}' WHERE outlet_id = :outletId;`,
+                    ];
+                for (const rq of resetQueries) {
+                    try {
+                        await activeDb.query('SAVEPOINT sp_reset', { transaction: t });
+                        await activeDb.query(rq, { replacements: { outletId }, transaction: t });
+                        await activeDb.query('RELEASE SAVEPOINT sp_reset', { transaction: t });
+                    }
+                    catch (_) {
+                        await activeDb.query('ROLLBACK TO SAVEPOINT sp_reset', { transaction: t }).catch(() => {});
+                    }
+                }
             }
         });
         const retType = options.retentionType || (options.olderThanYears ? 'OLDER_THAN' : 'ALL_TIME');

@@ -537,10 +537,12 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
     DateTime? endDate;
     bool createBackupFirst = true;
     bool emailBackupToOperator = true;
+    bool resetSettingsToDefault = false;
     String recipientEmail = '';
     final confirmController = TextEditingController();
 
     int previewRecordCount = 0;
+    List<Map<String, dynamic>> previewBreakdown = [];
     bool isPreviewLoading = false;
     String? previewError;
     bool hasStartedInitialFetch = false;
@@ -580,6 +582,8 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                 if (dialogContext.mounted) {
                   setDialogState(() {
                     previewRecordCount = (preview['totalMatchingRecords'] as num?)?.toInt() ?? 0;
+                    final rawBd = (preview['breakdown'] as List?) ?? [];
+                    previewBreakdown = rawBd.map((e) => Map<String, dynamic>.from(e as Map)).toList();
                     isPreviewLoading = false;
                   });
                 }
@@ -934,17 +938,34 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                               ),
                             const SizedBox(width: 10),
                             Expanded(
-                              child: Text(
-                                isPreviewLoading
-                                    ? 'Scanning database matching this policy...'
-                                    : (previewRecordCount > 0
-                                        ? '$previewRecordCount records will be permanently removed'
-                                        : 'No records found matching this retention criteria.'),
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: previewRecordCount > 0 ? Colors.orange.shade900 : Colors.green.shade900,
-                                ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    isPreviewLoading
+                                        ? 'Scanning database matching this policy...'
+                                        : (previewRecordCount > 0
+                                            ? '$previewRecordCount records will be permanently removed'
+                                            : 'No records found matching this retention criteria.'),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: previewRecordCount > 0 ? Colors.orange.shade900 : Colors.green.shade900,
+                                    ),
+                                  ),
+                                  if (!isPreviewLoading && previewRecordCount > 0 && previewBreakdown.isNotEmpty) ...[
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      previewBreakdown
+                                          .map((b) => '${b['table']}: ${b['count']}')
+                                          .join(' • '),
+                                      style: TextStyle(
+                                        fontSize: 10.5,
+                                        color: Colors.orange.shade800,
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
                             ),
                           ],
@@ -1014,6 +1035,25 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                                 ),
                               ),
                             ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      InkWell(
+                        onTap: isPurgeInProgress ? null : () => setDialogState(() => resetSettingsToDefault = !resetSettingsToDefault),
+                        child: Row(
+                          children: [
+                            Checkbox(
+                              value: resetSettingsToDefault,
+                              visualDensity: VisualDensity.compact,
+                              onChanged: isPurgeInProgress ? null : (v) => setDialogState(() => resetSettingsToDefault = v ?? false),
+                            ),
+                            const Expanded(
+                              child: Text(
+                                'Reset sequences & outlet settings to default (Preserves Property Info, Outlet Info, Admin, Gmail & WhatsApp config)',
+                                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600),
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -1090,8 +1130,10 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                                   endDate: endDate,
                                   modules: selectedModules.toList(),
                                   backupFirst: createBackupFirst,
+                                  resetSettingsToDefault: resetSettingsToDefault,
                                   recipientEmail: emailBackupToOperator ? recipientEmail : null,
                                   outletCode: currentOutletCode,
+                                  allOutlets: false,
                                 );
 
                                 if (res['success'] == true) {

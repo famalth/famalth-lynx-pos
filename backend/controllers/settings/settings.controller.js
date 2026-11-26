@@ -372,19 +372,26 @@ const PRESERVED_MODELS = new Set([
 ]);
 exports.clearTransactionData = async (req, res) => {
     try {
-        let outletId = Number(req.body?.outlet_id ||
-            req.body?.outletId ||
-            req.outlet_id ||
-            req.user?.outlet_id ||
-            req.headers['x-outlet-id'] ||
-            req.query?.outlet_id ||
-            0);
-        let outletCode = String(req.body?.outlet_code ||
-            req.body?.outletCode ||
-            req.outlet_code ||
-            req.user?.outlet_code ||
-            req.headers['x-outlet-code'] ||
-            '').trim();
+        const userRole = String(req.user?.role || '').toUpperCase();
+        const isSuperAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN';
+        const authOutletId = Number(req.user?.outlet_id || req.outlet_id || 0);
+        const authOutletCode = String(req.user?.outlet_code || req.outlet_code || '').trim();
+        const reqBodyOutletId = Number(req.body?.outlet_id || req.body?.outletId || req.query?.outlet_id || 0);
+        const reqBodyOutletCode = String(req.body?.outlet_code || req.body?.outletCode || '').trim();
+        if (!isSuperAdmin && authOutletId && reqBodyOutletId && reqBodyOutletId !== authOutletId) {
+            return res.status(403).json({
+                success: false,
+                message: 'Cross-outlet purge denied: you can only manage data for your own outlet.'
+            });
+        }
+        if (!isSuperAdmin && authOutletCode && reqBodyOutletCode && reqBodyOutletCode.toLowerCase() !== authOutletCode.toLowerCase()) {
+            return res.status(403).json({
+                success: false,
+                message: 'Cross-outlet purge denied: you can only manage data for your own outlet.'
+            });
+        }
+        let outletId = isSuperAdmin ? (reqBodyOutletId || authOutletId) : authOutletId;
+        let outletCode = isSuperAdmin ? (reqBodyOutletCode || authOutletCode) : authOutletCode;
         if (outletCode) {
             try {
                 const [oRow] = await req.propertyDb.query(`SELECT id, outlet_code FROM outlets WHERE outlet_code = :code LIMIT 1;`, { replacements: { code: outletCode }, type: QueryTypes.SELECT });
@@ -449,17 +456,19 @@ exports.clearTransactionData = async (req, res) => {
             });
         }
         const createBackupFirst = req.body?.backup_first !== false;
+        const resetSettingsToDefault = req.body?.reset_settings_to_default === true || req.body?.resetSettingsToDefault === true;
         const recipientEmail = String(req.body?.recipient_email || req.user?.email || '').trim();
         const result = await DataRetentionService.executeRetentionPurge(req.propertyDb, {
             outletId,
             outletCode,
-            allOutlets: req.body?.allOutlets === true || req.body?.all_outlets === true,
+            allOutlets: false,
             retentionType,
             olderThanYears,
             startDate,
             endDate,
             modules,
             createBackupFirst,
+            resetSettingsToDefault,
             recipientEmail: recipientEmail || undefined,
             req,
         });

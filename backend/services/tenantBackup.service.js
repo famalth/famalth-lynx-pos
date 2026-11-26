@@ -1600,17 +1600,10 @@ class TenantBackupService {
                     if (colMap.size > 0 && !validColMap)
                         continue;
                     const pks = pkMap.get(tbl) || [];
-                    const hrSharedMasterSet = new Set([
-                        'hr_offices', 'hr_designations', 'hr_shifts', 'hr_holidays', 'hr_leave_types',
-                        'hr_salary_components', 'hr_pay_structures', 'hr_pay_structure_components'
-                    ]);
-                    // Filter rows for this specific outlet
+                    // Filter rows strictly for this specific outlet (never pull or overwrite another outlet's rows)
                     const scopedRows = rawRows.filter(row => {
                         if (!row || typeof row !== 'object')
                             return false;
-                        if (hrSharedMasterSet.has(tbl)) {
-                            return Number(row.outlet_id) === sourceOutletId || row.outlet_id === null || Number(row.outlet_id) === 1;
-                        }
                         if ('outlet_id' in row)
                             return Number(row.outlet_id) === sourceOutletId;
                         if ('outlet_code' in row)
@@ -1622,13 +1615,7 @@ class TenantBackupService {
                     for (const row of scopedRows) {
                         const rowCopy = { ...row };
                         if ('outlet_id' in rowCopy) {
-                            // If it's a shared master with global outlet 1 or null, preserve it or adapt to dest
-                            if (hrSharedMasterSet.has(tbl) && (rowCopy.outlet_id === 1 || rowCopy.outlet_id === null)) {
-                                // keep global master as is
-                            }
-                            else {
-                                rowCopy.outlet_id = destOutletId;
-                            }
+                            rowCopy.outlet_id = destOutletId;
                         }
                         if ('outlet_code' in rowCopy)
                             rowCopy.outlet_code = destOutletCode;
