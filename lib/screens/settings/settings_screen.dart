@@ -1903,34 +1903,33 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                     'Data & Security',
                     'Manage your cloud configuration and manual system backups.',
                     [
-                      if (AppConfig.isLocalServer)
-                        _settingRow(
-                          title: 'Enable Cloud Backup',
-                          description: 'Automatically sync your store data to the Cloud',
-                          control: Switch.adaptive(
-                            value: s.isCloudEnabled,
-                            onChanged: (bool newValue) async {
-                              setState(() => s.isCloudEnabled = newValue);
-                              final success = await BackupService.toggleCloudSync(newValue);
-                              ctrl.save(s);
-                              if (mounted) {
-                                if (success) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(newValue
-                                          ? 'Cloud backup enabled successfully!'
-                                          : 'Cloud backup paused.'),
-                                      backgroundColor: newValue ? Colors.green : Colors.orange,
-                                    ),
-                                  );
-                                } else {
-                                  setState(() => s.isCloudEnabled = !newValue);
-                                  showErrorSnackbar('Failed to update setting. Check internet.');
-                                }
+                      _settingRow(
+                        title: 'Enable Cloud Backup',
+                        description: 'Automatically create hourly backups and sync your store data to the Cloud',
+                        control: Switch.adaptive(
+                          value: s.isCloudEnabled,
+                          onChanged: (bool newValue) async {
+                            setState(() => s.isCloudEnabled = newValue);
+                            final success = await BackupService.toggleCloudSync(newValue);
+                            ctrl.save(s);
+                            if (mounted) {
+                              if (success) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(newValue
+                                        ? 'Cloud backup enabled successfully!'
+                                        : 'Cloud backup paused.'),
+                                    backgroundColor: newValue ? Colors.green : Colors.orange,
+                                  ),
+                                );
+                              } else {
+                                setState(() => s.isCloudEnabled = !newValue);
+                                showErrorSnackbar('Failed to update setting. Check internet.');
                               }
-                            },
-                          ),
+                            }
+                          },
                         ),
+                      ),
                       _settingRow(
                         title: 'Create Manual Backup',
                         description: 'Export an isolated, secured backup archive (.fambak) for your outlet to your Downloads folder.',
