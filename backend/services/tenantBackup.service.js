@@ -1352,14 +1352,29 @@ class TenantBackupService {
                         securedBuffer.toString('base64'),
                     ],
                 });
-                // Keep only the 3 most recent snapshots per outlet_code in PostgreSQL
+                // Smart Retention Policy:
+                // - Today: keep up to 12 hourly snapshots
+                // - Past 10 completed days: keep only 1 final (latest) snapshot per day
+                // - Older than 10 days: auto-delete
                 await activeDb.query(`DELETE FROM cloud_backup_snapshots
            WHERE LOWER(TRIM(outlet_code)) = LOWER(TRIM($1))
              AND id NOT IN (
-               SELECT id FROM cloud_backup_snapshots
-               WHERE LOWER(TRIM(outlet_code)) = LOWER(TRIM($1))
-               ORDER BY created_at DESC
-               LIMIT 3
+               (
+                 SELECT id FROM cloud_backup_snapshots
+                 WHERE LOWER(TRIM(outlet_code)) = LOWER(TRIM($1))
+                   AND created_at::date = CURRENT_DATE
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT 12
+               )
+               UNION
+               (
+                 SELECT DISTINCT ON (created_at::date) id
+                 FROM cloud_backup_snapshots
+                 WHERE LOWER(TRIM(outlet_code)) = LOWER(TRIM($1))
+                   AND created_at::date < CURRENT_DATE
+                   AND created_at::date >= CURRENT_DATE - INTERVAL '10 days'
+                 ORDER BY created_at::date DESC, created_at DESC, id DESC
+               )
              );`, { bind: [snapOutletCode] });
             }
             catch (dbSnapErr) {

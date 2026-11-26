@@ -12,21 +12,24 @@ const CLIENT_FILE = path.join(rootDir, "client.json");
 const BACKUP_DIR = path.join(rootDir, 'backups');
 exports.getBackupStatusAlert = async (req, res) => {
     try {
-        const outletCode = req.outlet_code;
+        const outletCode = req.outlet_code || req.user?.outlet_code;
+        let outletId = Number(req.outlet_id || req.user?.outlet_id || 0);
         let status = getBackupStatus(outletCode);
-        // Reconcile with database system_settings.is_cloud_enabled
+        // Reconcile with database system_settings.is_cloud_enabled for THIS outlet only
         try {
             const propertyDb = require("../../db/models");
             const activeDb = propertyDb.sequelize || propertyDb;
-            const [settingsRows] = await activeDb.query("SELECT is_cloud_enabled FROM system_settings LIMIT 1;").catch(() => [[]]);
+            if (!outletId && outletCode) {
+                const [outRows] = await activeDb.query("SELECT id FROM outlets WHERE LOWER(TRIM(outlet_code)) = LOWER(TRIM(:outletCode)) LIMIT 1;", { replacements: { outletCode } }).catch(() => [[]]);
+                outletId = Number(outRows?.[0]?.id || 0);
+            }
+            const [settingsRows] = outletId
+                ? await activeDb.query("SELECT is_cloud_enabled FROM system_settings WHERE outlet_id = :outletId LIMIT 1;", { replacements: { outletId } }).catch(() => [[]])
+                : [[]];
             if (settingsRows && settingsRows[0] && typeof settingsRows[0].is_cloud_enabled !== "undefined") {
                 const dbCloudEnabled = !!settingsRows[0].is_cloud_enabled;
-                if (!dbCloudEnabled && status.isCloudEnabled) {
-                    toggleCloudBackup(outletCode, false);
-                    status = getBackupStatus(outletCode);
-                }
-                else if (dbCloudEnabled && !status.isCloudEnabled && !status.userManuallyDisabled) {
-                    toggleCloudBackup(outletCode, true);
+                if (dbCloudEnabled !== !!status.isCloudEnabled) {
+                    toggleCloudBackup(outletCode, dbCloudEnabled);
                     status = getBackupStatus(outletCode);
                 }
             }
@@ -59,14 +62,21 @@ exports.getBackupStatusAlert = async (req, res) => {
 };
 exports.toggleBackup = async (req, res) => {
     try {
-        const outletCode = req.outlet_code || req.body.outlet_code;
+        const outletCode = req.outlet_code || req.user?.outlet_code || req.body.outlet_code;
+        let outletId = Number(req.outlet_id || req.user?.outlet_id || req.body?.outlet_id || 0);
         const { enabled } = req.body;
         toggleCloudBackup(outletCode, !!enabled);
-        // ALWAYS synchronize database system_settings.is_cloud_enabled with JSON tracker
+        // ALWAYS synchronize database system_settings.is_cloud_enabled for THIS outlet only
         try {
             const propertyDb = require("../../db/models");
             const activeDb = propertyDb.sequelize || propertyDb;
-            await activeDb.query("UPDATE system_settings SET is_cloud_enabled = :enabled;", { replacements: { enabled: !!enabled } }).catch(() => { });
+            if (!outletId && outletCode) {
+                const [outRows] = await activeDb.query("SELECT id FROM outlets WHERE LOWER(TRIM(outlet_code)) = LOWER(TRIM(:outletCode)) LIMIT 1;", { replacements: { outletCode } }).catch(() => [[]]);
+                outletId = Number(outRows?.[0]?.id || 0);
+            }
+            if (outletId) {
+                await activeDb.query("UPDATE system_settings SET is_cloud_enabled = :enabled WHERE outlet_id = :outletId;", { replacements: { enabled: !!enabled, outletId } }).catch(() => { });
+            }
         }
         catch (_) { }
         try {

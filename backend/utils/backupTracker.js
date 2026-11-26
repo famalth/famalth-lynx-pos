@@ -31,7 +31,7 @@ function _readAllStatuses() {
 }
 function getBackupStatus(outletCode) {
     const allData = _readAllStatuses();
-    const defaultState = isCloudEnvironment();
+    const defaultState = false;
     if (!allData[outletCode]) {
         return { lastSyncTime: null, isCloudEnabled: defaultState };
     }
@@ -39,14 +39,11 @@ function getBackupStatus(outletCode) {
     if (typeof record.isCloudEnabled === 'undefined') {
         record.isCloudEnabled = defaultState;
     }
-    else if (isCloudEnvironment() && record.isCloudEnabled === false && !record.userManuallyDisabled) {
-        record.isCloudEnabled = true;
-    }
     return record;
 }
 function updateSyncSuccess(outletCode) {
     const allData = _readAllStatuses();
-    const defaultState = isCloudEnvironment();
+    const defaultState = false;
     if (!allData[outletCode]) {
         allData[outletCode] = { lastSyncTime: null, isCloudEnabled: defaultState };
     }

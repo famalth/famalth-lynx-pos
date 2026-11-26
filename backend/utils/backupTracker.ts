@@ -33,7 +33,7 @@ function _readAllStatuses(): Record<string, BackupStatusRecord> {
 
 export function getBackupStatus(outletCode: string): BackupStatusRecord {
   const allData = _readAllStatuses();
-  const defaultState = isCloudEnvironment();
+  const defaultState = false;
 
   if (!allData[outletCode]) {
     return { lastSyncTime: null, isCloudEnabled: defaultState };
@@ -42,8 +42,6 @@ export function getBackupStatus(outletCode: string): BackupStatusRecord {
   const record = allData[outletCode];
   if (typeof record.isCloudEnabled === 'undefined') {
     record.isCloudEnabled = defaultState;
-  } else if (isCloudEnvironment() && record.isCloudEnabled === false && !record.userManuallyDisabled) {
-    record.isCloudEnabled = true;
   }
 
   return record;
@@ -51,7 +49,7 @@ export function getBackupStatus(outletCode: string): BackupStatusRecord {
 
 export function updateSyncSuccess(outletCode: string): void {
   const allData = _readAllStatuses();
-  const defaultState = isCloudEnvironment();
+  const defaultState = false;
 
   if (!allData[outletCode]) {
     allData[outletCode] = { lastSyncTime: null, isCloudEnabled: defaultState };

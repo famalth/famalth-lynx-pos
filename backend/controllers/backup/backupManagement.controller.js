@@ -74,7 +74,7 @@ class BackupManagementController {
             stats.canManageAll = isSuperAdmin;
             let isCloudEnabled = false;
             try {
-                const [settingsRow] = await activeDb.query(`SELECT is_cloud_enabled FROM system_settings LIMIT 1;`, { type: sequelize_1.QueryTypes.SELECT });
+                const [settingsRow] = await activeDb.query(`SELECT is_cloud_enabled FROM system_settings WHERE outlet_id = :outletId LIMIT 1;`, { replacements: { outletId }, type: sequelize_1.QueryTypes.SELECT });
                 isCloudEnabled = settingsRow?.is_cloud_enabled === true;
             }
             catch (_) { }

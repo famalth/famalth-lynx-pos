@@ -85,8 +85,8 @@ export class BackupManagementController {
       let isCloudEnabled = false;
       try {
         const [settingsRow]: any = await activeDb.query(
-          `SELECT is_cloud_enabled FROM system_settings LIMIT 1;`,
-          { type: QueryTypes.SELECT }
+          `SELECT is_cloud_enabled FROM system_settings WHERE outlet_id = :outletId LIMIT 1;`,
+          { replacements: { outletId }, type: QueryTypes.SELECT }
         );
         isCloudEnabled = settingsRow?.is_cloud_enabled === true;
       } catch (_) {}

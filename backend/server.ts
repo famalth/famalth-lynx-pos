@@ -646,36 +646,74 @@ if (isCloudMode) {
         // Note: Model sync disabled to prevent duplicate PostgreSQL constraint index generation. Database migrations manage table schema.
         // await propertyDb.sync({ alter: false });
 
-        function initializeAllBackups() {
-    console.log("🔄 Initializing background backups for all registered outlets...");
-    if (!fs.existsSync(CLIENT_FILE)) {
-        console.log("⚠️ Client file not found. Bypassing backup initialization.");
-        return;
-    }
+        async function initializeAllBackups() {
+    console.log("🔄 Initializing background backups for all registered outlets (DB + Local)...");
     const config = loadConfig();
     try {
-        const fileData = fs.readFileSync(CLIENT_FILE, "utf8");
-        let clients = JSON.parse(fileData);
-        if (!Array.isArray(clients)) {
-            clients = [clients];
+        const outletMap = new Map<string, any>();
+
+        // 1. Load active outlets from PostgreSQL (works on Render / cloud & multi-outlet DB)
+        try {
+            const dbOutlets = await propertyDb.models.outlets.findAll({
+                where: { is_active: true },
+                attributes: ['id', 'outlet_code', 'outlet_name'],
+                raw: true,
+                bypassOutletFilter: true
+            });
+            for (const o of dbOutlets) {
+                if (o && o.outlet_code) {
+                    const key = String(o.outlet_code).trim().toLowerCase();
+                    outletMap.set(key, {
+                        outlet_code: String(o.outlet_code).trim(),
+                        outlet_name: o.outlet_name,
+                        outlet_id: o.id
+                    });
+                }
+            }
+        } catch (dbErr: any) {
+            console.warn(`⚠️ Could not load outlets from DB for backup scheduling: ${dbErr.message}`);
         }
+
+        // 2. Merge with local client.json if present (Windows / desktop installs)
+        if (fs.existsSync(CLIENT_FILE)) {
+            const fileData = fs.readFileSync(CLIENT_FILE, "utf8");
+            let fileClients = JSON.parse(fileData);
+            if (!Array.isArray(fileClients)) {
+                fileClients = [fileClients];
+            }
+            for (const client of fileClients) {
+                if (client && client.outlet_code) {
+                    const key = String(client.outlet_code).trim().toLowerCase();
+                    if (!outletMap.has(key)) {
+                        outletMap.set(key, client);
+                    }
+                }
+            }
+        }
+
+        const clients = Array.from(outletMap.values()).sort((a, b) =>
+            String(a.outlet_code).localeCompare(String(b.outlet_code))
+        );
+
         if (clients.length === 0) {
-            console.log("⚠️ No outlets found in client file. Bypassing backups.");
+            console.log("⚠️ No active outlets found in PostgreSQL or client.json. Bypassing backups.");
             return;
         }
-        clients.forEach((client: any) => {
-            if (client && client.outlet_code) {
-                const status = getBackupStatus(client.outlet_code);
-                console.log(`▶️ Scheduling backups for outlet: [${client.outlet_code}] | Cloud Sync: ${status.isCloudEnabled ? 'ON' : 'OFF'}`);
-                startBackupJob(client, config);
-            }
+
+        // Distribute cron minutes evenly across 0..59 to avoid simultaneous DB/CPU spikes
+        const total = clients.length;
+        clients.forEach((client: any, idx: number) => {
+            const staggerMinute = Math.floor((idx * 60) / total) % 60;
+            const status = getBackupStatus(client.outlet_code);
+            console.log(`▶️ Scheduling backups for outlet: [${client.outlet_code}] | Minute: :${String(staggerMinute).padStart(2, '0')} | Cloud Sync: ${status.isCloudEnabled ? 'ON' : 'OFF'}`);
+            startBackupJob({ ...client, staggerMinute }, config);
         });
     } catch (error: any) {
         console.error(`❌ Failed to initialize backups: ${error.message}`);
     }
 }
 
-        initializeAllBackups();
+        await initializeAllBackups();
         startLoyaltyExpiryJob(propertyDb);
         startAnalyticsRefreshJob(propertyDb);
         startSubscriptionDeliveryJob(propertyDb);

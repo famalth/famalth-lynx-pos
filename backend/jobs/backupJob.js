@@ -57,22 +57,85 @@ function getReadableTimestamp() {
         String(now.getMinutes()).padStart(2, '0') + '-' +
         String(now.getSeconds()).padStart(2, '0');
 }
-function cleanOldLocalBackups(dir, maxKeep = 5) {
+function getDayKey(ts) {
+    const d = new Date(ts);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+function getStaggeredMinute(outletCode, explicitMinute) {
+    if (typeof explicitMinute === 'number' && Number.isInteger(explicitMinute) && explicitMinute >= 0 && explicitMinute <= 59) {
+        return explicitMinute;
+    }
+    let hash = 0;
+    const normalized = String(outletCode || 'unknown').trim().toLowerCase();
+    for (let i = 0; i < normalized.length; i++) {
+        hash = ((hash << 5) - hash + normalized.charCodeAt(i)) | 0;
+    }
+    return Math.abs(hash) % 60;
+}
+/**
+ * Smart Local Retention Policy per outlet:
+ * - Today: keep up to 12 hourly backups
+ * - Past 10 completed days: keep only 1 final (latest) backup per day
+ * - Older than 10 days: auto-delete
+ */
+function cleanOldLocalBackups(dir, outletCode) {
     if (!fs_1.default.existsSync(dir))
         return;
+    const normalizedOutlet = outletCode ? outletCode.trim().toLowerCase() : '';
     const files = fs_1.default.readdirSync(dir)
-        .filter(f => f.endsWith('.enc') || f.endsWith('.fambak') || f.endsWith('.posbak'))
-        .map(f => ({
-        path: path_1.default.join(dir, f),
-        time: fs_1.default.statSync(path_1.default.join(dir, f)).mtime.getTime()
-    }))
+        .filter(f => {
+        const isBackup = f.endsWith('.enc') || f.endsWith('.fambak') || f.endsWith('.posbak');
+        if (!isBackup)
+            return false;
+        if (normalizedOutlet && !f.toLowerCase().includes(normalizedOutlet))
+            return false;
+        return true;
+    })
+        .map(f => {
+        const fullPath = path_1.default.join(dir, f);
+        return {
+            path: fullPath,
+            time: fs_1.default.statSync(fullPath).mtime.getTime()
+        };
+    })
         .sort((a, b) => b.time - a.time);
-    if (files.length > maxKeep) {
-        const filesToDelete = files.slice(maxKeep);
-        for (const f of filesToDelete) {
-            fs_1.default.unlinkSync(f.path);
+    const now = new Date();
+    const todayKey = getDayKey(now.getTime());
+    const cutoffMs = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 10).getTime();
+    const byDay = new Map();
+    let deletedCount = 0;
+    for (const f of files) {
+        if (f.time < cutoffMs) {
+            try {
+                fs_1.default.unlinkSync(f.path);
+                deletedCount++;
+            }
+            catch (_) { }
+            continue;
         }
-        logMessage(`Cleaned ${filesToDelete.length} old local backups. Retention limit: ${maxKeep}.`);
+        const dayKey = getDayKey(f.time);
+        if (!byDay.has(dayKey))
+            byDay.set(dayKey, []);
+        byDay.get(dayKey).push(f);
+    }
+    for (const [dayKey, dayFiles] of byDay.entries()) {
+        const maxKeepForDay = dayKey === todayKey ? 12 : 1;
+        if (dayFiles.length > maxKeepForDay) {
+            const toDelete = dayFiles.slice(maxKeepForDay);
+            for (const f of toDelete) {
+                try {
+                    fs_1.default.unlinkSync(f.path);
+                    deletedCount++;
+                }
+                catch (_) { }
+            }
+        }
+    }
+    if (deletedCount > 0) {
+        logMessage(`Cleaned ${deletedCount} old local backups${outletCode ? ` for [${outletCode}]` : ''} (Policy: 12 today, 1/day for last 10 days).`);
     }
 }
 async function verifyLocalBackup(encFilePath) {
@@ -90,6 +153,24 @@ async function verifyLocalBackup(encFilePath) {
         }
     }
 }
+async function isOutletCloudBackupEnabled(activeDb, outletCode, outletId) {
+    try {
+        let resolvedId = Number(outletId || 0);
+        if (!resolvedId && outletCode) {
+            const [outRows] = await activeDb.query(`SELECT id FROM outlets WHERE LOWER(TRIM(outlet_code)) = LOWER(TRIM($1)) LIMIT 1;`, { bind: [outletCode] });
+            resolvedId = Number(outRows?.[0]?.id || 0);
+        }
+        if (resolvedId) {
+            const [rows] = await activeDb.query(`SELECT is_cloud_enabled FROM system_settings WHERE outlet_id = $1 LIMIT 1;`, { bind: [resolvedId] });
+            if (rows && rows[0] && typeof rows[0].is_cloud_enabled !== 'undefined') {
+                return rows[0].is_cloud_enabled === true;
+            }
+        }
+    }
+    catch (_) { }
+    const localStatus = getBackupStatus(outletCode);
+    return (localStatus === null || localStatus === void 0 ? void 0 : localStatus.isCloudEnabled) === true;
+}
 async function startBackupJob(client, config) {
     const outletCode = client && client.outlet_code ? client.outlet_code : "unknown";
     if (activeBackupJobs.has(outletCode)) {
@@ -99,22 +180,29 @@ async function startBackupJob(client, config) {
     const { withDistributedLock } = require('../utils/distributedLock');
     const propertyDb = require('../db/models');
     activeBackupJobs.add(outletCode);
-    logMessage("Backup scheduler initialized. Running cron: 0 * * * *");
-    node_cron_1.default.schedule("0 * * * *", async () => {
+    const staggerMinute = getStaggeredMinute(outletCode, client === null || client === void 0 ? void 0 : client.staggerMinute);
+    const cronExpr = `${staggerMinute} * * * *`;
+    logMessage(`Backup scheduler initialized for [${outletCode}]. Running cron: ${cronExpr}`);
+    node_cron_1.default.schedule(cronExpr, async () => {
         await withDistributedLock(propertyDb, `backup_job_${outletCode}`, async () => {
             try {
+                const { TenantBackupService } = require('../services/tenantBackup.service');
+                const activeDb = propertyDb.sequelize || propertyDb;
+                const isCloudEnabled = await isOutletCloudBackupEnabled(activeDb, outletCode, client === null || client === void 0 ? void 0 : client.outlet_id);
+                if (!isCloudEnabled) {
+                    logMessage(`Skipping auto-backup for outlet [${outletCode}]: cloud/auto backup is disabled.`);
+                    return;
+                }
                 if (!fs_1.default.existsSync(BACKUP_DIR)) {
                     fs_1.default.mkdirSync(BACKUP_DIR, { recursive: true });
                     logMessage(`Created backup directory at: ${BACKUP_DIR}`);
                 }
                 logMessage(`Hourly backup job started for outlet [${outletCode}]. Securing into proprietary .fambak archive...`);
-                const { TenantBackupService } = require('../services/tenantBackup.service');
-                const activeDb = propertyDb.sequelize || propertyDb;
-                const status = getBackupStatus(outletCode);
                 const fambakResult = await retry(() => TenantBackupService.createFambakBackup(activeDb, {
                     scope: 'OUTLET',
+                    outletId: client === null || client === void 0 ? void 0 : client.outlet_id,
                     outletCode: outletCode,
-                    saveToDrive: status.isCloudEnabled
+                    saveToDrive: true
                 }));
                 const finalFilePath = fambakResult.filePath;
                 const fileName = fambakResult.filename;
@@ -126,11 +214,12 @@ async function startBackupJob(client, config) {
                     throw new Error("Backup integrity verification failed: empty manifest.");
                 }
                 logMessage(`Archive verified: format=${manifest.format}, scope=${manifest.scope}, tables=${manifest.tables.length}, total_records=${manifest.totalRecords}.`);
-                if (status.isCloudEnabled) {
-                    updateSyncSuccess(outletCode);
-                    logMessage("Cloud sync recorded successfully.");
+                updateSyncSuccess(outletCode);
+                logMessage("Cloud sync recorded successfully.");
+                cleanOldLocalBackups(BACKUP_DIR, outletCode);
+                if (finalFilePath && path_1.default.dirname(finalFilePath) !== BACKUP_DIR) {
+                    cleanOldLocalBackups(path_1.default.dirname(finalFilePath), outletCode);
                 }
-                cleanOldLocalBackups(BACKUP_DIR, 500);
                 logMessage("Hourly backup job execution finished.");
             }
             catch (err) {
