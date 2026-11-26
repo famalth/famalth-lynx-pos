@@ -434,6 +434,49 @@ export class DataRetentionService {
       for (const def of selectedTables) {
         const replacements: Record<string, any> = {};
         const whereClause = this.buildFilterClause(def, options, replacements);
+
+        // Before deleting from "users", safely unlink/clean any FK references to those target user IDs
+        if (def.table === 'users') {
+          try {
+            await activeDb.query('SAVEPOINT sp_user_fk', { transaction: t });
+            const fkRows: any[] = await activeDb.query(
+              `SELECT tc.table_name, kcu.column_name, c.is_nullable
+               FROM information_schema.table_constraints tc
+               JOIN information_schema.key_column_usage kcu
+                 ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+               JOIN information_schema.constraint_column_usage ccu
+                 ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
+               JOIN information_schema.columns c
+                 ON c.table_schema = tc.table_schema AND c.table_name = tc.table_name AND c.column_name = kcu.column_name
+               WHERE tc.constraint_type = 'FOREIGN KEY'
+                 AND tc.table_schema = 'public'
+                 AND ccu.table_name = 'users'
+                 AND ccu.column_name = 'id'
+                 AND tc.table_name <> 'users';`,
+              { type: QueryTypes.SELECT, transaction: t }
+            );
+            await activeDb.query('RELEASE SAVEPOINT sp_user_fk', { transaction: t });
+
+            for (const fk of fkRows) {
+              const refTbl = fk.table_name;
+              const refCol = fk.column_name;
+              const isNullable = String(fk.is_nullable || '').toUpperCase() === 'YES';
+              const unlinkSql = isNullable
+                ? `UPDATE "${refTbl}" SET "${refCol}" = NULL WHERE "${refCol}" IN (SELECT id FROM "users" ${whereClause});`
+                : `DELETE FROM "${refTbl}" WHERE "${refCol}" IN (SELECT id FROM "users" ${whereClause});`;
+              try {
+                await activeDb.query('SAVEPOINT sp_user_unlink', { transaction: t });
+                await activeDb.query(unlinkSql, { replacements, transaction: t });
+                await activeDb.query('RELEASE SAVEPOINT sp_user_unlink', { transaction: t });
+              } catch (_) {
+                await activeDb.query('ROLLBACK TO SAVEPOINT sp_user_unlink', { transaction: t }).catch(() => {});
+              }
+            }
+          } catch (_) {
+            await activeDb.query('ROLLBACK TO SAVEPOINT sp_user_fk', { transaction: t }).catch(() => {});
+          }
+        }
+
         const queryStr = `DELETE FROM "${def.table}" ${whereClause};`;
 
         try {
