@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/auth/session_guard.dart';
 import '../core/config/app_config.dart';
 import '../screens/dashboard/server_config_screen.dart';
 import '../screens/dashboard/cloud_migration_screen.dart';
@@ -300,7 +301,18 @@ class _CloudFeatureGateState extends State<CloudFeatureGate> {
                         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
-                      onPressed: () {
+                      onPressed: () async {
+                        if (await SessionGuard.hasActiveLoginSession()) {
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Server change is restricted after login. Please log out first to change the server URL.'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          return;
+                        }
+                        if (!context.mounted) return;
                         Navigator.push(
                           context,
                           MaterialPageRoute(builder: (_) => const ServerConfigScreen()),

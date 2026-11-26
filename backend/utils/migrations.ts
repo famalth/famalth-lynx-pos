@@ -5608,6 +5608,66 @@ COMMIT;
         CREATE INDEX IF NOT EXISTS idx_driver_locations_driver ON transport_driver_locations(driver_id, created_at);
       `);
     }
+  },
+  {
+    version: 132,
+    description: 'Add hr_departments, hr_employees department columns, hr_penalties, and outlet_storage_quotas',
+    up: async (db) => {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS hr_departments (
+          id SERIAL PRIMARY KEY,
+          outlet_id INTEGER NOT NULL,
+          office_id INTEGER,
+          department_name VARCHAR(100) NOT NULL,
+          department_code VARCHAR(50),
+          description TEXT,
+          is_active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_by INTEGER,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_hr_departments_outlet ON hr_departments(outlet_id);
+
+        ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS department_id INTEGER;
+        ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS department VARCHAR(100);
+
+        CREATE TABLE IF NOT EXISTS hr_penalties (
+          id SERIAL PRIMARY KEY,
+          outlet_id INTEGER NOT NULL,
+          employee_id INTEGER NOT NULL,
+          amount NUMERIC(12, 2) NOT NULL,
+          reason VARCHAR(255),
+          category VARCHAR(100) DEFAULT 'Disciplinary',
+          penalty_date DATE NOT NULL DEFAULT CURRENT_DATE,
+          pay_period VARCHAR(20),
+          status VARCHAR(50) NOT NULL DEFAULT 'Pending',
+          created_by INTEGER,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_hr_penalties_outlet_emp ON hr_penalties(outlet_id, employee_id);
+
+        CREATE TABLE IF NOT EXISTS outlet_storage_quotas (
+          id SERIAL PRIMARY KEY,
+          outlet_id INTEGER NOT NULL,
+          outlet_code VARCHAR(64) NOT NULL UNIQUE,
+          base_quota_bytes BIGINT NOT NULL DEFAULT 16106127360,
+          addon_quota_bytes BIGINT NOT NULL DEFAULT 0,
+          promotional_bonus_bytes BIGINT NOT NULL DEFAULT 0,
+          total_allocated_bytes BIGINT NOT NULL DEFAULT 16106127360,
+          current_backups_bytes BIGINT NOT NULL DEFAULT 0,
+          current_uploads_bytes BIGINT NOT NULL DEFAULT 0,
+          current_db_bytes BIGINT NOT NULL DEFAULT 0,
+          total_used_bytes BIGINT NOT NULL DEFAULT 0,
+          warning_threshold_pct INTEGER NOT NULL DEFAULT 80,
+          is_frozen BOOLEAN NOT NULL DEFAULT FALSE,
+          active_plan_code VARCHAR(64) NOT NULL DEFAULT 'STARTER_15GB',
+          plan_expires_at TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+    }
   }
 ];
 

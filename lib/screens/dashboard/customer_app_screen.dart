@@ -4001,22 +4001,24 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
               );
             },
           ),
-          const Divider(),
-          ListTile(
-            leading: const Icon(Icons.dns_rounded, color: Color(0xFFD97706)),
-            title: const Text('Store Connection / Change Server'),
-            subtitle: Text('Connected to: ${AppConfig.baseUrl}', style: const TextStyle(fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
-            trailing: const Icon(Icons.chevron_right, size: 20),
-            onTap: () {
-              Navigator.of(context).pop();
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const ServerConfigScreen(nextScreen: CustomerAppScreen()),
-                ),
-              );
-            },
-          ),
+          if (!hasCustomer) ...[
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.dns_rounded, color: Color(0xFFD97706)),
+              title: const Text('Store Connection / Change Server'),
+              subtitle: Text('Connected to: ${AppConfig.baseUrl}', style: const TextStyle(fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
+              trailing: const Icon(Icons.chevron_right, size: 20),
+              onTap: () {
+                Navigator.of(context).pop();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const ServerConfigScreen(nextScreen: CustomerAppScreen()),
+                  ),
+                );
+              },
+            ),
+          ],
           if (hasCustomer) ...[
             const Divider(),
             ListTile(

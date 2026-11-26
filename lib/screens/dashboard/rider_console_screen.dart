@@ -1522,20 +1522,6 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> with WidgetsBin
               });
             },
           ),
-          const Divider(),
-          ListTile(
-            leading: const Icon(Icons.dns_rounded, color: Color(0xFFD97706)),
-            title: const Text('Store Connection / Change Server'),
-            subtitle: Text('Connected to: ${AppConfig.baseUrl}', style: const TextStyle(fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
-            trailing: const Icon(Icons.chevron_right, size: 20),
-            onTap: () {
-              Navigator.of(context).pop();
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const ServerConfigScreen(nextScreen: RiderConsoleScreen())),
-              );
-            },
-          ),
           Visibility(
             visible: !kIsWeb && !Platform.isAndroid && !Platform.isIOS,
             child: const Divider(),
@@ -1705,16 +1691,17 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> with WidgetsBin
       appBar: AppBar(
         title: const Text('Rider Delivery Portal'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.dns_rounded),
-            tooltip: 'Server Connection',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const ServerConfigScreen(nextScreen: RiderConsoleScreen())),
-              );
-            },
-          ),
+          if (_loggedInRider == null)
+            IconButton(
+              icon: const Icon(Icons.dns_rounded),
+              tooltip: 'Server Connection',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const ServerConfigScreen(nextScreen: RiderConsoleScreen())),
+                );
+              },
+            ),
           if (_loggedInRider != null)
             IconButton(
               icon: const Icon(Icons.refresh),

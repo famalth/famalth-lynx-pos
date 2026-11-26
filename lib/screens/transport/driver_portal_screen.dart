@@ -886,20 +886,6 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.dns_outlined),
-            tooltip: 'Server Settings',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const ServerConfigScreen(
-                    nextScreen: DriverAppSplashScreen(),
-                  ),
-                ),
-              );
-            },
-          ),
-          IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh Trips',
             onPressed: _fetchDriverTrips,

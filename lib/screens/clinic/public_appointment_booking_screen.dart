@@ -1776,36 +1776,58 @@ class _PublicAppointmentBookingScreenState extends State<PublicAppointmentBookin
 
               const SizedBox(height: 10),
 
-              // Action 2: Reconfigure Server Connection
-              ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  side: const BorderSide(color: Color(0xFFE2E8F0)),
-                ),
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF2563EB).withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
+              // Action 2: Reconfigure Server Connection (Only allowed before login)
+              if (_patientProfile == null)
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    side: const BorderSide(color: Color(0xFFE2E8F0)),
                   ),
-                  child: const Icon(Icons.tune, color: Color(0xFF2563EB), size: 22),
-                ),
-                title: const Text('Reconfigure Server Connection', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                subtitle: const Text('Scan new server QR or change server IP manually', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
-                trailing: const Icon(Icons.chevron_right, size: 20, color: Color(0xFF94A3B8)),
-                onTap: () {
-                  Navigator.pop(sheetCtx);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const ServerConfigScreen(
-                        nextScreen: ClinicAppSplashScreen(),
-                      ),
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2563EB).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                  );
-                },
-              ),
+                    child: const Icon(Icons.tune, color: Color(0xFF2563EB), size: 22),
+                  ),
+                  title: const Text('Reconfigure Server Connection', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  subtitle: const Text('Scan new server QR or change server IP manually', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                  trailing: const Icon(Icons.chevron_right, size: 20, color: Color(0xFF94A3B8)),
+                  onTap: () {
+                    Navigator.pop(sheetCtx);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const ServerConfigScreen(
+                          nextScreen: ClinicAppSplashScreen(),
+                        ),
+                      ),
+                    );
+                  },
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF2F2),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFFECACA)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.lock_outline, color: Color(0xFFDC2626), size: 18),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Server change is restricted while signed in. Sign out first to change server.',
+                          style: TextStyle(fontSize: 11.5, color: Color(0xFF991B1B), fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
         );

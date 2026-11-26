@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:retailpos/screens/splash_screen.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/auth/session_guard.dart';
 import '../../core/config/app_config.dart';
 import '../../widgets/app_setup_qr_dialog.dart';
 import '../settings/outlet_setup_screen.dart';
@@ -30,6 +31,7 @@ class _ServerConfigScreenState extends State<ServerConfigScreen>
   final _outletCodeCtrl = TextEditingController();
   bool _isLoading = false;
   bool _isProcessingQr = false;
+  bool _isSessionLocked = false;
   String _loadingMessage = "Verifying connection...";
 
   late bool _isScanMode;
@@ -61,6 +63,18 @@ class _ServerConfigScreenState extends State<ServerConfigScreen>
       vsync: this,
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
+
+    _checkSessionLock();
+  }
+
+  Future<void> _checkSessionLock() async {
+    final locked = await SessionGuard.hasActiveLoginSession();
+    if (!mounted) return;
+    if (locked) {
+      setState(() {
+        _isSessionLocked = true;
+      });
+    }
   }
 
   @override
@@ -111,6 +125,18 @@ class _ServerConfigScreenState extends State<ServerConfigScreen>
   }
 
   Future<void> _applyPayloadAndConnect(String raw) async {
+    if (await SessionGuard.hasActiveLoginSession()) {
+      if (!mounted) return;
+      setState(() => _isSessionLocked = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Server change is restricted after login. Please log out first."),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     setState(() {
       _isProcessingQr = true;
       _isLoading = true;
@@ -358,6 +384,18 @@ class _ServerConfigScreenState extends State<ServerConfigScreen>
   }
 
   Future<void> _checkAndProceed() async {
+    if (await SessionGuard.hasActiveLoginSession()) {
+      if (!mounted) return;
+      setState(() => _isSessionLocked = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Server change is restricted after login. Please log out first."),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     final url = _urlCtrl.text.trim();
     final outletCode = _outletCodeCtrl.text.trim();
 
@@ -496,11 +534,17 @@ class _ServerConfigScreenState extends State<ServerConfigScreen>
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
       appBar: AppBar(
-        title: Text(_isScanMode ? "Auto-Connect Setup" : "System Configuration"),
+        title: Text(
+          _isSessionLocked
+              ? "Server Configuration (Locked)"
+              : (_isScanMode ? "Auto-Connect Setup" : "System Configuration"),
+        ),
         backgroundColor: Colors.white,
         foregroundColor: const Color(0xFF0F172A),
         elevation: 0.5,
-        actions: [
+        actions: _isSessionLocked
+            ? null
+            : [
           // Share Store QR (Friends & Family for Customer App, or Companion App Setup for Staff)
           IconButton(
             icon: Icon(
@@ -531,8 +575,117 @@ class _ServerConfigScreenState extends State<ServerConfigScreen>
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-          child: _isScanMode ? _buildScannerView() : _buildManualFormView(),
+          child: _isSessionLocked
+              ? _buildSessionLockedView()
+              : (_isScanMode ? _buildScannerView() : _buildManualFormView()),
         ),
+      ),
+    );
+  }
+
+  Widget _buildSessionLockedView() {
+    return Container(
+      width: 440,
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 18,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF2F2),
+                shape: BoxShape.circle,
+                border: Border.all(color: const Color(0xFFFECACA)),
+              ),
+              child: const Icon(
+                Icons.lock_rounded,
+                size: 36,
+                color: Color(0xFFDC2626),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            "Server Change Restricted",
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF0F172A),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            "You are currently logged in. Server URL can only be changed from the login screen before signing in. Please log out first to switch servers.",
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13,
+              color: Color(0xFF64748B),
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  "CURRENT CONNECTED SERVER",
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF64748B),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  AppConfig.baseUrl,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 22),
+          SizedBox(
+            height: 46,
+            child: FilledButton(
+              onPressed: () => Navigator.of(context).pop(),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF0F172A),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              child: const Text(
+                "Go Back",
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

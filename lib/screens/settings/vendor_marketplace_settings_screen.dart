@@ -6,7 +6,6 @@ import '../../core/config/app_config.dart';
 import '../../core/currency/currency_service.dart';
 import '../../core/settings/local_preferences.dart';
 import '../../models/inventory/item_model.dart';
-import '../dashboard/server_config_screen.dart';
 import '../../widgets/cloud_feature_gate.dart';
 
 class VendorMarketplaceSettingsScreen extends StatelessWidget {
@@ -383,22 +382,23 @@ class _VendorMarketplaceSettingsViewState
                     ),
                   ),
                   const SizedBox(width: 12),
-                  FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF0284C7),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE0F2FE),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFBAE6FD)),
                     ),
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const ServerConfigScreen()),
-                      );
-                    },
-                    icon: const Icon(Icons.dns_rounded, size: 16),
-                    label: const Text(
-                      'Configure Cloud URL',
-                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.lock_outline, size: 15, color: Color(0xFF0369A1)),
+                        SizedBox(width: 6),
+                        Text(
+                          'Log out to change server',
+                          style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF0369A1)),
+                        ),
+                      ],
                     ),
                   ),
                 ],
