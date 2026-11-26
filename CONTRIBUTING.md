@@ -25,8 +25,8 @@ By participating in this project, you agree to abide by our [Code of Conduct](./
 
 ## 💡 How Can I Contribute?
 
-- **Report Bugs**: Submit a detailed issue using our [Bug Report Template](.github/ISSUE_TEMPLATE/bug_report.md).
-- **Suggest Features**: Submit feature requests using our [Feature Request Template](.github/ISSUE_TEMPLATE/feature_request.md).
+- **Report Bugs**: Submit a detailed issue using our [Bug Report Template](https://github.com/famalthtechnologies/RetailSale/issues/new).
+- **Suggest Features**: Submit feature requests using our [Feature Request Template](https://github.com/famalthtechnologies/RetailSale/issues/new).
 - **Fix Issues**: Look for issues tagged with `good first issue` or `help wanted`.
 - **Improve Documentation**: Help clarify guides, installation steps, and API references in the `Docs/` directory.
 

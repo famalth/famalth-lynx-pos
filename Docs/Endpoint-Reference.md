@@ -1,6 +1,6 @@
 # 📡 Master REST API Endpoint Reference
 
-This document is the **complete, exhaustive HTTP REST API reference** for all 49 route modules and developer integration subsystems in the backend server.
+This document is the **complete, exhaustive HTTP REST API reference** for all 51 route modules and developer integration subsystems in the backend server.
 
 ---
 
@@ -54,6 +54,8 @@ This document is the **complete, exhaustive HTTP REST API reference** for all 49
 47. [Delivery Challan Subsystem (`/api/restaurant/challan`)](#47-delivery-challan-subsystem-apirestaurantchallan)
 48. [Multi-Tiered Storage & Enterprise Backups (`/api/backup`)](#48-multi-tiered-storage--enterprise-backups-apibackup)
 49. [Model Context Protocol (MCP) & AI Gateway (`/api/v1/developer/mcp`)](#49-model-context-protocol-mcp--ai-gateway-apiv1developermcp)
+50. [Statutory Tax Compliance (GST & ITR) (`/api/accounting/tax`)](#50-statutory-tax-compliance-gst--itr-apiaccountingtax)
+51. [Employee Mobile Self-Service & Office HRMS (`/api/hrms/employee`, `/api/hrms/employee-auth`)](#51-employee-mobile-self-service--office-hrms-apihrmsemployee-apihrmsemployee-auth)
 
 ---
 
@@ -557,6 +559,14 @@ Idempotency-Key: <UUID> (Optional for safe retries)
 
 ## 46. Transport Logistics & Fleet Management (`/api/transport`)
 
+- `POST /api/transport/driver/login` - Public Driver authentication with mobile number and PIN.
+- `POST /api/transport/driver/forgot-password` - Request driver password reset OTP.
+- `POST /api/transport/driver/reset-password` - Cryptographically verify OTP and set new driver password.
+- `GET /api/transport/driver/me` - Authenticated driver self-service profile and vehicle assignment.
+- `GET /api/transport/driver/assigned-trips` - Retrieve active trip manifest and delivery stops.
+- `POST /api/transport/driver/verify-delivery` - Verify doorstep recipient drop-off with customer OTP or touchscreen signature.
+- `POST /api/transport/driver/update-location` - Real-time background driver GPS beacon update.
+- `GET /api/transport/fleet-tracking` - Live fleet map tracking for dispatchers.
 - `GET /api/transport/vehicles` - List fleet vehicles with model, ownership type, and operational status.
 - `POST /api/transport/vehicles` - Register new commercial delivery vehicle.
 - `PUT /api/transport/vehicles/:id` - Update fleet vehicle details and maintenance status.
@@ -566,7 +576,6 @@ Idempotency-Key: <UUID> (Optional for safe retries)
 - `PUT /api/transport/drivers/:id` - Update driver details and duty availability.
 - `DELETE /api/transport/drivers/:id` - Deactivate driver profile.
 - `POST /api/transport/assign-trip` - Group delivery challans into a truck run and assign vehicle + driver.
-- `POST /api/transport/verify-delivery` - Verify doorstep recipient drop-off with customer code and notes.
 - `POST /api/transport/release-trip` - Release vehicle and driver back to available fleet upon route completion.
 - `GET /api/transport/active-trips` - Monitor real-time transit status of all dispatched logistics routes.
 
@@ -639,4 +648,36 @@ Idempotency-Key: <UUID> (Optional for safe retries)
 
 ---
 
-*Last Updated: November 2026 | Covers 100% of all 49 Express Route Modules & Developer Subsystems*
+## 50. Statutory Tax Compliance (GST & ITR) (`/api/accounting/tax`)
+
+*Requires: JWT + `REPORTS` License Module.*
+
+- `GET /api/accounting/tax/gst-summary` - Returns aggregated GSTR-1 outward supplies, B2B/B2C classification, and GSTR-3B Input Tax Credit (ITC) reconciliation tables.
+- `GET /api/accounting/tax/gstr1-export` - Generates and streams government-compliant GSTR-1 JSON schema payload for direct upload to the GST portal.
+- `POST /api/accounting/tax/gsp-file-gstr1` - Direct GSP API submission with mutual TLS authentication, returning filing ARN reference tokens.
+- `GET /api/accounting/tax/itr-summary` - Computes statutory schedules for ITR-4 (Presumptive Sec 44AD/44ADA) and ITR-5 (Trading/Manufacturing P&L and Balance Sheet).
+- `GET /api/accounting/tax/itr4-export` - Exports statutory tax schedule dataset formatted for Income Tax utility software.
+- `GET /api/accounting/tax/config` - Fetches store legal business name, GSTIN, PAN, filing frequency, and turnover brackets.
+- `POST /api/accounting/tax/config` - Updates legal fiscal profile and GSTIN credentials.
+- `GET /api/accounting/tax/filings` - Retrieves permanent audit history of past returns and government ARN timestamps.
+
+---
+
+## 51. Employee Mobile Self-Service & Office HRMS (`/api/hrms/employee`, `/api/hrms/employee-auth`)
+
+### Public Employee Auth
+- `POST /api/hrms/employee-auth/login` - Public staff mobile authentication using Email, Mobile Phone, or Employee Code with device hardware locking.
+- `POST /api/hrms/employee-auth/forgot-password/request-otp` - Dispatches 6-digit cryptographic verification OTP to employee email.
+- `POST /api/hrms/employee-auth/forgot-password/reset` - Verifies email OTP and updates employee account password.
+
+### Authenticated Employee Portal
+- `GET /api/hrms/employee/my-profile` - Retrieves logged-in staff profile, assigned shift schedule, office geofence center, and leave balances.
+- `POST /api/hrms/employee/punch` - Submits geotagged attendance punch with Haversine mathematical distance validation and optional selfie photo.
+- `POST /api/hrms/employee/change-password` - Updates employee login credentials from mobile settings.
+- `POST /api/hrms/employee/request-loan` - Submits formal staff salary advance or loan application with requested EMI deduction.
+- `POST /api/hrms/employee/request-salary-raise` - Submits formal salary increment and appraisal request.
+- `POST /api/hrms/employees/:id/reset-device` - Admin endpoint to unbind staff hardware device ID upon smartphone replacement.
+
+---
+
+*Last Updated: November 2026 | Covers 100% of all 51 Express Route Modules & Developer Subsystems*

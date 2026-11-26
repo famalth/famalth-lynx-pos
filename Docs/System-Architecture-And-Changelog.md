@@ -443,5 +443,49 @@ graph TD
   * Production containers on Render.com run a slim Node.js alpine image that serves pre-built static web assets and Express APIs.
   * Reduced Docker image footprint from 2.5GB to under 250MB, dramatically cutting cold-start and deployment times.
 
+---
+
+### 32. 🧾 Statutory GST Compliance & ITR Filing Hub (Nov 2026)
+* **Outward & Inward Tax Aggregators (`taxCompliance.controller.ts`)**:
+  * Auto-computes GSTR-1 Table 4 (B2B with customer GSTIN), Table 5 (B2C Large), Table 7 (B2C Small), Table 9B (Credit Notes), and Table 12 (HSN/SAC summary).
+  * Direct GSP cloud submission with mutual TLS and official government JSON export for zero-error drag-and-drop filing.
+* **ITR-4 & ITR-5 Statutory Statement Mapping**:
+  * Implemented Section 44AD presumptive turnover splits (6% digital vs. 8% non-digital revenue).
+  * Automated generation of Trading/Manufacturing P&L, Section 32 WDV depreciation schedules, and Balance Sheet capital/debt classifications.
+
+---
+
+### 33. 👥 HRMS Employee Self-Service Mobile Portal & Geofenced Punch (Nov 2026)
+* **Haversine Geofenced GPS Attendance (`employee_portal_screen.dart`, `hrms.controller.ts`)**:
+  * High-precision mathematical distance validation restricting punch-in/out to the employee's assigned store or office radius.
+  * Hardware device binding to eliminate buddy punching, front-camera selfie verification, and shift grace period calculations.
+* **Self-Service Workplace Desk**:
+  * Calendar heatmap, leave applications with manager approval workflows, salary advance/loan requests, payslip PDF downloads, and email OTP password resets.
+
+---
+
+### 34. 🚚 Logistics Fleet Driver Portal & Doorstep OTP Verification (Nov 2026)
+* **Dedicated Driver Web & Mobile Portal (`driver_portal_screen.dart`, `transport.controller.ts`)**:
+  * Real-time trip loading manifest, turn-by-turn navigation, and customer phone dialer.
+  * Doorstep verification via automated 6-digit customer OTP or touchscreen signature capture on glass under GST Rule 55.
+  * Real-time GPS location beacon updates (`/api/transport/driver/update-location`) with reverse geocoding into readable street names and live dispatcher map tracking.
+
+---
+
+### 35. 📱 Mobile Damage Goods & Dockside Receiving (GRN) Sheets (Nov 2026)
+* **Mobile Damage Item Sheet (`mobile_damage_item_sheet.dart`)**:
+  * Fast warehouse floor write-off for damaged, expired, or spoiled products with photo documentation and instant inventory adjustment.
+* **Mobile Goods Receiving Sheet (`mobile_goods_receiving_sheet.dart`)**:
+  * Dockside inbound shipment check-in, physical barcode package scanning with phone camera, and differential GRN variance logging.
+
+---
+
+### 36. 🛡️ Enterprise Cloud Migration Hardening & Backup Rules v3-v5 (Nov 2026)
+* **Migration Foreign Key Resolution (`migration.controller.ts`)**:
+  * Dynamically resolves complex database foreign keys, coerces string decimals to integer columns, remaps `user_id` and `created_by` references, and preserves linked outlet clusters during cloud migrations.
+* **Automated Backup Rules v3-v5**:
+  * Automated retention pruning, encrypted off-site cloud replication, and email OTP authorization safeguards for sensitive database restorations.
+
+
 
 

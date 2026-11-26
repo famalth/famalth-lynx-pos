@@ -152,6 +152,9 @@ Deploy the web application and backend seamlessly on [Render.com](https://render
 - 🚚 **[Delivery Challan, Fleet Vehicles & Transport Logistics](./Docs/User-Guide-Delivery-Challan-And-Transport-Logistics.md)** - Issuing goods in transit challans, fleet vehicle/driver management, trip loading manifest & POS conversion
 - 🗄️ **[Multi-Tiered Storage & Enterprise Backup Architecture](./Docs/User-Guide-Tiered-Storage-And-Backup-Architecture.md)** - Partitioned root volume (storage/), dedicated enterprise tier, outlet sandboxing & .fambak/.posbak archives
 - 📱 **[Mobile Billing Suite & Universal Companion Apps](./Docs/User-Guide-Mobile-Billing-And-Companion-Apps.md)** - Handheld POS terminal, bottom sheets, waiter/rider companion apps & QR scan-to-connect
+- 🧾 **[Statutory GST Compliance & ITR Tax Filing](./Docs/User-Guide-GST-Compliance-And-ITR-Filing.md)** - GSTR-1, GSTR-3B, HSN breakdown, GSP direct submission & ITR-4/5 schedules
+- 👥 **[Employee Self-Service Mobile Portal & HRMS](./Docs/User-Guide-Employee-Self-Service-And-Mobile-HRMS.md)** - Geofenced GPS attendance punches, shift tracking, leave approvals & payslip PDFs
+- 🚚 **[Logistics Fleet Driver App & Doorstep Verification](./Docs/User-Guide-Logistics-Driver-App-And-Doorstep-Verification.md)** - Driver mobile portal, route manifest, live GPS beacon & customer OTP delivery
 - 🌐 **[Model Context Protocol (MCP) & AI Gateway](./Docs/User-Guide-Model-Context-Protocol-And-AI-Gateway.md)** - Connecting ChatGPT, Claude Desktop, Gemini & Cursor AI for natural language sales & POS control
 - ❓ **[Complete Store Operations FAQ](./Docs/User-Guide-FAQ.md)** - Frequently asked cashier and manager troubleshooting questions
 - 📖 **[Master User Guide & Workflow Index](./Docs/User-Guide.md)** - Universal operational documentation hub
@@ -160,9 +163,10 @@ Deploy the web application and backend seamlessly on [Render.com](https://render
 
 ### 🛠️ Developer & Technical Architecture Guides
 - 📋 **[Master Feature & Documentation Coverage Matrix](./Docs/Feature-Coverage-Checklist.md)** - 100% verified UI & backend feature audit
-- 📜 **[System Architecture Upgrades & Changelog (Sept-Oct 2026)](./Docs/System-Architecture-And-Changelog.md)** - Architectural evolution timeline & core invariants
-- 📡 **[Master REST API Endpoint Reference](./Docs/Endpoint-Reference.md)** - Comprehensive specification of all 49 backend route modules
+- 📜 **[System Architecture Upgrades & Changelog (Sept-Nov 2026)](./Docs/System-Architecture-And-Changelog.md)** - Architectural evolution timeline & core invariants
+- 📡 **[Master REST API Endpoint Reference](./Docs/Endpoint-Reference.md)** - Comprehensive specification of all 51 backend route modules
 - 🌐 **[Model Context Protocol (MCP) & AI Gateway Architecture](./Docs/Developer-Guide-Model-Context-Protocol-And-AI-Gateway.md)** - SSE/JSON-RPC transports, dynamic ChatGPT Action OpenAPI 3.0 spec, Gemini function calling & OAuth 2.0 PKCE
+- 🧾 **[Tax Compliance, Employee Portal & Driver Fleet Architecture](./Docs/Developer-Guide-Tax-Compliance-And-Office-Portal.md)** - GSTR-1/3B engine, ITR statement mapping, Haversine GPS geofencing & driver OTP
 - 🏢 **[Enterprise SaaS Control Plane & Data Doctor](./Docs/Developer-Guide-Enterprise-Control-Plane-And-Data-Doctor.md)** - Master IAM, multi-tenant fleet governance, 30-day quota guard, sandboxed Data Doctor SQL runner, vector PDF invoicing & Inno Setup packaging
 - 🏥 **[Clinic Management & Digital Prescription Architecture](./Docs/Developer-Guide-Clinic-Management-And-OPD.md)** - Appointment state machine, doctor desk vitals JSONB, direct pharmacy billing & vector prescription PDF
 - 🛠️ **[System Maintenance & Lockout Middleware Engine](./Docs/Developer-Guide-Maintenance-Mode-And-Lockout.md)** - Maintenance middleware, atomic JSON state storage, role-based bypass rules & Flutter interceptor

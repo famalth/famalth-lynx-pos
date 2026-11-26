@@ -116,6 +116,9 @@ Step-by-step illustrated workflows written for store operators, cashiers, restau
 - 🚚 **[Delivery Challan, Fleet Vehicles & Transport Logistics](./User-Guide-Delivery-Challan-And-Transport-Logistics.md)**: Issuing goods in transit challans, fleet vehicle/driver management, trip loading manifest & POS conversion.
 - 🗄️ **[Multi-Tiered Storage & Enterprise Backup Architecture](./User-Guide-Tiered-Storage-And-Backup-Architecture.md)**: Partitioned root volume (storage/), dedicated enterprise tier, outlet sandboxing & .fambak/.posbak archives.
 - 📱 **[Mobile Billing Suite & Universal Companion Apps](./User-Guide-Mobile-Billing-And-Companion-Apps.md)**: Handheld POS terminal, bottom sheets, waiter/rider companion apps & QR scan-to-connect.
+- 🧾 **[Statutory GST Compliance & ITR Filing Hub](./User-Guide-GST-Compliance-And-ITR-Filing.md)**: Generating GSTR-1, GSTR-3B, HSN summaries, government JSON export & ITR-4/5 schedules.
+- 👥 **[Employee Self-Service Mobile Portal & HRMS](./User-Guide-Employee-Self-Service-And-Mobile-HRMS.md)**: Geofenced GPS attendance punches, shift tracking, leave approvals & payslip PDFs.
+- 🚚 **[Logistics Fleet Driver App & Doorstep Verification](./User-Guide-Logistics-Driver-App-And-Doorstep-Verification.md)**: Driver mobile portal, route manifest, live GPS beacon & customer OTP delivery.
 - 🌐 **[Model Context Protocol (MCP) & AI Gateway User Guide](./User-Guide-Model-Context-Protocol-And-AI-Gateway.md)**: Connecting ChatGPT, Claude Desktop, Google Gemini, and Cursor AI to query sales, inventory, and draft bills.
 - ❓ **[Complete Store Operations FAQ](./User-Guide-FAQ.md)**: Universal troubleshooting manual.
 
@@ -189,6 +192,7 @@ sequenceDiagram
 - 🚚 **[Delivery Challan, Fleet Vehicles & Transport Architecture](./Developer-Guide-Delivery-Challan-And-Transport-Logistics.md)**: Logistics schema, trip assignment manifest, doorstep OTP verification & POS sales conversion pipeline.
 - 🗄️ **[Multi-Tiered Storage & Enterprise Backup Architecture](./Developer-Guide-Tiered-Storage-And-Backup-Architecture.md)**: Partitioned root volume (storage/), dedicated enterprise tier, outlet sandboxing, .fambak archive internals & quota services.
 - 🌐 **[Model Context Protocol (MCP) & AI Gateway Architecture](./Developer-Guide-Model-Context-Protocol-And-AI-Gateway.md)**: SSE & JSON-RPC transports, dynamic ChatGPT OpenAPI 3.0 spec, Gemini function calling, and RFC 6749/7636 OAuth 2.0 PKCE server.
+- 🧾 **[Tax Compliance, Employee Portal & Driver Fleet Architecture](./Developer-Guide-Tax-Compliance-And-Office-Portal.md)**: GSTR-1/3B engine, ITR statement mapping, Haversine GPS geofencing & driver OTP.
 - 🍽️ **[QR Table Dining & Multi-Seat Architecture](./Developer-Guide-QR-Table-Ordering.md)**: Split-bill session engine, seat-level tagging, combined vs per-seat totals, and standalone dining app (`main_dining.dart`).
 - 🚀 **[1-Click Relational Store Migration Architecture](./One-Click-Cloud-Migration-Guide.md)**: In-memory relational ID translation engine and sequence re-alignment.
 - 🛍️ **[B2B Wholesale Marketplace & Community Chat Architecture](./B2B-Marketplace-And-Community-Guide.md)**: WebSocket chat protocols, vendor discovery, and direct PO translation.

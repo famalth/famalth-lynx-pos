@@ -152,6 +152,8 @@ Store operators can swipe up from the bottom menu to access specialized utility 
 | **Mobile Customer Ledger Sheet** (`mobile_customer_ledger_sheet.dart`) | Lookup customer outstanding balances, view credit history, collect partial debt payments, and issue digital payment vouchers. |
 | **Mobile Item Master Sheet** (`mobile_item_master_sheet.dart`) | Quick item search, check selling prices, verify tax slabs, and update item barcodes using the phone's camera. |
 | **Mobile Stock Balance Sheet** (`mobile_stock_balance_sheet.dart`) | Real-time stock audit across warehouse aisles, checking current on-hand quantities, reorder levels, and expired batches. |
+| **Mobile Damage Item Sheet** (`mobile_damage_item_sheet.dart`) | Record damaged, expired, or spoiled goods directly on the warehouse floor with photo capture and instant inventory write-off. |
+| **Mobile Goods Receiving (GRN) Sheet** (`mobile_goods_receiving_sheet.dart`) | Inward vendor shipments at the loading dock, scan package barcodes with phone camera, and verify physical count against PO. |
 
 ---
 
