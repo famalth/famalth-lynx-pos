@@ -156,9 +156,9 @@ exports.createUser = async (req, res) => {
             message: 'Username can only contain letters, numbers, and underscores (no spaces or special characters), and must start with a letter or number'
         });
     }
-    // Check if username is already taken globally
+    // Check if username is already taken globally (case-insensitive)
     const existing = await req.propertyDb.models.users.findOne({
-        where: { username: cleanUsername }
+        where: { username: { [Op.iLike]: cleanUsername } }
     });
     if (existing) {
         return res.status(400).json({

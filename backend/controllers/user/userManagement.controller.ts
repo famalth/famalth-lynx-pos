@@ -178,9 +178,9 @@ exports.createUser = async (req, res) => {
         });
     }
 
-    // Check if username is already taken globally
+    // Check if username is already taken globally (case-insensitive)
     const existing = await req.propertyDb.models.users.findOne({
-        where: { username: cleanUsername }
+        where: { username: { [Op.iLike]: cleanUsername } }
     });
 
     if (existing) {

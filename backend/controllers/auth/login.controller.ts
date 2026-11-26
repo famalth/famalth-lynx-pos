@@ -62,11 +62,15 @@ exports.login = async (req, res, next) => {
         }
 
         const cleanUser = (username || '').trim();
+        const outletCode = currentOutlet.outlet_code;
 
-        // Strict outlet-scoped exact username lookup: prevent cross-outlet or wildcard username access
+        // Strict outlet-scoped username lookup (supports legacy <username>_<outletCode> suffix within the SAME outlet only)
         const user = await db.models.users.findOne({
             where: {
-                username: { [Op.iLike]: cleanUser },
+                [Op.or]: [
+                    { username: { [Op.iLike]: cleanUser } },
+                    { username: { [Op.iLike]: `${cleanUser}_${outletCode}` } }
+                ],
                 outlet_id: currentOutlet.id,
                 is_active: true
             }

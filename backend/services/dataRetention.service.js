@@ -123,6 +123,8 @@ exports.RETENTION_TABLES = [
     { table: 'restaurant_floors', module: 'RESTAURANT_MASTERS', dateColumn: 'created_at' },
     { table: 'kitchen_stations', module: 'RESTAURANT_MASTERS', dateColumn: 'created_at' },
     { table: 'kot_printers', module: 'RESTAURANT_MASTERS', dateColumn: 'created_at' },
+    // 12. Users (Outlet-Scoped, always preserves primary admin_<outletCode> account)
+    { table: 'users', module: 'USERS', dateColumn: 'created_at' },
 ];
 class DataRetentionService {
     /**
@@ -142,6 +144,19 @@ class DataRetentionService {
                 conditions.push(`outlet_id = :outletId`);
             }
             replacements.outletId = outletId;
+        }
+        // Preserve primary outlet admin account (admin_<outletCode>) when purging users
+        if (def.table === 'users') {
+            const outletCode = String(options.outletCode || '').trim();
+            if (outletCode) {
+                replacements.adminUsernameExact = `admin_${outletCode}`.toLowerCase();
+                replacements.adminUsernamePrefix = `admin_${outletCode}_%`.toLowerCase();
+                conditions.push(`LOWER(TRIM(username)) != :adminUsernameExact`);
+                conditions.push(`LOWER(TRIM(username)) NOT LIKE :adminUsernamePrefix`);
+            }
+            else {
+                conditions.push(`LOWER(TRIM(username)) NOT LIKE 'admin_outlet%'`);
+            }
         }
         // 2. Date Filtering
         const retType = options.retentionType || (options.olderThanYears ? 'OLDER_THAN' : 'ALL_TIME');

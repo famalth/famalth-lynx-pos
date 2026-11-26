@@ -527,6 +527,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
       {'key': 'HR_MASTERS', 'label': 'HR & Payroll Masters (Incl. Employees)'},
       {'key': 'CLINIC_MASTERS', 'label': 'Clinic Masters'},
       {'key': 'RESTAURANT_MASTERS', 'label': 'Restaurant Masters'},
+      {'key': 'USERS', 'label': 'Users (Excl. admin_<outlet>)'},
     ];
 
     final selectedModules = {'SALES', 'INVENTORY', 'PURCHASES', 'FINANCE', 'HRMS', 'CLINIC', 'AUDIT_LOGS'};
@@ -852,7 +853,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           const Text(
-                            '3. Master Data to Purge (Excl. Users, Outlet-Scoped):',
+                            '3. Master Data & Users to Purge (Outlet-Scoped):',
                             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
                           ),
                           TextButton(

@@ -187,7 +187,17 @@ exports.createOutlet = async (req, res) => {
         let adminCredentials = null;
 
         if (userCount === 0) {
-            const adminUsername = req.body.admin_username || `admin_${outlet_code}`;
+            const { Op } = require('sequelize');
+            const adminUsername = (req.body.admin_username || `admin_${outlet_code}`).toString().trim();
+            const existingGlobalUser = await req.propertyDb.models.users.findOne({
+                where: { username: { [Op.iLike]: adminUsername } }
+            });
+            if (existingGlobalUser) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Username '${adminUsername}' is already taken in our system. Please choose a unique username.`
+                });
+            }
             const adminPassword = req.body.admin_password || generateEnterprisePassword();
             const hash = await bcrypt.hash(adminPassword.toString(), 10);
 
@@ -300,11 +310,23 @@ exports.createAdmin = async (req, res) => {
             });
         }
 
+        const { Op } = require('sequelize');
+        const cleanUsername = username.toString().trim();
+        const existingGlobalUser = await req.propertyDb.models.users.findOne({
+            where: { username: { [Op.iLike]: cleanUsername } }
+        });
+        if (existingGlobalUser) {
+            return res.status(400).json({
+                success: false,
+                message: `Username '${cleanUsername}' is already taken in our system. Please choose a unique username.`
+            });
+        }
+
         const hash = await bcrypt.hash(password, 10);
 
         await req.propertyDb.models.users.create({
             outlet_id: outlet.id,
-            username: username,
+            username: cleanUsername,
             full_name: full_name || 'System Admin',
             role: 'ADMIN',
             password_hash: hash,
