@@ -1467,7 +1467,7 @@ async function toolManagePaymentMethods(db, scope, args) {
         const name = String(args?.name || '').trim().toUpperCase();
         if (!name)
             return { status: 'NEEDS_INPUT', missingField: 'name', message: 'Payment method name is required.' };
-        const [rows] = await activeDb.query(`INSERT INTO payment_methods (name, is_system, is_active, "createdAt", "updatedAt")
+        const [rows] = await activeDb.query(`INSERT INTO payment_methods (name, is_system, is_active, created_at, updated_at)
        VALUES ($1, FALSE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING id, name, is_active`, { bind: [name] });
         return { status: 'CREATED', paymentMethod: rows[0], message: `Payment method ${name} added.` };
     }
@@ -1475,7 +1475,7 @@ async function toolManagePaymentMethods(db, scope, args) {
         const id = Number(args?.id || 0);
         if (!id)
             throw new Error('Payment method id is required to toggle.');
-        const [rows] = await activeDb.query(`UPDATE payment_methods SET is_active = $1, "updatedAt" = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id, name, is_active`, { bind: [args.isActive !== false, id] });
+        const [rows] = await activeDb.query(`UPDATE payment_methods SET is_active = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id, name, is_active`, { bind: [args.isActive !== false, id] });
         return { status: 'UPDATED', paymentMethod: rows?.[0], message: `Payment method #${id} updated.` };
     }
     throw new Error(`Unsupported action: ${action}`);
