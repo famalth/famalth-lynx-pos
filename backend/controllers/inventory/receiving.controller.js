@@ -121,7 +121,26 @@ const createReceiving = async (req, res) => {
     const t = await req.propertyDb.transaction();
     try {
         const outlet_id = req.user.outlet_id;
-        const user_id = req.user.id;
+        let user_id = Number(req.user?.id) || null;
+        if (user_id) {
+            const exists = await req.propertyDb.models.users.findByPk(user_id, {
+                attributes: ['id'],
+                transaction: t,
+                bypassOutletFilter: true
+            }).catch(() => null);
+            if (!exists)
+                user_id = null;
+        }
+        if (!user_id) {
+            const fallbackUser = await req.propertyDb.models.users.findOne({
+                where: { outlet_id },
+                attributes: ['id'],
+                order: [['id', 'ASC']],
+                transaction: t,
+                bypassOutletFilter: true
+            }).catch(() => null);
+            user_id = fallbackUser ? Number(fallbackUser.id) : null;
+        }
         const { grn_no, manual_no, po_no, supplier_id, receipt_date, supplier_bill_no, status, round_off_amount, round_off, items = [] } = req.body;
         if (po_no && String(po_no).trim().length > 0) {
             const purchaseOrder = await req.propertyDb.models.purchase_orders.findOne({
@@ -300,7 +319,7 @@ const createReceiving = async (req, res) => {
             amount_out: 0,
             adjustment_amount: netAmount,
             notes: `Stock received against GRN #${effectiveGrnNo} (Bill #${supplier_bill_no || 'N/A'}) - outstanding ${netAmount}`,
-            created_by: req.user.id,
+            created_by: user_id,
             transaction: t
         });
         if (po_no && po_no.toString().trim() !== '') {
@@ -351,7 +370,7 @@ const createReceiving = async (req, res) => {
                 narration: `Purchase GRN #${effectiveGrnNo} received from ${supplier?.supplier_name || 'Vendor'} (Bill No: ${supplier_bill_no || 'N/A'})`,
                 payment_mode: 'CREDIT',
                 status: 'POSTED',
-                created_by: req.user.id
+                created_by: user_id
             });
             await req.propertyDb.models.voucher_lines.bulkCreate([
                 {

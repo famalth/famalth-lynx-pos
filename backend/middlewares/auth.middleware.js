@@ -69,6 +69,27 @@ const authMiddleware = async (req, res, next) => {
             ...data,
             id: data.user_id || data.id
         };
+        // Strict User Existence Check: if the token's user no longer exists (or is inactive), reject with 401 so client logs out immediately
+        if (req.propertyDb?.models?.users) {
+            try {
+                const rawUserId = Number(req.user.id || 0);
+                const validUser = rawUserId
+                    ? await req.propertyDb.models.users.findByPk(rawUserId, {
+                        attributes: ['id', 'is_active'],
+                        bypassOutletFilter: true
+                    })
+                    : null;
+                if (!validUser || validUser.is_active === false) {
+                    return res.status(401).json({
+                        success: false,
+                        code: 'USER_NOT_FOUND',
+                        forceLogout: true,
+                        message: 'User account no longer exists or is inactive. Please login again.'
+                    });
+                }
+            }
+            catch (_) { }
+        }
         req.outlet_id = data.outlet_id;
         req.outlet_code = data.outlet_code;
         const store = contextStorage.getStore();

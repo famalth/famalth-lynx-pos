@@ -127,7 +127,25 @@ export const createReceiving = async (req: Request, res: Response) => {
 
     try {
         const outlet_id = (req as any).user.outlet_id;
-        const user_id = (req as any).user.id;
+        let user_id: number | null = Number((req as any).user?.id) || null;
+        if (user_id) {
+            const exists = await (req as any).propertyDb.models.users.findByPk(user_id, {
+                attributes: ['id'],
+                transaction: t,
+                bypassOutletFilter: true
+            }).catch(() => null);
+            if (!exists) user_id = null;
+        }
+        if (!user_id) {
+            const fallbackUser = await (req as any).propertyDb.models.users.findOne({
+                where: { outlet_id },
+                attributes: ['id'],
+                order: [['id', 'ASC']],
+                transaction: t,
+                bypassOutletFilter: true
+            }).catch(() => null);
+            user_id = fallbackUser ? Number(fallbackUser.id) : null;
+        }
 
         const {
             grn_no,
@@ -325,7 +343,7 @@ export const createReceiving = async (req: Request, res: Response) => {
             amount_out: 0,
             adjustment_amount: netAmount,
             notes: `Stock received against GRN #${effectiveGrnNo} (Bill #${supplier_bill_no || 'N/A'}) - outstanding ${netAmount}`,
-            created_by: (req as any).user.id,
+            created_by: user_id,
             transaction: t
         });
 
@@ -387,7 +405,7 @@ export const createReceiving = async (req: Request, res: Response) => {
                 narration: `Purchase GRN #${effectiveGrnNo} received from ${supplier?.supplier_name || 'Vendor'} (Bill No: ${supplier_bill_no || 'N/A'})`,
                 payment_mode: 'CREDIT',
                 status: 'POSTED',
-                created_by: (req as any).user.id
+                created_by: user_id
             });
 
             await (req as any).propertyDb.models.voucher_lines.bulkCreate([
