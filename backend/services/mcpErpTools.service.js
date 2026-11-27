@@ -9,6 +9,7 @@ exports.toolCreatePurchaseOrder = toolCreatePurchaseOrder;
 exports.toolApprovePurchaseOrder = toolApprovePurchaseOrder;
 exports.toolCreateTableOrder = toolCreateTableOrder;
 exports.toolCreateSupplier = toolCreateSupplier;
+exports.toolCreateCustomer = toolCreateCustomer;
 exports.toolGetAttendance = toolGetAttendance;
 exports.toolCreateEmployee = toolCreateEmployee;
 exports.toolCreateMasterRecord = toolCreateMasterRecord;
@@ -26,6 +27,8 @@ exports.toolManagePricingAndPromos = toolManagePricingAndPromos;
 exports.toolCreateTaxGroup = toolCreateTaxGroup;
 exports.toolCreateOutletBackup = toolCreateOutletBackup;
 exports.toolManagePlugins = toolManagePlugins;
+exports.toolCreateSubscription = toolCreateSubscription;
+exports.toolManageSalesSchemes = toolManageSalesSchemes;
 const defaultDb = require('../db/models');
 function getActiveDb(db) {
     return db?.query ? db : (db?.sequelize || defaultDb.sequelize || defaultDb);
@@ -193,6 +196,22 @@ exports.MCP_ERP_TOOL_DEFINITIONS = [
                 outletId: { type: 'number' },
             },
             required: ['supplierName'],
+        },
+    },
+    {
+        name: 'create_customer',
+        description: 'Creates a new Customer in customers table (Customer Name, Contact No, Address, GST No, Email) for your outlet.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                customerName: { type: 'string', description: 'Customer Name (required)' },
+                contactNo: { type: 'string', description: 'Contact No / Mobile Phone' },
+                address: { type: 'string', description: 'Customer Address' },
+                gstNo: { type: 'string', description: 'Customer GST No / GSTIN' },
+                email: { type: 'string', description: 'Customer Email (optional)' },
+                outletId: { type: 'number' },
+            },
+            required: ['customerName'],
         },
     },
     {
@@ -505,6 +524,75 @@ exports.MCP_ERP_TOOL_DEFINITIONS = [
             required: ['action'],
         },
     },
+    {
+        name: 'create_subscription',
+        description: 'Creates a Customer Subscription (milk_subscriptions + milk_subscription_items + optional bonus/discount scheme) for a selected customer with start/end dates, daily qty, delivery type, and payment.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                customerId: { type: 'number', description: 'Optional existing customer ID' },
+                customerName: { type: 'string', description: 'Customer name' },
+                customerPhone: { type: 'string', description: 'Customer phone' },
+                customerGstin: { type: 'string' },
+                customerAddress: { type: 'string' },
+                startDate: { type: 'string', description: 'YYYY-MM-DD (defaults to today)' },
+                endDate: { type: 'string', description: 'YYYY-MM-DD (defaults to +29 days = 30 days)' },
+                deliveryType: { type: 'string', enum: ['STORE_PICKUP', 'HOME_DELIVERY'] },
+                totalPaymentAmount: { type: 'number', description: 'Total payment amount (auto-calculated if omitted)' },
+                bonusQty: { type: 'number', description: 'Optional bonus qty' },
+                schemeLabel: { type: 'string', description: 'Optional scheme label' },
+                schemeDiscountAmount: { type: 'number', description: 'Optional equivalent discount amount' },
+                notes: { type: 'string' },
+                items: {
+                    type: 'array',
+                    description: 'Subscribed items with dailyQty',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            name: { type: 'string' },
+                            itemCode: { type: 'string' },
+                            dailyQty: { type: 'number' },
+                            rateOverride: { type: 'number' },
+                        },
+                        required: ['dailyQty'],
+                    },
+                },
+                outletId: { type: 'number' },
+            },
+            required: ['items'],
+        },
+    },
+    {
+        name: 'manage_sales_schemes',
+        description: 'Lists or creates Sales Schemes (sales_schemes) according to user rules: scope (Order/Item), type (Time Based, Buy X Get Y, Amount/Qty Based), discount, repeat mode, apply timing, happy hour time/days, and free gifted item.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                action: { type: 'string', enum: ['LIST', 'CREATE'] },
+                schemeName: { type: 'string', description: 'Scheme Name (required for CREATE)' },
+                schemeScope: { type: 'string', description: 'ORDER_DISCOUNT or ITEM_DISCOUNT' },
+                schemeType: { type: 'string', description: 'TIME_BASED, BUY_X_GET_Y, AMOUNT_BASED, QTY_BASED, etc.' },
+                targetItemName: { type: 'string', description: 'Optional target item name/code (omit for All Items / Order Discount)' },
+                targetItemId: { type: 'number' },
+                discountType: { type: 'string', enum: ['PERCENTAGE', 'FLAT'] },
+                discountValue: { type: 'number' },
+                minQty: { type: 'number' },
+                minAmount: { type: 'number' },
+                repeatMode: { type: 'string', description: 'e.g. EVERY_BILL or ONCE' },
+                applyTiming: { type: 'string', description: 'CURRENT_BILL or NEXT_BILL' },
+                autoSelectOnCustomer: { type: 'boolean' },
+                nextPurchaseValidDays: { type: 'number' },
+                startTime: { type: 'string', description: 'HH:MM' },
+                endTime: { type: 'string', description: 'HH:MM' },
+                daysOfWeek: { type: 'array', items: { type: 'string' } },
+                freeItemName: { type: 'string' },
+                freeItemId: { type: 'number' },
+                freeQty: { type: 'number' },
+                isActive: { type: 'boolean' },
+                outletId: { type: 'number' },
+            },
+        },
+    },
 ];
 async function toolCreatePurchaseOrder(db, scope, args) {
     const activeDb = getActiveDb(db);
@@ -787,6 +875,22 @@ async function toolCreateSupplier(db, scope, args) {
         ],
     });
     return { status: 'CREATED', supplier: rows[0], message: `Supplier ${name} (${code}) created.` };
+}
+async function toolCreateCustomer(db, scope, args) {
+    const activeDb = getActiveDb(db);
+    const outletId = resolveTargetOutlet(scope, args?.outletId);
+    const cname = String(args?.customerName || args?.customer_name || args?.name || '').trim();
+    if (!cname) {
+        return { status: 'NEEDS_INPUT', missingField: 'customerName', message: 'Customer Name is required.' };
+    }
+    const phone = args?.contactNo || args?.customerPhone || args?.customer_phone || args?.phone || null;
+    const address = args?.address || args?.customerAddress || args?.customer_address || null;
+    const gstin = args?.gstNo || args?.gstin || args?.customerGstin || args?.customer_gstin || null;
+    const email = args?.email || args?.customerEmail || args?.customer_email || null;
+    const [rows] = await activeDb.query(`INSERT INTO customers (outlet_id, customer_name, customer_phone, customer_address, customer_email, customer_gstin, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+     RETURNING id, customer_name, customer_phone, customer_address, customer_email, customer_gstin`, { bind: [outletId, cname, phone, address, email, gstin] });
+    return { status: 'CREATED', customer: rows[0], message: `Customer ${cname} created.` };
 }
 async function toolGetAttendance(db, scope, args) {
     const activeDb = getActiveDb(db);
@@ -1728,4 +1832,158 @@ async function toolManagePlugins(db, scope, args) {
         default:
             throw new Error(`Unsupported action: ${action}`);
     }
+}
+async function toolCreateSubscription(db, scope, args) {
+    const activeDb = getActiveDb(db);
+    const outletId = resolveTargetOutlet(scope, args?.outletId);
+    // 1. Resolve Customer
+    let cust = null;
+    if (args?.customerId) {
+        const [cRows] = await activeDb.query(`SELECT * FROM customers WHERE outlet_id = $1 AND id = $2 LIMIT 1`, { bind: [outletId, Number(args.customerId)] });
+        cust = cRows?.[0];
+    }
+    else if (args?.customerPhone || args?.customerName) {
+        const q = String(args.customerPhone || args.customerName).trim();
+        const [cRows] = await activeDb.query(`SELECT * FROM customers WHERE outlet_id = $1 AND (customer_phone ILIKE $2 OR customer_name ILIKE $2) LIMIT 1`, { bind: [outletId, `%${q}%`] });
+        cust = cRows?.[0];
+    }
+    const customerName = String(cust?.customer_name || args?.customerName || '').trim();
+    const customerPhone = String(cust?.customer_phone || args?.customerPhone || '').trim();
+    if (!customerName && !customerPhone) {
+        return {
+            status: 'NEEDS_INPUT',
+            missingFields: ['customerName (or customerId / customerPhone)'],
+            message: 'Please provide customerName or customerPhone (or customerId) to create a subscription.',
+        };
+    }
+    const reqItems = Array.isArray(args?.items) ? args.items : [];
+    if (reqItems.length === 0) {
+        return { status: 'NEEDS_INPUT', missingField: 'items', message: 'Please provide at least one item with dailyQty.' };
+    }
+    const startDate = args?.startDate || todayYmd();
+    let endDate = args?.endDate;
+    if (!endDate) {
+        const d = new Date(startDate);
+        d.setDate(d.getDate() + 29);
+        endDate = d.toISOString().split('T')[0];
+    }
+    const daysCount = Math.max(1, Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1);
+    const resolvedItems = [];
+    let computedTotal = 0;
+    for (const line of reqItems) {
+        const search = String(line.itemCode || line.name || '').trim();
+        const [iRows] = await activeDb.query(`SELECT id, item_code, item_name, retail_sale_price, rate FROM item_master WHERE outlet_id = $1 AND is_active = TRUE AND (LOWER(TRIM(item_code)) = LOWER(TRIM($2)) OR item_name ILIKE $3) LIMIT 1`, { bind: [outletId, search, `%${search}%`] });
+        const it = iRows?.[0];
+        if (!it)
+            throw new Error(`Item "${search}" not found in item_master.`);
+        const dQty = Number(line.dailyQty || 1);
+        const unitRate = line.rateOverride !== undefined ? Number(line.rateOverride) : Number(it.retail_sale_price || it.rate || 0);
+        computedTotal += unitRate * dQty * daysCount;
+        resolvedItems.push({ item_id: it.id, item_name: it.item_name, daily_qty: dQty, rate_override: line.rateOverride !== undefined ? unitRate : null });
+    }
+    const primary = resolvedItems[0];
+    const totalPayment = args?.totalPaymentAmount !== undefined ? Number(args.totalPaymentAmount) : Number(computedTotal.toFixed(2));
+    const bonusQty = Number(args?.bonusQty || 0);
+    const schemeDiscount = Number(args?.schemeDiscountAmount || 0);
+    const deliveryType = String(args?.deliveryType || 'STORE_PICKUP').toUpperCase();
+    const t = await activeDb.transaction();
+    try {
+        const [subRows] = await activeDb.query(`INSERT INTO milk_subscriptions (
+         outlet_id, customer_id, customer_name, customer_phone, customer_gstin, customer_address,
+         item_id, item_name, start_date, end_date, daily_allowed_qty, subscription_type,
+         total_payment_amount, scheme_discount_amount, bonus_qty, status, delivery_type,
+         active_subscription, created_at, updated_at
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6,
+         $7, $8, $9, $10, $11, 'DAILY',
+         $12, $13, $14, 'ACTIVE', $15,
+         TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+       ) RETURNING *`, {
+            bind: [
+                outletId, cust?.id || null, customerName || customerPhone, customerPhone || null,
+                args?.customerGstin || cust?.customer_gstin || null, args?.customerAddress || cust?.customer_address || null,
+                primary.item_id, primary.item_name, startDate, endDate, primary.daily_qty,
+                totalPayment, schemeDiscount, bonusQty, deliveryType,
+            ],
+            transaction: t,
+        });
+        const sub = subRows[0];
+        for (const ri of resolvedItems) {
+            await activeDb.query(`INSERT INTO milk_subscription_items (subscription_id, item_id, daily_qty, rate_override) VALUES ($1, $2, $3, $4)`, { bind: [sub.id, ri.item_id, ri.daily_qty, ri.rate_override], transaction: t });
+        }
+        if (bonusQty > 0 || schemeDiscount > 0 || args?.schemeLabel) {
+            await activeDb.query(`INSERT INTO milk_subscription_schemes (outlet_id, subscription_id, scheme_type, scheme_name, bonus_qty, discount_amount, notes, created_at)
+         VALUES ($1, $2, 'BONUS_QTY', $3, $4, $5, $6, CURRENT_TIMESTAMP)`, { bind: [outletId, sub.id, args?.schemeLabel || 'Bonus Quantity', bonusQty, schemeDiscount, args?.notes || null], transaction: t });
+        }
+        await t.commit();
+        return {
+            status: 'CREATED',
+            subscription: sub,
+            items: resolvedItems,
+            message: `Subscription #${sub.id} created for ${customerName || customerPhone} (${startDate} to ${endDate}, Total: Rs. ${totalPayment.toFixed(2)}).`,
+        };
+    }
+    catch (err) {
+        await t.rollback();
+        throw err;
+    }
+}
+async function toolManageSalesSchemes(db, scope, args) {
+    const activeDb = getActiveDb(db);
+    const outletId = resolveTargetOutlet(scope, args?.outletId);
+    const action = String(args?.action || 'LIST').toUpperCase();
+    if (action === 'LIST') {
+        const [rows] = await activeDb.query(`SELECT * FROM sales_schemes WHERE outlet_id = $1 ORDER BY id DESC LIMIT 50`, { bind: [outletId] });
+        return { outletId, count: (rows || []).length, schemes: rows || [] };
+    }
+    const schemeName = String(args?.schemeName || '').trim();
+    if (!schemeName) {
+        return { status: 'NEEDS_INPUT', missingField: 'schemeName', message: 'schemeName is required to create a scheme.' };
+    }
+    let itemId = args?.targetItemId ? Number(args.targetItemId) : null;
+    if (!itemId && args?.targetItemName) {
+        const [iRows] = await activeDb.query(`SELECT id FROM item_master WHERE outlet_id = $1 AND (LOWER(TRIM(item_code)) = LOWER(TRIM($2)) OR item_name ILIKE $3) LIMIT 1`, { bind: [outletId, String(args.targetItemName).trim(), `%${String(args.targetItemName).trim()}%`] });
+        if (iRows?.[0]?.id)
+            itemId = Number(iRows[0].id);
+    }
+    let freeItemId = args?.freeItemId ? Number(args.freeItemId) : null;
+    if (!freeItemId && args?.freeItemName) {
+        const [fRows] = await activeDb.query(`SELECT id FROM item_master WHERE outlet_id = $1 AND (LOWER(TRIM(item_code)) = LOWER(TRIM($2)) OR item_name ILIKE $3) LIMIT 1`, { bind: [outletId, String(args.freeItemName).trim(), `%${String(args.freeItemName).trim()}%`] });
+        if (fRows?.[0]?.id)
+            freeItemId = Number(fRows[0].id);
+    }
+    const days = Array.isArray(args?.daysOfWeek) ? JSON.stringify(args.daysOfWeek) : null;
+    const [rows] = await activeDb.query(`INSERT INTO sales_schemes (
+       outlet_id, scheme_name, scheme_type, scheme_scope, discount_type, discount_value,
+       start_time, end_time, min_qty, min_amount, item_id, free_qty, repeat_mode, apply_timing,
+       auto_select_on_customer, next_purchase_valid_days, is_active, free_item_id, days_of_week,
+       created_at, updated_at
+     ) VALUES (
+       $1, $2, $3, $4, $5, $6,
+       $7, $8, $9, $10, $11, $12, $13, $14,
+       $15, $16, $17, $18, $19,
+       CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+     ) RETURNING *`, {
+        bind: [
+            outletId, schemeName,
+            String(args?.schemeType || 'TIME_BASED').toUpperCase(),
+            String(args?.schemeScope || (itemId ? 'ITEM_DISCOUNT' : 'ORDER_DISCOUNT')).toUpperCase(),
+            String(args?.discountType || 'PERCENTAGE').toUpperCase(),
+            Number(args?.discountValue ?? 0),
+            args?.startTime || null,
+            args?.endTime || null,
+            args?.minQty !== undefined ? Number(args.minQty) : null,
+            args?.minAmount !== undefined ? Number(args.minAmount) : null,
+            itemId,
+            args?.freeQty !== undefined ? Number(args.freeQty) : null,
+            String(args?.repeatMode || 'EVERY_BILL').toUpperCase(),
+            String(args?.applyTiming || 'CURRENT_BILL').toUpperCase(),
+            args?.autoSelectOnCustomer !== false,
+            Number(args?.nextPurchaseValidDays ?? 7),
+            args?.isActive !== false,
+            freeItemId,
+            days,
+        ],
+    });
+    return { status: 'CREATED', scheme: rows[0], message: `Sales Scheme "${schemeName}" created.` };
 }

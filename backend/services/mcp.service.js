@@ -31,6 +31,7 @@ const {
     toolApprovePurchaseOrder,
     toolCreateTableOrder,
     toolCreateSupplier,
+    toolCreateCustomer,
     toolGetAttendance,
     toolCreateEmployee,
     toolCreateMasterRecord,
@@ -45,7 +46,9 @@ const {
     toolManagePricingAndPromos,
     toolCreateTaxGroup,
     toolCreateOutletBackup,
-    toolManagePlugins
+    toolManagePlugins,
+    toolCreateSubscription,
+    toolManageSalesSchemes
 } = require('./mcpErpTools.service');
 function normalizeOutletScope(ctxOrId) {
     if (ctxOrId && typeof ctxOrId === 'object' && Array.isArray(ctxOrId.allowedOutletIds)) {
@@ -1007,6 +1010,8 @@ async function executeTool(db, outletContext = 1, toolName, args = {}) {
             return await toolCreateTableOrder(db, normalizeOutletScope(outletContext), args);
         case 'create_supplier':
             return await toolCreateSupplier(db, normalizeOutletScope(outletContext), args);
+        case 'create_customer':
+            return await toolCreateCustomer(db, normalizeOutletScope(outletContext), args);
         case 'get_attendance':
             return await toolGetAttendance(db, normalizeOutletScope(outletContext), args);
         case 'create_employee':
@@ -1037,6 +1042,10 @@ async function executeTool(db, outletContext = 1, toolName, args = {}) {
             return await toolCreateOutletBackup(db, normalizeOutletScope(outletContext), args);
         case 'manage_plugins':
             return await toolManagePlugins(db, normalizeOutletScope(outletContext), args);
+        case 'create_subscription':
+            return await toolCreateSubscription(db, normalizeOutletScope(outletContext), args);
+        case 'manage_sales_schemes':
+            return await toolManageSalesSchemes(db, normalizeOutletScope(outletContext), args);
         default:
             throw new Error(`Unknown MCP Tool: '${toolName}'. Available tools: ${exports.MCP_TOOLS.map(t => t.name).join(', ')}`);
     }
