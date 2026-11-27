@@ -336,12 +336,16 @@ export const getOverallProgress = async (req: Request, res: Response) => {
 
 export const getIndividualOutletProgress = async (req: Request, res: Response) => {
     try {
-        const outletId = req.params.outlet_id || (req as any).outlet?.id || (req as any).user?.outlet_id;
+        const currentOutletId = Number((req as any).outlet?.id || (req as any).user?.outlet_id || 0);
+        const outletId = Number(req.params.outlet_id || currentOutletId);
         const models = (req as any).propertyDb.models;
 
         const outlet = await models.outlets.findByPk(outletId, { bypassOutletFilter: true });
         if (!outlet) {
             return res.status(404).json({ success: false, message: 'Outlet not found' });
+        }
+        if (currentOutletId && Number(outlet.id) !== currentOutletId && Number(outlet.parent_outlet_id) !== currentOutletId) {
+            return res.status(403).json({ success: false, message: 'Access denied: outlet is not linked to your current store' });
         }
 
         const outgoingRaw = await models.stock_transfer_headers.findAll({
@@ -395,6 +399,7 @@ export const getIndividualOutletProgress = async (req: Request, res: Response) =
 export const listTransfers = async (req: Request, res: Response) => {
     try {
         const { outlet_id, status } = req.query as any;
+        const currentOutletId = Number((req as any).outlet?.id || (req as any).user?.outlet_id || 0);
         const models = (req as any).propertyDb.models;
 
         const whereClause: any = {};
@@ -402,10 +407,19 @@ export const listTransfers = async (req: Request, res: Response) => {
             whereClause.status = status;
         }
 
-        if (outlet_id) {
+        let targetOutletId = currentOutletId;
+        if (outlet_id && Number(outlet_id) !== currentOutletId) {
+            const requestedOutlet = await models.outlets.findByPk(Number(outlet_id), { bypassOutletFilter: true });
+            if (!requestedOutlet || Number(requestedOutlet.parent_outlet_id) !== currentOutletId) {
+                return res.status(403).json({ success: false, message: 'Access denied for requested outlet' });
+            }
+            targetOutletId = Number(outlet_id);
+        }
+
+        if (targetOutletId) {
             whereClause[Op.or] = [
-                { source_outlet_id: outlet_id },
-                { destination_outlet_id: outlet_id }
+                { source_outlet_id: targetOutletId },
+                { destination_outlet_id: targetOutletId }
             ];
         }
 
@@ -427,11 +441,15 @@ export const listTransfers = async (req: Request, res: Response) => {
 export const getTransferDetails = async (req: Request, res: Response) => {
     try {
         const transferId = req.params.id;
+        const currentOutletId = Number((req as any).outlet?.id || (req as any).user?.outlet_id || 0);
         const models = (req as any).propertyDb.models;
 
         const header = await models.stock_transfer_headers.findByPk(transferId, { bypassOutletFilter: true });
         if (!header) {
             return res.status(404).json({ success: false, message: 'Stock transfer not found' });
+        }
+        if (currentOutletId && Number(header.source_outlet_id) !== currentOutletId && Number(header.destination_outlet_id) !== currentOutletId) {
+            return res.status(403).json({ success: false, message: 'Access denied for this stock transfer' });
         }
 
         const items = await models.stock_transfer_items.findAll({

@@ -699,6 +699,9 @@ else {
         (0, analyticsRefreshJob_1.startAnalyticsRefreshJob)(propertyDb);
         (0, subscriptionDeliveryJob_1.startSubscriptionDeliveryJob)(propertyDb);
         (0, luckyDrawJob_1.startLuckyDrawJob)(propertyDb);
+        // Start background Monthly Stock Closing worker (auto-closes previous month & preserves opening balance)
+        const { startMonthlyStockClosingJob } = require('./jobs/monthlyStockClosingJob');
+        startMonthlyStockClosingJob(propertyDb);
         // Start background WhatsApp message queue worker
         (0, whatsappQueueJob_1.startWhatsappQueueJob)(propertyDb);
         // Start background recurring expenses worker

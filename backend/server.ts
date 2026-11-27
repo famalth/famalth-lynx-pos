@@ -734,6 +734,10 @@ if (isCloudMode) {
         // Start background License Expiry & 10-Day Renewal Invoice notification dispatcher
         startLicenseExpiryNotificationJob(propertyDb);
 
+        // Start background Monthly Stock Closing worker (auto-closes previous month & preserves opening balance)
+        const { startMonthlyStockClosingJob } = require('./jobs/monthlyStockClosingJob');
+        startMonthlyStockClosingJob(propertyDb);
+
         // Auto-sync client properties to Master Control Plane
         await syncClientsJsonToMaster(propertyDb);
 

@@ -107,6 +107,9 @@ class ApiEndpoints {
 
   static const stockTransferReport = '/api/reports/stock-transfer';
 
+  static const monthlyStockClosingReport = '/api/reports/monthly-stock-closing';
+  static const monthlyStockClosingRun = '/api/reports/monthly-stock-closing/run';
+
   static const supplierAvailableCredit = '/api/suppliers';
   static const supplierBills = '/api/suppliers/bills/list';
   static const supplierBillDetails = '/api/suppliers/bills';

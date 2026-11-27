@@ -232,6 +232,7 @@ class _RecurringExpensesScreenState extends State<RecurringExpensesScreen> {
                                     DataColumn(label: Text('Expense Description', style: TextStyle(fontWeight: FontWeight.bold))),
                                     DataColumn(label: Text('Amount', style: TextStyle(fontWeight: FontWeight.bold))),
                                     DataColumn(label: Text('Frequency', style: TextStyle(fontWeight: FontWeight.bold))),
+                                    DataColumn(label: Text('Runs Completed', style: TextStyle(fontWeight: FontWeight.bold))),
                                     DataColumn(label: Text('Next Run Date', style: TextStyle(fontWeight: FontWeight.bold))),
                                     DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
                                     DataColumn(label: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold))),
@@ -242,6 +243,7 @@ class _RecurringExpensesScreenState extends State<RecurringExpensesScreen> {
                                     final nextDate = item['next_generation_date'] != null
                                         ? item['next_generation_date'].toString()
                                         : 'N/A';
+                                    final completedRuns = int.tryParse(item['completed_runs']?.toString() ?? '0') ?? 0;
 
                                     return DataRow(
                                       cells: [
@@ -268,6 +270,24 @@ class _RecurringExpensesScreenState extends State<RecurringExpensesScreen> {
                                             child: Text(
                                               (item['frequency'] ?? 'MONTHLY').toString().toUpperCase(),
                                               style: TextStyle(color: Colors.blue.shade900, fontWeight: FontWeight.bold, fontSize: 11),
+                                            ),
+                                          ),
+                                        ),
+                                        DataCell(
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: completedRuns > 0 ? Colors.green.shade50 : Colors.grey.shade100,
+                                              border: Border.all(color: completedRuns > 0 ? Colors.green.shade300 : Colors.grey.shade300),
+                                              borderRadius: BorderRadius.circular(12),
+                                            ),
+                                            child: Text(
+                                              '$completedRuns ${completedRuns == 1 ? 'Run' : 'Runs'}',
+                                              style: TextStyle(
+                                                color: completedRuns > 0 ? Colors.green.shade800 : Colors.grey.shade700,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 11,
+                                              ),
                                             ),
                                           ),
                                         ),

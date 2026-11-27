@@ -108,6 +108,7 @@ export const RETENTION_TABLES: TablePurgeDef[] = [
   { table: 'expense_deductions', module: 'FINANCE', isChild: true, parentTable: 'expenses', parentFk: 'expense_id' },
   { table: 'expense_entries', module: 'FINANCE', dateColumn: 'created_at' },
   { table: 'expenses', module: 'FINANCE', dateColumn: 'created_at' },
+  { table: 'recurring_expenses', module: 'FINANCE', dateColumn: 'created_at' },
   { table: 'daily_opening_balances', module: 'FINANCE', dateColumn: 'created_at' },
   { table: 'voucher_lines', module: 'FINANCE', isChild: true, parentTable: 'accounting_vouchers', parentFk: 'voucher_id' },
   { table: 'accounting_vouchers', module: 'FINANCE', dateColumn: 'created_at' },
@@ -141,7 +142,7 @@ export const RETENTION_TABLES: TablePurgeDef[] = [
   { table: 'product_templates', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
   { table: 'item_attributes', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
   { table: 'customers', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
-  { table: 'suppliers', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
+  { table: 'supplier_master', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
   { table: 'tax_group_components', module: 'RETAIL_MASTERS', isChild: true, parentTable: 'tax_groups', parentFk: 'tax_group_id' },
   { table: 'tax_groups', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
   { table: 'taxes_master', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
@@ -179,8 +180,14 @@ export class DataRetentionService {
     // 1. Outlet Scoping
     if (!isAllOutlets) {
       if (def.isChild && def.parentTable && def.parentFk) {
-        // Child table scoped through parent
-        conditions.push(`"${def.parentFk}" IN (SELECT id FROM "${def.parentTable}" WHERE outlet_id = :outletId)`);
+        if (def.parentTable === 'stock_transfer_headers') {
+          conditions.push(`"${def.parentFk}" IN (SELECT id FROM "stock_transfer_headers" WHERE source_outlet_id = :outletId OR destination_outlet_id = :outletId)`);
+        } else {
+          // Child table scoped through parent
+          conditions.push(`"${def.parentFk}" IN (SELECT id FROM "${def.parentTable}" WHERE outlet_id = :outletId)`);
+        }
+      } else if (def.table === 'stock_transfer_headers') {
+        conditions.push(`(source_outlet_id = :outletId OR destination_outlet_id = :outletId)`);
       } else {
         conditions.push(`outlet_id = :outletId`);
       }
@@ -435,8 +442,8 @@ export class DataRetentionService {
         const replacements: Record<string, any> = {};
         const whereClause = this.buildFilterClause(def, options, replacements);
 
-        // Before deleting from "users", safely unlink/clean any FK references to those target user IDs
-        if (def.table === 'users') {
+        // Before deleting from "users" or "supplier_master", safely unlink/clean any FK references to those target IDs
+        if (def.table === 'users' || def.table === 'supplier_master') {
           try {
             await activeDb.query('SAVEPOINT sp_user_fk', { transaction: t });
             const fkRows: any[] = await activeDb.query(
@@ -450,10 +457,10 @@ export class DataRetentionService {
                  ON c.table_schema = tc.table_schema AND c.table_name = tc.table_name AND c.column_name = kcu.column_name
                WHERE tc.constraint_type = 'FOREIGN KEY'
                  AND tc.table_schema = 'public'
-                 AND ccu.table_name = 'users'
+                 AND ccu.table_name = :targetTable
                  AND ccu.column_name = 'id'
-                 AND tc.table_name <> 'users';`,
-              { type: QueryTypes.SELECT, transaction: t }
+                 AND tc.table_name <> :targetTable;`,
+              { replacements: { targetTable: def.table }, type: QueryTypes.SELECT, transaction: t }
             );
             await activeDb.query('RELEASE SAVEPOINT sp_user_fk', { transaction: t });
 
@@ -462,8 +469,8 @@ export class DataRetentionService {
               const refCol = fk.column_name;
               const isNullable = String(fk.is_nullable || '').toUpperCase() === 'YES';
               const unlinkSql = isNullable
-                ? `UPDATE "${refTbl}" SET "${refCol}" = NULL WHERE "${refCol}" IN (SELECT id FROM "users" ${whereClause});`
-                : `DELETE FROM "${refTbl}" WHERE "${refCol}" IN (SELECT id FROM "users" ${whereClause});`;
+                ? `UPDATE "${refTbl}" SET "${refCol}" = NULL WHERE "${refCol}" IN (SELECT id FROM "${def.table}" ${whereClause});`
+                : `DELETE FROM "${refTbl}" WHERE "${refCol}" IN (SELECT id FROM "${def.table}" ${whereClause});`;
               try {
                 await activeDb.query('SAVEPOINT sp_user_unlink', { transaction: t });
                 await activeDb.query(unlinkSql, { replacements, transaction: t });
@@ -474,6 +481,36 @@ export class DataRetentionService {
             }
           } catch (_) {
             await activeDb.query('ROLLBACK TO SAVEPOINT sp_user_fk', { transaction: t }).catch(() => {});
+          }
+        }
+
+        // Before deleting from "stock_ledger", snapshot monthly closings & roll purged net qty into item_master.opening_balance
+        // so deleting 3-year/5-year old ledger records NEVER disturbs live stock balances.
+        const isDeletingItemMaster = selectedTables.some(st => st.table === 'item_master');
+        if (def.table === 'stock_ledger' && !isDeletingItemMaster) {
+          try {
+            await activeDb.query('SAVEPOINT sp_stock_protect', { transaction: t });
+            if (!isAllOutlets) {
+              const { closeCompletedMonthsForOutlet } = require('../jobs/monthlyStockClosingJob');
+              await closeCompletedMonthsForOutlet(activeDb, outletId, t).catch(() => {});
+            }
+            await activeDb.query(
+              `UPDATE "item_master" im
+               SET opening_balance = COALESCE(im.opening_balance, 0) + agg.net_qty
+               FROM (
+                 SELECT outlet_id, item_code, COALESCE(SUM(qty_in - qty_out), 0) AS net_qty
+                 FROM "stock_ledger"
+                 ${whereClause}
+                 GROUP BY outlet_id, item_code
+               ) agg
+               WHERE im.outlet_id = agg.outlet_id
+                 AND im.item_code = agg.item_code;`,
+              { replacements, transaction: t }
+            );
+            await activeDb.query('RELEASE SAVEPOINT sp_stock_protect', { transaction: t });
+          } catch (stockProtErr: any) {
+            await activeDb.query('ROLLBACK TO SAVEPOINT sp_stock_protect', { transaction: t }).catch(() => {});
+            console.warn('⚠️ [RETENTION] Stock opening balance roll-forward warning:', stockProtErr?.message);
           }
         }
 

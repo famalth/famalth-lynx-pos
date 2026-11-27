@@ -860,40 +860,7 @@ const getClinicDoctors = async (req, res) => {
             },
             order: [['id', 'ASC']]
         });
-        // If no doctors exist yet, check if there are appointments with doctor names or seed default doctor
-        if (doctors.length === 0) {
-            const clinic = await req.propertyDb.models.property_info.findOne({ where: { outlet_id } });
-            const clinicName = clinic?.property_name || 'Clinic';
-            const defaultDoc = await req.propertyDb.models.users.create({
-                outlet_id,
-                username: `dr_${Date.now()}`,
-                full_name: 'Dr. Primary Consultant',
-                role: 'DOCTOR',
-                speciality: 'General Physician',
-                qualification: 'MBBS, MD',
-                registration_no: 'MCI-REG-101',
-                experience_years: 8,
-                consultation_fee: 500.00,
-                mobile: clinic?.mobile || '',
-                whatsapp_no: clinic?.mobile || '',
-                contact_email: clinic?.email || '',
-                is_public_listed: true,
-                doctor_city: clinic?.city || 'General',
-                doctor_bio: 'Senior Consultant providing comprehensive patient care and clinical consultations.',
-                available_days: 'Mon,Tue,Wed,Thu,Fri,Sat',
-                public_display_options: {
-                    show_clinic_name: true,
-                    show_doctor_name: true,
-                    show_address: true,
-                    show_phone: true,
-                    show_whatsapp: true,
-                    show_email: true,
-                    show_fees: true
-                },
-                is_active: true
-            });
-            doctors = [defaultDoc];
-        }
+        // Do NOT auto-create a default doctor/user profile if none exist; return empty list cleanly.
         // Enrich with stats: patients attended, fees collected by mode, medicine referral sales
         const results = [];
         // Ensure doctors list contains strictly unique doctor IDs

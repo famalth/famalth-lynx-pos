@@ -143,6 +143,7 @@ import '../reports/source_analysis_screen.dart';
 import '../reports/payment_analysis_screen.dart';
 import '../reports/ai_query_analytics_screen.dart';
 import '../reports/stock_ledger_report_screen.dart';
+import '../reports/monthly_stock_closing_report_screen.dart';
 import '../reports/commission_report_screen.dart';
 import '../reports/supplier_payments_report_screen.dart';
 import '../reports/refund_pending_report_screen.dart';
@@ -5803,6 +5804,13 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'label': 'Stock Ledger Report',
         'permission': 'STOCK_LEDGER_REPORT',
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StockLedgerReportScreen())),
+      },
+      {
+        'category': 'Reports',
+        'icon': Icons.calendar_month_outlined,
+        'label': 'Monthly Stock Closing',
+        'permission': 'STOCK_LEDGER_REPORT',
+        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MonthlyStockClosingReportScreen())),
       },
       {
         'category': 'Reports',

@@ -23,6 +23,16 @@ exports.getChatGptOpenApiSpec = getChatGptOpenApiSpec;
 exports.getGeminiToolsSpec = getGeminiToolsSpec;
 exports.getClaudeConfigSnippet = getClaudeConfigSnippet;
 const defaultDb = require('../db/models');
+const {
+    MCP_ERP_TOOL_DEFINITIONS,
+    toolCreatePurchaseOrder,
+    toolApprovePurchaseOrder,
+    toolCreateTableOrder,
+    toolCreateSupplier,
+    toolGetAttendance,
+    toolCreateEmployee,
+    toolCreateMasterRecord
+} = require('./mcpErpTools.service');
 function normalizeOutletScope(ctxOrId) {
     if (ctxOrId && typeof ctxOrId === 'object' && Array.isArray(ctxOrId.allowedOutletIds)) {
         const pId = Number(ctxOrId.primaryOutletId) || 1;
@@ -232,7 +242,8 @@ exports.MCP_TOOLS = [
                 }
             }
         }
-    }
+    },
+    ...MCP_ERP_TOOL_DEFINITIONS
 ];
 exports.MCP_RESOURCES = [
     {
@@ -460,10 +471,25 @@ async function toolCreateOrderBill(db, outletContext = 1, args = {}) {
     if (inputItems.length === 0) {
         throw new Error('At least one item is required to create a bill.');
     }
-    // Generate unique sequential / timestamped sale number
-    const billTimestamp = Date.now().toString().slice(-6);
-    const saleNo = `AI-BILL-${billTimestamp}`;
     const saleDate = new Date();
+    let saleNo = `BILL-${Date.now()}`;
+    if (rawDb) {
+        try {
+            const numberingHelper = require('../controllers/inventory/numberingSettingsV2.controller');
+            const resolved = await numberingHelper.allocateNextNumber({
+                db: rawDb,
+                module: 'SALES',
+                date: saleDate,
+                outlet_id: targetOutlet
+            });
+            if (resolved && resolved.number) {
+                saleNo = String(resolved.number);
+            }
+        }
+        catch (seqErr) {
+            console.warn('[MCP SALES SEQ] Fallback warning:', seqErr?.message || seqErr);
+        }
+    }
     // Process line items & match catalog if needed (strictly scoped to linked outlets)
     const processedItems = [];
     let grossSubTotal = 0;
@@ -955,6 +981,20 @@ async function executeTool(db, outletContext = 1, toolName, args = {}) {
             return await toolGetOrderDetails(db, outletContext, args);
         case 'get_customer_insights':
             return await toolGetCustomerInsights(db, outletContext, args);
+        case 'create_purchase_order':
+            return await toolCreatePurchaseOrder(db, normalizeOutletScope(outletContext), args);
+        case 'approve_purchase_order':
+            return await toolApprovePurchaseOrder(db, normalizeOutletScope(outletContext), args);
+        case 'create_table_order':
+            return await toolCreateTableOrder(db, normalizeOutletScope(outletContext), args);
+        case 'create_supplier':
+            return await toolCreateSupplier(db, normalizeOutletScope(outletContext), args);
+        case 'get_attendance':
+            return await toolGetAttendance(db, normalizeOutletScope(outletContext), args);
+        case 'create_employee':
+            return await toolCreateEmployee(db, normalizeOutletScope(outletContext), args);
+        case 'create_master_record':
+            return await toolCreateMasterRecord(db, normalizeOutletScope(outletContext), args);
         default:
             throw new Error(`Unknown MCP Tool: '${toolName}'. Available tools: ${exports.MCP_TOOLS.map(t => t.name).join(', ')}`);
     }

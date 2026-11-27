@@ -59,6 +59,8 @@ FAMALTH LYNX SOFTWARE MODULES & FEATURES:
 
 ACTION MAPPINGS (Set "action" type to match the user's intent):
 ${getActionMappingList()}
+- "MCP_TOOL_CALL": Execute a live ERP tool directly in the database for this outlet! Provide "tool" and "arguments" in action:
+  Supported tools: create_purchase_order, approve_purchase_order, create_table_order, create_order_bill, create_supplier, get_attendance, create_employee, create_master_record, get_inventory_status, analyze_sales, search_products.
 - "NONE"
 
 Respond with a JSON object containing:
@@ -2103,6 +2105,25 @@ User Question / Command: ${prompt}`;
                 else if (parsed.payload && parsed.payload.supplierName) {
                     action.supplierName = parsed.payload.supplierName;
                 }
+            }
+        }
+        if (action && action.type === 'MCP_TOOL_CALL' && action.tool && propertyDb) {
+            try {
+                const mcpService = require('./mcp.service');
+                const toolRes = await mcpService.executeTool(propertyDb, outletId || 1, action.tool, action.arguments || {});
+                return {
+                    reply: toolRes?.message ? `${parsed.reply || ''}\n\n**Result:** ${toolRes.message}\n\`\`\`json\n${JSON.stringify(toolRes, null, 2)}\n\`\`\``.trim() : (parsed.reply || 'Executed ERP tool.'),
+                    action: { ...action, toolResult: toolRes },
+                    data: toolRes,
+                    quickReplies: parsed.quickReplies || ["Approve PO", "Check Inventory", "Today's Sales"]
+                };
+            }
+            catch (mcpErr) {
+                return {
+                    reply: `Could not execute ${action.tool}: ${mcpErr.message}`,
+                    action: { type: "NONE" },
+                    quickReplies: ["Low Stock Alert", "Today's Total Sales"]
+                };
             }
         }
         return {

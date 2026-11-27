@@ -5688,6 +5688,28 @@ COMMIT;
         CREATE INDEX IF NOT EXISTS idx_cloud_backup_snapshots_outlet ON cloud_backup_snapshots(outlet_code, created_at DESC);
       `);
         }
+    },
+    {
+        version: 136,
+        description: 'Add monthly_stock_closings table for month-on-month auto stock closing and purge protection',
+        up: async (db) => {
+            await db.query(`
+        CREATE TABLE IF NOT EXISTS monthly_stock_closings (
+          id SERIAL PRIMARY KEY,
+          outlet_id INTEGER NOT NULL,
+          item_code VARCHAR(100) NOT NULL,
+          month_key VARCHAR(7) NOT NULL,
+          opening_qty DECIMAL(14, 4) NOT NULL DEFAULT 0,
+          total_in DECIMAL(14, 4) NOT NULL DEFAULT 0,
+          total_out DECIMAL(14, 4) NOT NULL DEFAULT 0,
+          closing_qty DECIMAL(14, 4) NOT NULL DEFAULT 0,
+          closing_value DECIMAL(14, 4) NOT NULL DEFAULT 0,
+          closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (outlet_id, item_code, month_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_monthly_stock_closings_outlet_month ON monthly_stock_closings(outlet_id, month_key DESC);
+      `);
+        }
     }
 ];
 exports.default = exports.migrations;

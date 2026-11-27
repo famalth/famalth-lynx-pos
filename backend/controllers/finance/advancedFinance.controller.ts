@@ -3583,7 +3583,30 @@ exports.getRecurringExpenses = async (req, res) => {
             where: { outlet_id },
             order: [['id', 'DESC']]
         });
-        res.json({ success: true, data: items });
+
+        // Count completed runs from expenses table (invoice_ref_no = REC-EXP-<id>-<YYYYMMDD>)
+        const runCounts = new Map<number, number>();
+        try {
+            const [expRows] = await req.propertyDb.query(
+                `SELECT invoice_ref_no FROM expenses WHERE outlet_id = :outlet_id AND invoice_ref_no LIKE 'REC-EXP-%'`,
+                { replacements: { outlet_id } }
+            );
+            for (const row of expRows || []) {
+                const match = /^REC-EXP-(\d+)-/.exec(String(row.invoice_ref_no || ''));
+                if (match) {
+                    const recId = Number(match[1]);
+                    runCounts.set(recId, (runCounts.get(recId) || 0) + 1);
+                }
+            }
+        } catch (_) {}
+
+        const enriched = items.map((it: any) => {
+            const json = it.toJSON ? it.toJSON() : { ...it };
+            json.completed_runs = runCounts.get(Number(json.id)) || 0;
+            return json;
+        });
+
+        res.json({ success: true, data: enriched });
     } catch (e) {
         res.status(500).json({ success: false, message: e.message });
     }

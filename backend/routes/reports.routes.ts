@@ -19,6 +19,7 @@ const schemeCtrl = require('../controllers/report/schemeReport.controller');
 const loyaltyCtrl = require('../controllers/report/loyaltyReport.controller');
 const supplierReportCtrl = require('../controllers/report/supplierReport.controller');
 const commissionCtrl = require('../controllers/report/commissionReport.controller');
+const monthlyStockClosingCtrl = require('../controllers/report/monthlyStockClosingReport.controller');
 
 router.use(auth, license('REPORTS'));
 
@@ -36,6 +37,8 @@ router.get('/stock-in', stockIn.getStockInReport);
 router.get('/stock-out', stockOut.getStockOutReport);
 router.get('/stock-transfer', stockTransfer.getStockTransferReport);
 router.get('/stock-balance', balance.getStockBalance);
+router.get('/monthly-stock-closing', monthlyStockClosingCtrl.getMonthlyStockClosingReport);
+router.post('/monthly-stock-closing/run', monthlyStockClosingCtrl.runMonthlyStockClosingNow);
 router.get('/damage', damage.getDamageReport);
 router.get('/closing', closing.getClosingReport);
 router.get('/dmgsummery', dmgCtrl.getDamageReport);
