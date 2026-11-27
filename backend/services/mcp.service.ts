@@ -12,6 +12,7 @@ const defaultDb = require('../db/models');
 const {
     MCP_ERP_TOOL_DEFINITIONS,
     toolGetOutletProfile,
+    toolGetAccountingReports,
     toolCreatePurchaseOrder,
     toolApprovePurchaseOrder,
     toolCreateTableOrder,
@@ -1067,6 +1068,8 @@ export async function executeTool(db: any, outletContext: any = 1, toolName: str
             return await toolGetCustomerInsights(db, outletContext, args);
         case 'get_outlet_profile':
             return await toolGetOutletProfile(db, normalizeOutletScope(outletContext), args);
+        case 'get_accounting_reports':
+            return await toolGetAccountingReports(db, normalizeOutletScope(outletContext), args);
         case 'create_purchase_order':
             return await toolCreatePurchaseOrder(db, normalizeOutletScope(outletContext), args);
         case 'approve_purchase_order':

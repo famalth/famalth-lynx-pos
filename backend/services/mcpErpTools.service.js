@@ -13,6 +13,7 @@ exports.toolGetAttendance = toolGetAttendance;
 exports.toolCreateEmployee = toolCreateEmployee;
 exports.toolCreateMasterRecord = toolCreateMasterRecord;
 exports.toolGetOutletProfile = toolGetOutletProfile;
+exports.toolGetAccountingReports = toolGetAccountingReports;
 
 const defaultDb = require('../db/models');
 
@@ -74,6 +75,24 @@ exports.MCP_ERP_TOOL_DEFINITIONS = [
         inputSchema: {
             type: 'object',
             properties: {
+                outletId: { type: 'number', description: 'Optional outlet ID (must be in your authorized cluster)' },
+            },
+        },
+    },
+    {
+        name: 'get_accounting_reports',
+        description: 'Accesses the Accounting & Finance section for your authorized outlet: Trial Balance, Profit & Loss (P&L), Balance Sheet, Bank Reconciliation, Cash Ledger, Chart of Accounts, Accounting Vouchers, and Expenses.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                reportType: {
+                    type: 'string',
+                    enum: ['PROFIT_AND_LOSS', 'TRIAL_BALANCE', 'BALANCE_SHEET', 'BANK_RECONCILIATION', 'CASH_LEDGER', 'VOUCHERS', 'EXPENSES', 'CHART_OF_ACCOUNTS'],
+                    description: 'Accounting report or ledger to retrieve (defaults to PROFIT_AND_LOSS)',
+                },
+                startDate: { type: 'string', description: 'Start date YYYY-MM-DD (optional)' },
+                endDate: { type: 'string', description: 'End date YYYY-MM-DD (optional)' },
+                limit: { type: 'number', description: 'Max rows for ledger/voucher/expense lists (default 50)' },
                 outletId: { type: 'number', description: 'Optional outlet ID (must be in your authorized cluster)' },
             },
         },
@@ -691,4 +710,73 @@ async function toolGetOutletProfile(db, scope, args) {
         currencySymbol: prop.currency_symbol || '₹',
         linkedOutlets: scope.linkedOutlets || [],
     };
+}
+
+function invokeController(fn, propertyDb, outletId, query) {
+    return new Promise((resolve, reject) => {
+        const fakeReq = {
+            propertyDb,
+            user: { outlet_id: outletId, role: 'ADMIN' },
+            outlet: { id: outletId },
+            query: { ...query, outlet_id: outletId },
+            params: {},
+            body: {},
+        };
+        const fakeRes = {
+            statusCode: 200,
+            status(code) { this.statusCode = code; return this; },
+            json(payload) {
+                if (this.statusCode >= 400)
+                    return reject(new Error(payload?.message || payload?.error || 'Controller error'));
+                resolve(payload);
+            },
+        };
+        Promise.resolve(fn(fakeReq, fakeRes)).catch(reject);
+    });
+}
+
+async function toolGetAccountingReports(db, scope, args) {
+    const activeDb = getActiveDb(db);
+    const fullDb = db?.models ? db : defaultDb;
+    const outletId = resolveTargetOutlet(scope, args?.outletId);
+    const reportType = String(args?.reportType || 'PROFIT_AND_LOSS').toUpperCase();
+    const limit = Math.min(Math.max(Number(args?.limit || 50), 1), 200);
+    const queryParams = {};
+    if (args?.startDate)
+        queryParams.startDate = String(args.startDate);
+    if (args?.endDate)
+        queryParams.endDate = String(args.endDate);
+    const finCtrl = require('../controllers/finance/financialReports.controller');
+    switch (reportType) {
+        case 'PROFIT_AND_LOSS':
+            return await invokeController(finCtrl.getProfitAndLoss, fullDb, outletId, queryParams);
+        case 'TRIAL_BALANCE':
+            return await invokeController(finCtrl.getTrialBalance, fullDb, outletId, queryParams);
+        case 'BALANCE_SHEET':
+            return await invokeController(finCtrl.getBalanceSheet, fullDb, outletId, queryParams);
+        case 'BANK_RECONCILIATION':
+            return await invokeController(finCtrl.getBankReconciliation, fullDb, outletId, queryParams);
+        case 'CASH_LEDGER': {
+            const [rows] = await activeDb.query(`SELECT id, transaction_type, payment_method, amount_in, amount_out, balance, description, reference_no, created_at
+         FROM cash_ledger WHERE outlet_id = $1 ORDER BY id DESC LIMIT $2`, { bind: [outletId, limit] });
+            return { outletId, reportType, count: (rows || []).length, records: rows || [] };
+        }
+        case 'VOUCHERS': {
+            const [rows] = await activeDb.query(`SELECT id, voucher_no, voucher_type, voucher_date, payment_mode, reference_no, total_amount, narration, status, created_at
+         FROM accounting_vouchers WHERE outlet_id = $1 ORDER BY id DESC LIMIT $2`, { bind: [outletId, limit] });
+            return { outletId, reportType, count: (rows || []).length, records: rows || [] };
+        }
+        case 'EXPENSES': {
+            const [rows] = await activeDb.query(`SELECT id, invoice_ref_no, payment_date, payment_method, net_payable_amount, expense_note, status, created_at
+         FROM expenses WHERE outlet_id = $1 ORDER BY id DESC LIMIT $2`, { bind: [outletId, limit] });
+            return { outletId, reportType, count: (rows || []).length, records: rows || [] };
+        }
+        case 'CHART_OF_ACCOUNTS': {
+            const [rows] = await activeDb.query(`SELECT id, account_code, account_name, account_type, parent_group, opening_balance, is_active
+         FROM chart_of_accounts WHERE outlet_id = $1 AND is_active = TRUE ORDER BY account_code ASC`, { bind: [outletId] });
+            return { outletId, reportType, count: (rows || []).length, records: rows || [] };
+        }
+        default:
+            throw new Error(`Unsupported reportType: ${reportType}`);
+    }
 }
