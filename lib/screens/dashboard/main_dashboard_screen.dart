@@ -5303,7 +5303,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
       {
         'category': _isHospitalityBusiness ? 'Masters & Departments' : 'Masters',
         'icon': Icons.location_on_outlined,
-        'label': _isHospitalityBusiness ? 'Department' : 'Location',
+        'label': _isHospitalityBusiness ? 'Department' : 'Stock Dispatch Location',
         'permission': 'STOCK_LOCATION',
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StockLocationScreen())),
       },

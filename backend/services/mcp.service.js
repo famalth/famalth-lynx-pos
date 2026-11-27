@@ -33,7 +33,19 @@ const {
     toolCreateSupplier,
     toolGetAttendance,
     toolCreateEmployee,
-    toolCreateMasterRecord
+    toolCreateMasterRecord,
+    toolListMasterRecords,
+    toolUpdateMasterRecord,
+    toolManageLoyaltyProgram,
+    toolManagePaymentMethods,
+    toolManageLuckyDrawCampaign,
+    toolManageBankAndCapital,
+    toolRecordFinanceEntry,
+    toolGetPartyLedgers,
+    toolManagePricingAndPromos,
+    toolCreateTaxGroup,
+    toolCreateOutletBackup,
+    toolManagePlugins
 } = require('./mcpErpTools.service');
 function normalizeOutletScope(ctxOrId) {
     if (ctxOrId && typeof ctxOrId === 'object' && Array.isArray(ctxOrId.allowedOutletIds)) {
@@ -1001,6 +1013,30 @@ async function executeTool(db, outletContext = 1, toolName, args = {}) {
             return await toolCreateEmployee(db, normalizeOutletScope(outletContext), args);
         case 'create_master_record':
             return await toolCreateMasterRecord(db, normalizeOutletScope(outletContext), args);
+        case 'list_master_records':
+            return await toolListMasterRecords(db, normalizeOutletScope(outletContext), args);
+        case 'update_master_record':
+            return await toolUpdateMasterRecord(db, normalizeOutletScope(outletContext), args);
+        case 'manage_loyalty_program':
+            return await toolManageLoyaltyProgram(db, normalizeOutletScope(outletContext), args);
+        case 'manage_payment_methods':
+            return await toolManagePaymentMethods(db, normalizeOutletScope(outletContext), args);
+        case 'manage_lucky_draw_campaign':
+            return await toolManageLuckyDrawCampaign(db, normalizeOutletScope(outletContext), args);
+        case 'manage_bank_and_capital':
+            return await toolManageBankAndCapital(db, normalizeOutletScope(outletContext), args);
+        case 'record_finance_entry':
+            return await toolRecordFinanceEntry(db, normalizeOutletScope(outletContext), args);
+        case 'get_party_ledgers':
+            return await toolGetPartyLedgers(db, normalizeOutletScope(outletContext), args);
+        case 'manage_pricing_and_promos':
+            return await toolManagePricingAndPromos(db, normalizeOutletScope(outletContext), args);
+        case 'create_tax_group':
+            return await toolCreateTaxGroup(db, normalizeOutletScope(outletContext), args);
+        case 'create_outlet_backup':
+            return await toolCreateOutletBackup(db, normalizeOutletScope(outletContext), args);
+        case 'manage_plugins':
+            return await toolManagePlugins(db, normalizeOutletScope(outletContext), args);
         default:
             throw new Error(`Unknown MCP Tool: '${toolName}'. Available tools: ${exports.MCP_TOOLS.map(t => t.name).join(', ')}`);
     }

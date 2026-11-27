@@ -5710,6 +5710,17 @@ COMMIT;
         CREATE INDEX IF NOT EXISTS idx_monthly_stock_closings_outlet_month ON monthly_stock_closings(outlet_id, month_key DESC);
       `);
         }
+    },
+    {
+        version: 137,
+        description: 'Add pan_number, esi_number, pf_uan_number columns to hr_employees',
+        up: async (db) => {
+            await db.query(`
+        ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS pan_number VARCHAR(30);
+        ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS esi_number VARCHAR(50);
+        ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS pf_uan_number VARCHAR(50);
+      `);
+        }
     }
 ];
 exports.default = exports.migrations;

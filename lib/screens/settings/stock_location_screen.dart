@@ -125,7 +125,7 @@ class _StockLocationScreenState extends State<StockLocationScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Stock Location Master')),
+      appBar: AppBar(title: const Text('Stock Dispatch Location Master')),
       backgroundColor: const Color(0xFFF6F7F9),
       body: Padding(
         padding: const EdgeInsets.all(16),

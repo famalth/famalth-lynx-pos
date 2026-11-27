@@ -2,6 +2,9 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api/api_client.dart';
@@ -830,6 +833,7 @@ class _CustomerStatementSheet extends StatefulWidget {
 
 class _CustomerStatementSheetState extends State<_CustomerStatementSheet> {
   bool _loading = true;
+  bool _isSharingPdf = false;
   List<Map<String, dynamic>> _txns = [];
   double _totalDebit = 0.0;
   double _totalCredit = 0.0;
@@ -977,9 +981,148 @@ class _CustomerStatementSheetState extends State<_CustomerStatementSheet> {
     if (mounted) setState(() => _loading = false);
   }
 
-  void _shareStatementWhatsApp() async {
-    final name = (widget.customer['customer_name'] ?? 'Customer').toString();
-    final phone = (widget.customer['customer_phone'] ?? '').toString();
+  Future<void> _shareStatementWhatsApp() async {
+    if (_isSharingPdf) return;
+    setState(() => _isSharingPdf = true);
+
+    final name = (widget.customer['customer_name'] ?? 'Customer').toString().trim();
+    final phone = (widget.customer['customer_phone'] ?? '').toString().trim();
+    final safeName = name.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+
+    final balStr = _closingBalance > 0.009
+        ? 'Rs. ${_closingBalance.toStringAsFixed(2)} Dr (Outstanding Due)'
+        : (_closingBalance < -0.009
+            ? 'Rs. ${_closingBalance.abs().toStringAsFixed(2)} Cr (Advance Available)'
+            : 'Rs. 0.00 (Settled)');
+
+    try {
+      final doc = pw.Document();
+      final dateNowStr = DateFormat('dd-MMM-yyyy hh:mm a').format(DateTime.now());
+
+      doc.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(28),
+          build: (pw.Context ctx) => [
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'CUSTOMER ACCOUNT STATEMENT',
+                      style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey900),
+                    ),
+                    pw.SizedBox(height: 4),
+                    pw.Text('Generated: $dateNowStr', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+                  ],
+                ),
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.end,
+                  children: [
+                    pw.Text(name, style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
+                    if (phone.isNotEmpty)
+                      pw.Text('Phone: $phone', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey800)),
+                  ],
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 16),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(12),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.grey100,
+                borderRadius: pw.BorderRadius.circular(6),
+                border: pw.Border.all(color: PdfColors.grey300),
+              ),
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text('Total Invoiced', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+                      pw.Text('Rs. ${_totalDebit.toStringAsFixed(2)}', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                    ],
+                  ),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text('Total Paid', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+                      pw.Text('Rs. ${_totalCredit.toStringAsFixed(2)}', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.green800)),
+                    ],
+                  ),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.end,
+                    children: [
+                      pw.Text('Net Balance', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+                      pw.Text(balStr, style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: _closingBalance > 0.009 ? PdfColors.red800 : PdfColors.green800)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 16),
+            pw.TableHelper.fromTextArray(
+              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9.5, color: PdfColors.white),
+              headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey800),
+              cellStyle: const pw.TextStyle(fontSize: 9),
+              cellPadding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+              headers: ['Date', 'Ref / Invoice', 'Type', 'Debit (Invoiced)', 'Credit (Paid)', 'Balance'],
+              data: _txns.map((t) {
+                final rawDate = (t['date'] ?? t['created_at'] ?? '').toString();
+                String dateStr = rawDate;
+                try {
+                  if (rawDate.isNotEmpty) {
+                    dateStr = DateFormat('dd-MMM-yyyy').format(DateTime.parse(rawDate).toLocal());
+                  }
+                } catch (_) {}
+                final ref = (t['ref_no'] ?? t['sale_no'] ?? t['type'] ?? '-').toString();
+                final type = (t['type'] ?? 'LEDGER').toString();
+                final debit = double.tryParse((t['debit'] ?? 0).toString()) ?? 0.0;
+                final credit = double.tryParse((t['credit'] ?? 0).toString()) ?? 0.0;
+                final bal = double.tryParse((t['running_balance'] ?? 0).toString()) ?? 0.0;
+                final balLabel = bal > 0.009
+                    ? 'Rs. ${bal.toStringAsFixed(2)} Dr'
+                    : (bal < -0.009 ? 'Rs. ${bal.abs().toStringAsFixed(2)} Cr' : 'Rs. 0.00');
+                return [
+                  dateStr,
+                  ref,
+                  type,
+                  debit > 0 ? 'Rs. ${debit.toStringAsFixed(2)}' : '-',
+                  credit > 0 ? 'Rs. ${credit.toStringAsFixed(2)}' : '-',
+                  balLabel,
+                ];
+              }).toList(),
+            ),
+            pw.SizedBox(height: 18),
+            pw.Text('Thank you for your business!', style: pw.TextStyle(fontSize: 10, fontStyle: pw.FontStyle.italic, color: PdfColors.grey700)),
+          ],
+        ),
+      );
+
+      final pdfBytes = await doc.save();
+      await Printing.sharePdf(
+        bytes: pdfBytes,
+        filename: 'Ledger_${safeName.isEmpty ? 'Customer' : safeName}_${DateFormat('yyyyMMdd').format(DateTime.now())}.pdf',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to generate/share PDF: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSharingPdf = false);
+    }
+  }
+
+  Future<void> _shareSummaryTextWhatsApp() async {
+    final name = (widget.customer['customer_name'] ?? 'Customer').toString().trim();
+    final rawPhone = (widget.customer['customer_phone'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
+    final phone = rawPhone.length == 10 ? '91$rawPhone' : rawPhone;
 
     final balStr = _closingBalance > 0.009
         ? '₹${_closingBalance.toStringAsFixed(2)} Dr (Outstanding Due)'
@@ -993,12 +1136,16 @@ class _CustomerStatementSheetState extends State<_CustomerStatementSheet> {
         '• Net Balance: $balStr\n\n'
         'Thank you for your business!';
 
-    final uri = Uri.parse('whatsapp://send?phone=$phone&text=${Uri.encodeComponent(msg)}');
-    try {
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri);
-      }
-    } catch (_) {}
+    final waUrl = phone.isNotEmpty
+        ? Uri.parse('https://wa.me/$phone?text=${Uri.encodeComponent(msg)}')
+        : Uri.parse('https://wa.me/?text=${Uri.encodeComponent(msg)}');
+
+    final launched = await launchUrl(waUrl, mode: LaunchMode.externalApplication);
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open WhatsApp on this device.'), backgroundColor: Colors.orange),
+      );
+    }
   }
 
   void _confirmAdjustAdvanceForBill({
@@ -1373,20 +1520,47 @@ class _CustomerStatementSheetState extends State<_CustomerStatementSheet> {
 
           Padding(
             padding: const EdgeInsets.all(16),
-            child: SizedBox(
-              width: double.infinity,
-              height: 44,
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF22C55E),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  elevation: 0,
+            child: Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 44,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF22C55E),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        elevation: 0,
+                      ),
+                      icon: _isSharingPdf
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Icon(Icons.picture_as_pdf_rounded, size: 18),
+                      label: Text(
+                        _isSharingPdf ? 'Creating PDF...' : 'Share PDF on WhatsApp',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      onPressed: _isSharingPdf ? null : _shareStatementWhatsApp,
+                    ),
+                  ),
                 ),
-                icon: const Icon(Icons.share, size: 18),
-                label: const Text('Share Summary on WhatsApp', style: TextStyle(fontWeight: FontWeight.bold)),
-                onPressed: _shareStatementWhatsApp,
-              ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  height: 44,
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF16A34A),
+                      side: const BorderSide(color: Color(0xFF22C55E)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    onPressed: _shareSummaryTextWhatsApp,
+                    child: const Icon(Icons.chat_outlined, size: 20),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
