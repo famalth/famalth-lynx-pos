@@ -25,6 +25,7 @@ exports.getClaudeConfigSnippet = getClaudeConfigSnippet;
 const defaultDb = require('../db/models');
 const {
     MCP_ERP_TOOL_DEFINITIONS,
+    toolGetOutletProfile,
     toolCreatePurchaseOrder,
     toolApprovePurchaseOrder,
     toolCreateTableOrder,
@@ -981,6 +982,8 @@ async function executeTool(db, outletContext = 1, toolName, args = {}) {
             return await toolGetOrderDetails(db, outletContext, args);
         case 'get_customer_insights':
             return await toolGetCustomerInsights(db, outletContext, args);
+        case 'get_outlet_profile':
+            return await toolGetOutletProfile(db, normalizeOutletScope(outletContext), args);
         case 'create_purchase_order':
             return await toolCreatePurchaseOrder(db, normalizeOutletScope(outletContext), args);
         case 'approve_purchase_order':

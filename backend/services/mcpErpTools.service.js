@@ -12,6 +12,7 @@ exports.toolCreateSupplier = toolCreateSupplier;
 exports.toolGetAttendance = toolGetAttendance;
 exports.toolCreateEmployee = toolCreateEmployee;
 exports.toolCreateMasterRecord = toolCreateMasterRecord;
+exports.toolGetOutletProfile = toolGetOutletProfile;
 
 const defaultDb = require('../db/models');
 
@@ -67,6 +68,16 @@ async function getNextMasterCode(activeDb, tableName, codeCol, outletId, default
 }
 
 exports.MCP_ERP_TOOL_DEFINITIONS = [
+    {
+        name: 'get_outlet_profile',
+        description: 'Fetches the full Outlet Profile & Business/Property details (outlet name, outlet code, address, city, state, owner, GSTIN, phone, email, currency, and linked branch outlets) for your authorized outlet.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                outletId: { type: 'number', description: 'Optional outlet ID (must be in your authorized cluster)' },
+            },
+        },
+    },
     {
         name: 'create_purchase_order',
         description: 'Creates a Purchase Order (PO) in the database with auto-generated PO number and today date. Looks up supplier in supplier_master, checks item_master & live stock_ledger balance (min_level vs current stock) to suggest or validate order quantities, and submits the PO with PENDING_APPROVAL status so it can be approved and emailed.',
@@ -650,4 +661,34 @@ async function toolCreateMasterRecord(db, scope, args) {
         default:
             throw new Error(`Unsupported masterType: ${masterType}`);
     }
+}
+
+async function toolGetOutletProfile(db, scope, args) {
+    const activeDb = getActiveDb(db);
+    const outletId = resolveTargetOutlet(scope, args?.outletId);
+    const [outletRows] = await activeDb.query(`SELECT id, outlet_code, outlet_name, outlet_type, is_master, outlet_role, parent_outlet_id, contact_phone, contact_email, business_module
+     FROM outlets WHERE id = $1 LIMIT 1`, { bind: [outletId] });
+    const outlet = outletRows?.[0] || null;
+    const [propRows] = await activeDb.query(`SELECT * FROM property_info WHERE outlet_id = $1 ORDER BY id ASC LIMIT 1`, { bind: [outletId] }).catch(() => [[]]);
+    const prop = propRows?.[0] || {};
+    return {
+        outletId,
+        outletCode: outlet?.outlet_code || null,
+        outletName: prop.property_name || outlet?.outlet_name || `Outlet #${outletId}`,
+        outletType: outlet?.outlet_type || null,
+        role: outlet?.is_master || outlet?.outlet_role === 'MASTER' ? 'MASTER' : 'BRANCH',
+        businessModule: outlet?.business_module || null,
+        address: [prop.address_line1 || prop.address, prop.address_line2].filter(Boolean).join(', ') || null,
+        city: prop.city || null,
+        state: prop.state || null,
+        country: prop.country || null,
+        postalCode: prop.postal_code || prop.pincode || null,
+        ownerName: prop.owner_name || prop.contact_person || null,
+        gstin: prop.gstin || prop.tax_id_number || null,
+        phone: prop.mobile || prop.phone || outlet?.contact_phone || null,
+        email: prop.email || outlet?.contact_email || null,
+        currencyCode: prop.currency_code || 'INR',
+        currencySymbol: prop.currency_symbol || '₹',
+        linkedOutlets: scope.linkedOutlets || [],
+    };
 }

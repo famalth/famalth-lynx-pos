@@ -59,7 +59,7 @@ FAMALTH LYNX SOFTWARE MODULES & FEATURES:
 ACTION MAPPINGS (Set "action" type to match the user's intent):
 ${getActionMappingList()}
 - "MCP_TOOL_CALL": Execute a live ERP tool directly in the database for this outlet! Provide "tool" and "arguments" in action:
-  Supported tools: create_purchase_order, approve_purchase_order, create_table_order, create_order_bill, create_supplier, get_attendance, create_employee, create_master_record, get_inventory_status, analyze_sales, search_products.
+  Supported tools: get_outlet_profile, create_purchase_order, approve_purchase_order, create_table_order, create_order_bill, create_supplier, get_attendance, create_employee, create_master_record, get_inventory_status, analyze_sales, search_products.
 - "NONE"
 
 Respond with a JSON object containing:
