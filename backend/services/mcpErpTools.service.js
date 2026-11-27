@@ -1689,7 +1689,7 @@ async function toolManagePricingAndPromos(db, scope, args) {
             };
         }
         case 'ADD_COMMISSION_RULE': {
-            const [rows] = await activeDb.query(`INSERT INTO commission_rules (outlet_id, platform_id, category_id, product_id, min_price, max_price, percentage_fee, fixed_fee, priority, is_active, "createdAt", "updatedAt")
+            const [rows] = await activeDb.query(`INSERT INTO commission_rules (outlet_id, platform_id, category_id, product_id, min_price, max_price, percentage_fee, fixed_fee, priority, is_active, created_at, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING *`, {
                 bind: [
                     outletId, args.platformId || null, args.categoryId || null, args.productId || null,
