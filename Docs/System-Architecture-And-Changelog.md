@@ -486,6 +486,38 @@ graph TD
 * **Automated Backup Rules v3-v5**:
   * Automated retention pruning, encrypted off-site cloud replication, and email OTP authorization safeguards for sensitive database restorations.
 
+---
+
+### 37. 🤖 Full ERP MCP Tools Suite (30+ Tools & Prompts) (Nov 2026)
+* **Full Enterprise ERP Extension (`backend/services/mcpErpTools.service.ts`)**:
+  * Expanded the MCP server from 6 core POS tools to **30+ full ERP tools** spanning Accounting (`get_accounting_reports`, `manage_bank_and_capital`, `record_finance_entry`, `get_party_ledgers`), Store Profile (`get_outlet_profile`), Procurement (`create_purchase_order`, `approve_purchase_order`, `create_supplier`), Hospitality (`create_table_order`), HRMS (`get_attendance`, `create_employee`), Loyalty & Promos (`manage_loyalty_program`, `manage_lucky_draw_campaign`, `manage_pricing_and_promos`, `manage_sales_schemes`), Master Data CRUD (`create_master_record`, `list_master_records`, `update_master_record`, `create_tax_group`, `manage_payment_methods`), and System/Backups (`create_outlet_backup`, `manage_plugins`, `create_subscription`).
+* **MCP Prompts (`prompts/list`, `prompts/get`)**:
+  * Added built-in `retail_analyst` and `pos_cashier` system prompts to prime external LLMs with domain-specific POS & ERP instructions.
+
+---
+
+### 38. 📦 Monthly Stock Closing Engine & Snapshot Report (Nov 2026)
+* **Automated Month-End Inventory Archival (`monthlyStockClosingJob.ts`, `monthlyStockClosingReport.controller.ts`)**:
+  * Scheduled background job snapshots Opening, Inward, Outward, and Closing stock quantities & FIFO/Average valuations at the end of every month.
+  * Added [`MonthlyStockClosingReportScreen`](../lib/screens/reports/monthly_stock_closing_report_screen.dart) with on-demand **"Run Closing Now"** execution (`POST /api/reports/monthly-stock-closing/run`).
+
+---
+
+### 39. 🧹 Outlet-Scoped Master Data Purge, Retention & Hierarchy Linking (Nov 2026)
+* **Outlet-Scoped Master Data Purge (`settings_screen.dart`, `dataRetention.service.ts`)**:
+  * Safe branch-isolated master data purge and user data deletion workflows ensuring zero cross-tenant collateral impact.
+* **Outlet Hierarchy Linking UI (`outlet_hierarchy_linking_screen.dart`)**:
+  * Redesigned visual multi-branch hierarchy linking screen for associating master flagship hubs with child outlets and synchronizing shared access clusters.
+
+---
+
+### 40. 🔒 Active User Session Enforcement & Master Deduplication (Nov 2026)
+* **Real-Time Inactive User Blocking (`auth.middleware.ts`)**:
+  * Enforces live `is_active` user status checks on authenticated API requests so deactivated staff accounts lose access immediately without waiting for JWT expiry.
+* **Master Deduplication Engine (`backend/utils/masterDedupe.ts`)**:
+  * Prevents duplicate master items, suppliers, and employee records during cloud imports and multi-branch synchronizations.
+
+
 
 
 

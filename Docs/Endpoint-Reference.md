@@ -367,6 +367,8 @@ Idempotency-Key: <UUID> (Optional for safe retries)
 - `GET /api/reports/sales` - Comprehensive sales report with tax splits.
 - `GET /api/reports/stock-balance` - Current inventory balance & valuation.
 - `GET /api/reports/stock-ledger` - Historical transaction stock ledger.
+- `GET /api/reports/monthly-stock-closing` - Retrieve monthly closing stock snapshot valuation (Opening, Inward, Outward, Closing).
+- `POST /api/reports/monthly-stock-closing/run` - Manually execute month-end stock closing snapshot calculation.
 - `GET /api/reports/trial-balance` - Real-time Trial Balance statement.
 - `GET /api/reports/profit-loss` - Period Profit & Loss statement.
 - `GET /api/reports/balance-sheet` - Certified Balance Sheet.
@@ -610,8 +612,12 @@ Idempotency-Key: <UUID> (Optional for safe retries)
 - `POST /api/backup/restore-cloud-backup` - 1-click cloud snapshot restoration.
 - `POST /api/backup/email-backup-link` - Dispatch off-server signed download link via email.
 - `GET /api/backup/email-download` - Public token-authenticated download endpoint.
+- `POST /api/backup/provider/retention-preview` - Preview expired backup records eligible for cloud retention pruning.
 - `POST /api/backup/provider/retention-purge` - Execute automated retention pruning of expired backups.
 - `POST /api/backup/storage-quota/upgrade` - Upgrade monthly storage capacity quota.
+- `GET /api/backup/admin/storage-overview` - Enterprise Admin Console overview of all outlet storage quotas and utilization.
+- `POST /api/backup/admin/modify-storage` - Admin manual quota adjustment for client outlets.
+- `POST /api/backup/storage-quota/payment-success` - Automated recurring storage capacity provisioning on payment confirmation.
 
 ---
 
@@ -629,8 +635,8 @@ Idempotency-Key: <UUID> (Optional for safe retries)
 
 ### Protocol Transports & Metadata
 - `GET /api/v1/developer/mcp/config` - Retrieve active MCP server version, protocol capabilities, transport status, and connected outlet cluster info.
-- `GET /api/v1/developer/mcp/tools` - Enumerate all active AI tools with JSON Schema parameters, output schemas, and security scopes.
-- `POST /api/v1/developer/mcp` - Standard JSON-RPC 2.0 transport over HTTP (supports `initialize`, `tools/list`, `tools/call`, `ping`).
+- `GET /api/v1/developer/mcp/tools` - Enumerate all 30+ active AI & ERP tools with JSON Schema parameters, output schemas, and security scopes.
+- `POST /api/v1/developer/mcp` - Standard JSON-RPC 2.0 transport over HTTP (supports `initialize`, `tools/list`, `tools/call`, `prompts/list`, `prompts/get`, `ping`).
 - `GET /api/v1/developer/mcp/sse` - Remote MCP Server-Sent Events (SSE) streaming transport for Claude Desktop, Cursor AI, and continuous LLM streaming sessions. Emits `event: endpoint`.
 - `POST /api/v1/developer/mcp/messages` - Endpoint for client message exchange over SSE transport session.
 - `ALL /api/v1/developer/mcp/chat` - Universal compatibility alias supporting SSE (GET) and JSON-RPC 2.0 (POST).

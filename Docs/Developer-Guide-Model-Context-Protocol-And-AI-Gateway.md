@@ -175,6 +175,26 @@ Implemented in `backend/services/mcp.service.ts`:
   - `phone`: Mobile number.
   - `name`: Customer name search fallback.
 
+### Extended Full ERP Tool Suite (`backend/services/mcpErpTools.service.ts`)
+In addition to the 6 core POS tools in `mcp.service.ts`, `mcpErpTools.service.ts` registers **24 enterprise ERP tools** with full multi-tenant outlet scoping (`allowedOutletIds`) and transactional integrity:
+
+| Domain | Tool Name | Purpose & Key Capabilities |
+| :--- | :--- | :--- |
+| **Store Profile** | `get_outlet_profile` | Returns outlet metadata, GSTIN, address, currency, and active module flags. |
+| **Accounting & Reports** | `get_accounting_reports` | Computes Profit & Loss (P&L), Trial Balance, Balance Sheet, Cash Ledger, Vouchers & Expenses. |
+| **Accounting & Ledgers** | `manage_bank_and_capital`, `record_finance_entry`, `get_party_ledgers` | Manages bank accounts/capital, posts balanced double-entry vouchers/expenses, and reads party aging ledgers. |
+| **Procurement** | `create_purchase_order`, `approve_purchase_order`, `create_supplier` | Drafts and approves vendor Purchase Orders (`PO-`), and provisions new supplier records. |
+| **Restaurant & Dining** | `create_table_order` | Dispatches live KOT tickets (`KOT-`) to kitchen screens for dine-in floor tables. |
+| **CRM & Loyalty** | `create_customer`, `manage_loyalty_program`, `manage_lucky_draw_campaign`, `manage_pricing_and_promos`, `manage_sales_schemes` | Registers customers, configures reward points tiers, launches raffle campaigns, and manages promotional rules/schemes. |
+| **HRMS** | `get_attendance`, `create_employee` | Queries staff attendance punches/shifts and creates employee profiles. |
+| **Master Data & Taxes** | `create_master_record`, `list_master_records`, `update_master_record`, `create_tax_group`, `manage_payment_methods` | Generic CRUD across `item_master`, `supplier_master`, and `hr_employees`, plus tax group and payment method configuration. |
+| **System & Backups** | `create_outlet_backup`, `manage_plugins`, `create_subscription` | Triggers scoped `.posbak` outlet backups, manages installed plugins, and creates recurring delivery subscriptions. |
+
+### MCP Prompts (`prompts/list`, `prompts/get`)
+`mcp.service.ts` exposes two built-in system prompts over JSON-RPC:
+- `retail_analyst`: Accepts `timeframe` argument and primes the LLM as a Famalth Lynx retail data analyst.
+- `pos_cashier`: Primes the LLM for accurate billing, tax validation, and customer lookup.
+
 ---
 
 ## 6. Dynamic Spec Generators (ChatGPT OpenAPI & Gemini Function Declarations)

@@ -84,6 +84,11 @@ Reports Hub
 - **Screen**: `Reports > Transfer Progress Dashboard`
 - Track goods in transit between your Central Warehouse and Retail Branch Outlets with live status indicators (Requested ➔ Dispatched ➔ In Transit ➔ Received).
 
+### Monthly Stock Closing Snapshot Report
+- **Screen**: `Reports > Monthly Stock Closing Report`
+- Automated month-end inventory archive (`monthlyStockClosingJob.ts`) capturing exact Opening Stock, Monthly Inward (Purchases), Monthly Outward (Sales & Damages), and Closing Stock quantities & valuation for every item.
+- Includes a **"Run Closing Now"** button for administrators to generate or refresh an on-demand month-end snapshot for audit and ITR tax valuation.
+
 ---
 
 ## 4. Cashier Handover, Day Closing & Night Audit

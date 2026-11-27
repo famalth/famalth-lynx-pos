@@ -179,6 +179,25 @@ In Cursor, go to **Settings** $\rightarrow$ **Features** $\rightarrow$ **MCP Ser
 - **What it does**: Retrieves customer purchase frequency, total lifetime spend, visit history, and unpaid credit balances.
 - **Example Question**: *"What is the outstanding credit balance and total lifetime spend for customer Amit Patel?"*
 
+### Full Enterprise ERP AI Tools (24+ Additional Capabilities)
+Beyond daily billing and inventory lookups, Famalth Lynx exposes full ERP control over MCP so your AI assistant can manage accounting, procurement, hospitality, HRMS, and system backups:
+
+| Category | Available MCP Tools | Example Natural Language Command |
+| :--- | :--- | :--- |
+| **Store & Outlet Profile** | `get_outlet_profile` | *"Show me our store GSTIN, address, currency settings, and active modules."* |
+| **Financial Accounting** | `get_accounting_reports`, `manage_bank_and_capital`, `record_finance_entry`, `get_party_ledgers` | *"Pull this month's Profit & Loss, Trial Balance, and Balance Sheet."* / *"Record a ₹1,200 electricity expense paid via Cash."* |
+| **Procurement & Suppliers** | `create_purchase_order`, `approve_purchase_order`, `create_supplier` | *"Draft a Purchase Order for 50kg Sugar from Metro Wholesalers and approve it."* |
+| **Restaurant & Dining** | `create_table_order` | *"Send 2 Butter Chicken and 4 Garlic Naan to Table 5."* |
+| **CRM, Loyalty & Promos** | `create_customer`, `manage_loyalty_program`, `manage_lucky_draw_campaign`, `manage_pricing_and_promos`, `manage_sales_schemes` | *"Create a 10% Happy Hour discount rule for Beverages from 4 PM to 7 PM."* |
+| **HRMS & Attendance** | `get_attendance`, `create_employee` | *"Who punched in late today across our staff?"* |
+| **Master Data & Taxes** | `create_master_record`, `list_master_records`, `update_master_record`, `create_tax_group`, `manage_payment_methods` | *"Create a new 18% GST tax group and list all active payment methods."* |
+| **System & Backups** | `create_outlet_backup`, `manage_plugins`, `create_subscription` | *"Take an immediate `.posbak` backup of our branch right now."* |
+
+### Built-In MCP Role Prompts
+When using Claude Desktop or Cursor, you can invoke built-in **MCP Prompts** to switch your AI into a specialized store persona:
+- **`retail_analyst`**: Configures the AI as a senior retail financial & inventory analyst with structured reporting instructions.
+- **`pos_cashier`**: Configures the AI as a fast-checkout POS assistant focused on accurate billing, tax verification, and customer lookup.
+
 ---
 
 ## 7. Real-Life Conversational Prompts
