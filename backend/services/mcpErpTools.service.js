@@ -43,6 +43,16 @@ function resolveTargetOutlet(scope, requestedOutletId) {
 function todayYmd() {
     return new Date().toISOString().split('T')[0];
 }
+function sanitizeOptionalEmail(raw) {
+    const s = String(raw || '').trim();
+    if (!s)
+        return null;
+    // Block LLM-hallucinated placeholder emails like user@example.com
+    if (/@(example\.(com|org|net)|test\.com|dummy\.com|fake\.com)$/i.test(s)) {
+        return null;
+    }
+    return s;
+}
 async function allocateSequentialDocNo(activeDb, moduleName, outletId, dateVal, transaction) {
     const numberingHelper = require('../controllers/inventory/numberingSettingsV2.controller');
     const resolved = await numberingHelper.allocateNextNumber({
@@ -208,7 +218,7 @@ exports.MCP_ERP_TOOL_DEFINITIONS = [
                 contactNo: { type: 'string', description: 'Contact No / Mobile Phone' },
                 address: { type: 'string', description: 'Customer Address' },
                 gstNo: { type: 'string', description: 'Customer GST No / GSTIN' },
-                email: { type: 'string', description: 'Customer Email (optional)' },
+                email: { type: 'string', description: 'Customer Email (ONLY if explicitly provided by user; leave omitted/null otherwise — never invent @example.com)' },
                 outletId: { type: 'number' },
             },
             required: ['customerName'],
@@ -564,22 +574,22 @@ exports.MCP_ERP_TOOL_DEFINITIONS = [
     },
     {
         name: 'manage_sales_schemes',
-        description: 'Lists or creates Sales Schemes (sales_schemes) according to user rules: scope (Order/Item), type (Time Based, Buy X Get Y, Amount/Qty Based), discount, repeat mode, apply timing, happy hour time/days, and free gifted item.',
+        description: 'Lists or creates Sales Schemes (sales_schemes) matching the exact POS scheme rules: schemeScope (ORDER or ITEM), schemeType (TIME_BASED, QTY_BASED, AMOUNT_BASED, ITEM_CYCLE), discountType (PERCENT or AMOUNT), discountValue, repeatMode (REPEAT or ONCE), applyTiming (CURRENT_BILL or NEXT_PURCHASE), minQty, minAmount, startTime, endTime, daysOfWeek, freeItemName, freeQty.',
         inputSchema: {
             type: 'object',
             properties: {
                 action: { type: 'string', enum: ['LIST', 'CREATE'] },
                 schemeName: { type: 'string', description: 'Scheme Name (required for CREATE)' },
-                schemeScope: { type: 'string', description: 'ORDER_DISCOUNT or ITEM_DISCOUNT' },
-                schemeType: { type: 'string', description: 'TIME_BASED, BUY_X_GET_Y, AMOUNT_BASED, QTY_BASED, etc.' },
+                schemeScope: { type: 'string', enum: ['ORDER', 'ITEM'], description: 'ORDER (Order Discount) or ITEM (Item Discount)' },
+                schemeType: { type: 'string', enum: ['TIME_BASED', 'QTY_BASED', 'AMOUNT_BASED', 'ITEM_CYCLE'], description: 'TIME_BASED (Time Based), QTY_BASED (Quantity Based), AMOUNT_BASED (Value Based), ITEM_CYCLE (Item Cycle Free)' },
                 targetItemName: { type: 'string', description: 'Optional target item name/code (omit for All Items / Order Discount)' },
                 targetItemId: { type: 'number' },
-                discountType: { type: 'string', enum: ['PERCENTAGE', 'FLAT'] },
+                discountType: { type: 'string', enum: ['PERCENT', 'AMOUNT'], description: 'PERCENT or AMOUNT' },
                 discountValue: { type: 'number' },
                 minQty: { type: 'number' },
                 minAmount: { type: 'number' },
-                repeatMode: { type: 'string', description: 'e.g. EVERY_BILL or ONCE' },
-                applyTiming: { type: 'string', description: 'CURRENT_BILL or NEXT_BILL' },
+                repeatMode: { type: 'string', enum: ['REPEAT', 'ONCE'], description: 'REPEAT (Repeat every bill) or ONCE (Apply once)' },
+                applyTiming: { type: 'string', enum: ['CURRENT_BILL', 'NEXT_PURCHASE'], description: 'CURRENT_BILL (Current bill) or NEXT_PURCHASE (Next purchase)' },
                 autoSelectOnCustomer: { type: 'boolean' },
                 nextPurchaseValidDays: { type: 'number' },
                 startTime: { type: 'string', description: 'HH:MM' },
@@ -886,7 +896,7 @@ async function toolCreateCustomer(db, scope, args) {
     const phone = args?.contactNo || args?.customerPhone || args?.customer_phone || args?.phone || null;
     const address = args?.address || args?.customerAddress || args?.customer_address || null;
     const gstin = args?.gstNo || args?.gstin || args?.customerGstin || args?.customer_gstin || null;
-    const email = args?.email || args?.customerEmail || args?.customer_email || null;
+    const email = sanitizeOptionalEmail(args?.email || args?.customerEmail || args?.customer_email);
     const [rows] = await activeDb.query(`INSERT INTO customers (outlet_id, customer_name, customer_phone, customer_address, customer_email, customer_gstin, created_at, updated_at)
      VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
      RETURNING id, customer_name, customer_phone, customer_address, customer_email, customer_gstin`, { bind: [outletId, cname, phone, address, email, gstin] });
@@ -1953,6 +1963,25 @@ async function toolManageSalesSchemes(db, scope, args) {
             freeItemId = Number(fRows[0].id);
     }
     const days = Array.isArray(args?.daysOfWeek) ? JSON.stringify(args.daysOfWeek) : null;
+    // Normalize to exact UI/POS enum values so bills evaluate the scheme properly
+    const rawScope = String(args?.schemeScope || (itemId ? 'ITEM' : 'ORDER')).toUpperCase();
+    const schemeScope = rawScope.includes('ITEM') ? 'ITEM' : 'ORDER';
+    const rawType = String(args?.schemeType || 'TIME_BASED').toUpperCase();
+    let schemeType = 'TIME_BASED';
+    if (rawType.includes('QTY') || rawType.includes('QUANTITY') || rawType.includes('BUY_X'))
+        schemeType = 'QTY_BASED';
+    else if (rawType.includes('AMOUNT') || rawType.includes('VALUE'))
+        schemeType = 'AMOUNT_BASED';
+    else if (rawType.includes('CYCLE'))
+        schemeType = 'ITEM_CYCLE';
+    else if (rawType.includes('TIME'))
+        schemeType = 'TIME_BASED';
+    const rawDiscType = String(args?.discountType || 'PERCENT').toUpperCase();
+    const discountType = rawDiscType.includes('AMOUNT') || rawDiscType.includes('FLAT') ? 'AMOUNT' : 'PERCENT';
+    const rawRepeat = String(args?.repeatMode || 'REPEAT').toUpperCase();
+    const repeatMode = rawRepeat.includes('ONCE') ? 'ONCE' : 'REPEAT';
+    const rawTiming = String(args?.applyTiming || 'CURRENT_BILL').toUpperCase();
+    const applyTiming = rawTiming.includes('NEXT') ? 'NEXT_PURCHASE' : 'CURRENT_BILL';
     const [rows] = await activeDb.query(`INSERT INTO sales_schemes (
        outlet_id, scheme_name, scheme_type, scheme_scope, discount_type, discount_value,
        start_time, end_time, min_qty, min_amount, item_id, free_qty, repeat_mode, apply_timing,
@@ -1966,18 +1995,18 @@ async function toolManageSalesSchemes(db, scope, args) {
      ) RETURNING *`, {
         bind: [
             outletId, schemeName,
-            String(args?.schemeType || 'TIME_BASED').toUpperCase(),
-            String(args?.schemeScope || (itemId ? 'ITEM_DISCOUNT' : 'ORDER_DISCOUNT')).toUpperCase(),
-            String(args?.discountType || 'PERCENTAGE').toUpperCase(),
+            schemeType,
+            schemeScope,
+            discountType,
             Number(args?.discountValue ?? 0),
             args?.startTime || null,
             args?.endTime || null,
-            args?.minQty !== undefined ? Number(args.minQty) : null,
-            args?.minAmount !== undefined ? Number(args.minAmount) : null,
+            Number(args?.minQty ?? 0),
+            Number(args?.minAmount ?? 0),
             itemId,
-            args?.freeQty !== undefined ? Number(args.freeQty) : null,
-            String(args?.repeatMode || 'EVERY_BILL').toUpperCase(),
-            String(args?.applyTiming || 'CURRENT_BILL').toUpperCase(),
+            Number(args?.freeQty ?? 0),
+            repeatMode,
+            applyTiming,
             args?.autoSelectOnCustomer !== false,
             Number(args?.nextPurchaseValidDays ?? 7),
             args?.isActive !== false,
