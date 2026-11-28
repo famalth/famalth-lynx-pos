@@ -2239,11 +2239,14 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                       final rawStatus = loan['status']?.toString() ?? 'Pending';
                       final isPending = rawStatus.toLowerCase() == 'pending' || rawStatus.toLowerCase() == 'pending approval' || rawStatus.toLowerCase() == 'pending_approval';
 
+                      final payStatus = (loan['payment_status'] ?? (rawStatus.toLowerCase() == 'active' || rawStatus.toLowerCase() == 'paid' ? 'PAID' : 'UNPAID')).toString().toUpperCase();
+                      final isApprovedUnpaid = rawStatus.toLowerCase() == 'approved' && payStatus != 'PAID';
+
                       return DataRow(cells: [
                         DataCell(Text(name, style: const TextStyle(fontWeight: FontWeight.w600))),
                         DataCell(Text(CurrencyService.format(amt))),
                         DataCell(Text(CurrencyService.format(bal))),
-                        DataCell(_buildStatusChip(rawStatus)),
+                        DataCell(_buildStatusChip(isApprovedUnpaid ? 'Approved (Unpaid)' : rawStatus)),
                         DataCell(
                           isPending
                               ? Row(
@@ -2252,7 +2255,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                                     IconButton(
                                       icon: const Icon(Icons.check_circle_outline, color: Color(0xFF059669), size: 20),
                                       onPressed: () => _approveLoan(loan['id'] as int),
-                                      tooltip: 'Approve & Mark Paid',
+                                      tooltip: 'Approve Loan',
                                     ),
                                     IconButton(
                                       icon: const Icon(Icons.highlight_off, color: Color(0xFFDC2626), size: 20),
@@ -2261,18 +2264,28 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                                     ),
                                   ],
                                 )
-                              : Text(
-                                  rawStatus.toLowerCase() == 'approved' || rawStatus.toLowerCase() == 'paid' || rawStatus.toLowerCase() == 'active'
-                                      ? 'Approved'
-                                      : '—',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: rawStatus.toLowerCase() == 'approved' || rawStatus.toLowerCase() == 'paid' || rawStatus.toLowerCase() == 'active'
-                                        ? const Color(0xFF059669)
-                                        : Colors.grey,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
+                              : isApprovedUnpaid
+                                  ? ElevatedButton.icon(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF059669),
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                      ),
+                                      icon: const Icon(Icons.payments_outlined, color: Colors.white, size: 14),
+                                      label: const Text('Pay Loan', style: TextStyle(color: Colors.white, fontSize: 11)),
+                                      onPressed: () => _showPayLoanDialog(loan),
+                                    )
+                                  : Text(
+                                      payStatus == 'PAID' || rawStatus.toLowerCase() == 'active' || rawStatus.toLowerCase() == 'paid'
+                                          ? 'Paid (${loan['payment_method'] ?? 'Cash'})'
+                                          : '—',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: payStatus == 'PAID' || rawStatus.toLowerCase() == 'active' || rawStatus.toLowerCase() == 'paid'
+                                            ? const Color(0xFF059669)
+                                            : Colors.grey,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
                         ),
                       ]);
                     }).toList(),
@@ -2603,6 +2616,75 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
     }
   }
 
+  Future<void> _showPayLoanDialog(Map<String, dynamic> loan) async {
+    String selectedMethod = 'Cash';
+    final emp = loan['employee'] ?? {};
+    final empName = emp['full_name']?.toString() ?? 'Employee #${loan['employee_id']}';
+    final amt = double.tryParse(loan['loan_amount']?.toString() ?? '0') ?? 0;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDs) => AlertDialog(
+          title: const Text('Pay Approved Loan'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Employee: $empName', style: const TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 6),
+              Text('Amount: ${CurrencyService.format(amt)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF059669))),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<String>(
+                value: selectedMethod,
+                decoration: const InputDecoration(
+                  labelText: 'Payment Method *',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'Cash', child: Text('Cash')),
+                  DropdownMenuItem(value: 'Bank Transfer', child: Text('Bank Transfer')),
+                  DropdownMenuItem(value: 'UPI', child: Text('UPI')),
+                  DropdownMenuItem(value: 'Cheque', child: Text('Cheque')),
+                ],
+                onChanged: (v) => setDs(() => selectedMethod = v ?? 'Cash'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF059669)),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Pay & Deduct Ledger', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed != true) return;
+    try {
+      final res = await ApiClient.post('/api/hrms/loans/${loan['id']}/pay', {
+        'payment_method': selectedMethod,
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(res['message']?.toString() ?? 'Loan paid via $selectedMethod'),
+            backgroundColor: res['success'] == true ? const Color(0xFF059669) : const Color(0xFFDC2626),
+          ),
+        );
+        if (res['success'] == true) _loadTabContent();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error paying loan: $e')));
+      }
+    }
+  }
+
   Future<void> _approveLoan(int id) async {
     try {
       await ApiClient.put('/api/hrms/loans/$id/status', {'status': 'Approved'});
@@ -2880,6 +2962,10 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
         // Bonus & Arrears Report
         final res = await ApiClient.get('/api/hrms/payroll/bonuses');
         raw = List<Map<String, dynamic>>.from(res['data'] ?? []);
+      } else if (_selectedReportIndex == 5) {
+        // Penalty & Fine Report
+        final res = await ApiClient.get('/api/hrms/penalties');
+        raw = List<Map<String, dynamic>>.from(res['data'] ?? []);
       }
       setState(() {
         _reportData = raw;
@@ -2934,7 +3020,8 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
       'Advance & Loan Report',
       'Salary Payroll Report',
       'Employee Leave Report',
-      'Bonus & Arrears Report'
+      'Bonus & Arrears Report',
+      'Penalty & Fine Report',
     ];
 
     return ListView(
@@ -3143,7 +3230,10 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
           DataColumn(label: Text('Loan Amount', style: TextStyle(fontWeight: FontWeight.bold))),
           DataColumn(label: Text('Monthly EMI', style: TextStyle(fontWeight: FontWeight.bold))),
           DataColumn(label: Text('Remaining Balance', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Approved Date', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Pay Status', style: TextStyle(fontWeight: FontWeight.bold))),
           DataColumn(label: Text('Payment Method', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Paid Date', style: TextStyle(fontWeight: FontWeight.bold))),
           DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
           DataColumn(label: Text('Notes', style: TextStyle(fontWeight: FontWeight.bold))),
         ],
@@ -3153,8 +3243,13 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
           final amt = double.tryParse(loan['loan_amount']?.toString() ?? '0') ?? 0;
           final emi = double.tryParse(loan['monthly_emi']?.toString() ?? '0') ?? 0;
           final bal = double.tryParse(loan['remaining_balance']?.toString() ?? '0') ?? 0;
-          final method = loan['payment_method']?.toString() ?? 'Cash';
           final st = loan['status']?.toString() ?? 'Pending';
+          final payStatus = (loan['payment_status'] ?? (st.toLowerCase() == 'active' || st.toLowerCase() == 'paid' ? 'PAID' : 'UNPAID')).toString().toUpperCase();
+          final method = loan['payment_method']?.toString() ?? '—';
+          final approvedAt = loan['approved_at']?.toString() ?? '';
+          final paidAt = loan['paid_at']?.toString() ?? '';
+          final approvedFmt = approvedAt.length >= 10 ? approvedAt.substring(0, 10) : '—';
+          final paidFmt = paidAt.length >= 10 ? paidAt.substring(0, 10) : '—';
           final notes = loan['notes']?.toString() ?? '—';
 
           return DataRow(cells: [
@@ -3162,7 +3257,10 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
             DataCell(Text(CurrencyService.format(amt), style: const TextStyle(fontWeight: FontWeight.bold))),
             DataCell(Text(CurrencyService.format(emi))),
             DataCell(Text(CurrencyService.format(bal))),
+            DataCell(Text(approvedFmt)),
+            DataCell(_buildStatusChip(payStatus)),
             DataCell(Text(method)),
+            DataCell(Text(paidFmt)),
             DataCell(_buildStatusChip(st)),
             DataCell(Text(notes)),
           ]);
@@ -3244,6 +3342,37 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
             DataCell(Text(end)),
             DataCell(Text('$days')),
             DataCell(Text(reason)),
+            DataCell(_buildStatusChip(st)),
+          ]);
+        }).toList(),
+      );
+    } else if (_selectedReportIndex == 5) {
+      // Penalty & Fine Report
+      return DataTable(
+        headingRowColor: WidgetStateProperty.all(const Color(0xFFF9FAFB)),
+        columns: const [
+          DataColumn(label: Text('Employee', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Category', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Amount', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Reason / Remarks', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Date / Period', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
+        ],
+        rows: data.map((p) {
+          final emp = p['employee'] ?? {};
+          final name = emp['full_name']?.toString() ?? 'Employee #${p['employee_id']}';
+          final cat = p['category']?.toString() ?? 'Disciplinary';
+          final amt = double.tryParse(p['amount']?.toString() ?? '0') ?? 0;
+          final reason = p['reason']?.toString() ?? '—';
+          final dateStr = p['penalty_date']?.toString() ?? p['pay_period']?.toString() ?? '—';
+          final st = p['status']?.toString() ?? 'Pending';
+
+          return DataRow(cells: [
+            DataCell(Text(name, style: const TextStyle(fontWeight: FontWeight.w600))),
+            DataCell(Text(cat)),
+            DataCell(Text(CurrencyService.format(amt), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFDC2626)))),
+            DataCell(Text(reason)),
+            DataCell(Text(dateStr)),
             DataCell(_buildStatusChip(st)),
           ]);
         }).toList(),

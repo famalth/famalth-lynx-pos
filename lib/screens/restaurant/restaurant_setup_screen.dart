@@ -18,6 +18,7 @@ import '../../core/printing/device_printer_routing.dart';
 import '../../core/utils/country_tax_helper.dart';
 import 'table_reservation_screen.dart';
 import 'table_qr_designer_screen.dart';
+import 'reservation_report_screen.dart';
 
 class RestaurantSetupScreen extends StatefulWidget {
   const RestaurantSetupScreen({super.key});
@@ -32,6 +33,11 @@ class _RestaurantSetupScreenState extends State<RestaurantSetupScreen> with Sing
   int posCopies = 1;
   int tokenCopies = 2;
   DateTime _resvFilterDate = DateTime.now();
+  String _resvViewMode = 'Month'; // Day, Week, Month, Range
+  DateTimeRange _resvDateRange = DateTimeRange(
+    start: DateTime.now().subtract(const Duration(days: 7)),
+    end: DateTime.now().add(const Duration(days: 30)),
+  );
   String _currentMachineId = LocalPreferences.getSystemHardwareId();
 
   static const Color primaryBlue = Color(0xFF0B5CAD);
@@ -1004,14 +1010,27 @@ class _RestaurantSetupScreenState extends State<RestaurantSetupScreen> with Sing
     final weekBookings = _getWeekCount(ctrl.reservations);
     final monthBookings = _getMonthCount(ctrl.reservations);
 
-    // 2. Date Filtering
+    // 2. Date / Calendar / Range Filtering (shows both past history and future bookings)
     final allForDate = ctrl.reservations.where((resv) {
       if (resv['reservation_time'] == null) return false;
       try {
-        final dt = DateTime.parse(resv['reservation_time'].toString());
-        return dt.year == _resvFilterDate.year &&
-            dt.month == _resvFilterDate.month &&
-            dt.day == _resvFilterDate.day;
+        final dt = DateTime.parse(resv['reservation_time'].toString()).toLocal();
+        if (_resvViewMode == 'Day') {
+          return dt.year == _resvFilterDate.year &&
+              dt.month == _resvFilterDate.month &&
+              dt.day == _resvFilterDate.day;
+        } else if (_resvViewMode == 'Week') {
+          final start = DateTime(_resvFilterDate.year, _resvFilterDate.month, _resvFilterDate.day)
+              .subtract(Duration(days: _resvFilterDate.weekday - 1));
+          final end = start.add(const Duration(days: 7));
+          return !dt.isBefore(start) && dt.isBefore(end);
+        } else if (_resvViewMode == 'Month') {
+          return dt.year == _resvFilterDate.year && dt.month == _resvFilterDate.month;
+        } else {
+          final s = DateTime(_resvDateRange.start.year, _resvDateRange.start.month, _resvDateRange.start.day);
+          final e = DateTime(_resvDateRange.end.year, _resvDateRange.end.month, _resvDateRange.end.day, 23, 59, 59);
+          return !dt.isBefore(s) && !dt.isAfter(e);
+        }
       } catch (_) {
         return false;
       }
@@ -1034,23 +1053,44 @@ class _RestaurantSetupScreenState extends State<RestaurantSetupScreen> with Sing
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildSectionHeader(
-            title: 'Table Bookings',
-            subtitle: 'Schedule reservations and guest seating',
+            title: 'Table Bookings & Event Reservations',
+            subtitle: 'Schedule reservations, events, quotations and guest seating',
             icon: Icons.calendar_month_outlined,
-            action: ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: primaryBlue,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const TableReservationScreen()),
-                ).then((_) => ctrl.loadReservations());
-              },
-              icon: const Icon(Icons.add, size: 16),
-              label: const Text('New Booking'),
+            action: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: primaryBlue,
+                    side: const BorderSide(color: primaryBlue),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const ReservationReportScreen()),
+                    );
+                  },
+                  icon: const Icon(Icons.assessment_outlined, size: 16),
+                  label: const Text('Reservation Report'),
+                ),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryBlue,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const TableReservationScreen()),
+                    ).then((_) => ctrl.loadReservations());
+                  },
+                  icon: const Icon(Icons.add, size: 16),
+                  label: const Text('New Booking'),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 16),
@@ -1088,62 +1128,112 @@ class _RestaurantSetupScreenState extends State<RestaurantSetupScreen> with Sing
           ),
           const SizedBox(height: 20),
 
-          // Date Navigation Header
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.chevron_left, color: primaryBlue),
-                onPressed: () {
-                  setState(() {
-                    _resvFilterDate = _resvFilterDate.subtract(const Duration(days: 1));
-                  });
-                },
-              ),
-              InkWell(
-                onTap: () async {
-                  final picked = await showDatePicker(
-                    context: context,
-                    initialDate: _resvFilterDate,
-                    firstDate: DateTime(2020),
-                    lastDate: DateTime.now().add(const Duration(days: 365)),
-                  );
-                  if (picked != null) {
-                    setState(() {
-                      _resvFilterDate = picked;
-                    });
-                  }
-                },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.calendar_today, size: 16, color: primaryBlue),
-                      const SizedBox(width: 8),
-                      Text(
-                        DateFormat('EEEE, d MMM yyyy').format(_resvFilterDate),
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5, color: primaryBlue),
-                      ),
-                    ],
-                  ),
+          // View Mode & Calendar / Range Navigation Header
+          Center(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              alignment: WrapAlignment.center,
+              children: [
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(value: 'Day', label: Text('Day')),
+                    ButtonSegment(value: 'Week', label: Text('Week')),
+                    ButtonSegment(value: 'Month', label: Text('Month')),
+                    ButtonSegment(value: 'Range', label: Text('Date Range')),
+                  ],
+                  selected: {_resvViewMode},
+                  onSelectionChanged: (s) => setState(() => _resvViewMode = s.first),
                 ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.chevron_right, color: primaryBlue),
-                onPressed: () {
-                  setState(() {
-                    _resvFilterDate = _resvFilterDate.add(const Duration(days: 1));
-                  });
-                },
-              ),
-            ],
+                if (_resvViewMode != 'Range') ...[
+                  IconButton(
+                    icon: const Icon(Icons.chevron_left, color: primaryBlue),
+                    onPressed: () {
+                      setState(() {
+                        if (_resvViewMode == 'Day') {
+                          _resvFilterDate = _resvFilterDate.subtract(const Duration(days: 1));
+                        } else if (_resvViewMode == 'Week') {
+                          _resvFilterDate = _resvFilterDate.subtract(const Duration(days: 7));
+                        } else {
+                          _resvFilterDate = DateTime(_resvFilterDate.year, _resvFilterDate.month - 1, 1);
+                        }
+                      });
+                    },
+                  ),
+                  InkWell(
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: _resvFilterDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime.now().add(const Duration(days: 730)),
+                      );
+                      if (picked != null) {
+                        setState(() {
+                          _resvFilterDate = picked;
+                        });
+                      }
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.calendar_today, size: 16, color: primaryBlue),
+                          const SizedBox(width: 8),
+                          Text(
+                            _resvViewMode == 'Month'
+                                ? DateFormat('MMMM yyyy').format(_resvFilterDate)
+                                : DateFormat('EEEE, d MMM yyyy').format(_resvFilterDate),
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5, color: primaryBlue),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.chevron_right, color: primaryBlue),
+                    onPressed: () {
+                      setState(() {
+                        if (_resvViewMode == 'Day') {
+                          _resvFilterDate = _resvFilterDate.add(const Duration(days: 1));
+                        } else if (_resvViewMode == 'Week') {
+                          _resvFilterDate = _resvFilterDate.add(const Duration(days: 7));
+                        } else {
+                          _resvFilterDate = DateTime(_resvFilterDate.year, _resvFilterDate.month + 1, 1);
+                        }
+                      });
+                    },
+                  ),
+                ] else ...[
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.date_range, size: 16, color: primaryBlue),
+                    label: Text(
+                      '${DateFormat('dd MMM yyyy').format(_resvDateRange.start)} - ${DateFormat('dd MMM yyyy').format(_resvDateRange.end)}',
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: primaryBlue),
+                    ),
+                    onPressed: () async {
+                      final picked = await showDateRangePicker(
+                        context: context,
+                        initialDateRange: _resvDateRange,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime.now().add(const Duration(days: 730)),
+                      );
+                      if (picked != null) {
+                        setState(() => _resvDateRange = picked);
+                      }
+                    },
+                  ),
+                ],
+              ],
+            ),
           ),
           const SizedBox(height: 12),
 
-          // Section 1: Today's Expected Arrivals
+          // Section 1: Expected / Future Arrivals
           Text(
-            'TODAY\'S ARRIVALS (${arrivalsList.length})',
+            'BOOKINGS & ARRIVALS (${arrivalsList.length})',
             style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueAccent, letterSpacing: 0.5),
           ),
           const SizedBox(height: 6),
@@ -1171,9 +1261,14 @@ class _RestaurantSetupScreenState extends State<RestaurantSetupScreen> with Sing
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Table: ${resv['table']?['table_name'] ?? 'N/A'}  •  Slot Time: ${_formatReservationSlotTime(resv['reservation_time'])}  (${_formatReservationLocalTime(resv['reservation_time'])})',
+                              'Tables: ${ReservationQuotationHelper.formatTables(resv)}  •  Event: ${ReservationQuotationHelper.formatEvent(resv)}  •  Slot: ${_formatReservationSlotTime(resv['reservation_time'])} (${_formatReservationLocalTime(resv['reservation_time'])})',
                               style: TextStyle(color: Colors.grey.shade800, fontSize: 12, fontWeight: FontWeight.w500),
                             ),
+                            if ((double.tryParse((resv['total_cost'] ?? 0).toString()) ?? 0) > 0)
+                              Text(
+                                'Total Cost: ₹${(double.tryParse((resv['total_cost'] ?? 0).toString()) ?? 0).toStringAsFixed(2)}  •  Advance: ₹${(double.tryParse((resv['advance_paid'] ?? 0).toString()) ?? 0).toStringAsFixed(2)}',
+                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF0F766E)),
+                              ),
                             if (resv['customer_phone'] != null && resv['customer_phone'].toString().isNotEmpty)
                               Text('Phone: ${resv['customer_phone']}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
                             if (resv['address'] != null && resv['address'].toString().isNotEmpty)
@@ -1201,6 +1296,16 @@ class _RestaurantSetupScreenState extends State<RestaurantSetupScreen> with Sing
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            IconButton(
+                              icon: const Icon(Icons.print_outlined, size: 18, color: Colors.blue),
+                              tooltip: 'Print Quotation',
+                              onPressed: () => ReservationQuotationHelper.printQuotation(context, Map<String, dynamic>.from(resv as Map)),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.share_outlined, size: 18, color: Colors.green),
+                              tooltip: 'Send Quotation',
+                              onPressed: () => ReservationQuotationHelper.shareQuotation(context, Map<String, dynamic>.from(resv as Map)),
+                            ),
                             ElevatedButton(
                               onPressed: () => ctrl.updateReservationStatus(resv['id'], 'Seated'),
                               style: ElevatedButton.styleFrom(
@@ -1258,9 +1363,14 @@ class _RestaurantSetupScreenState extends State<RestaurantSetupScreen> with Sing
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Table: ${resv['table']?['table_name'] ?? 'N/A'}  •  Slot Time: ${_formatReservationSlotTime(resv['reservation_time'])}  (${_formatReservationLocalTime(resv['reservation_time'])})',
+                              'Tables: ${ReservationQuotationHelper.formatTables(resv)}  •  Event: ${ReservationQuotationHelper.formatEvent(resv)}  •  Slot: ${_formatReservationSlotTime(resv['reservation_time'])} (${_formatReservationLocalTime(resv['reservation_time'])})',
                               style: TextStyle(color: Colors.grey.shade800, fontSize: 12, fontWeight: FontWeight.w500),
                             ),
+                            if ((double.tryParse((resv['total_cost'] ?? 0).toString()) ?? 0) > 0)
+                              Text(
+                                'Total Cost: ₹${(double.tryParse((resv['total_cost'] ?? 0).toString()) ?? 0).toStringAsFixed(2)}  •  Advance: ₹${(double.tryParse((resv['advance_paid'] ?? 0).toString()) ?? 0).toStringAsFixed(2)}',
+                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF0F766E)),
+                              ),
                             if (resv['customer_phone'] != null && resv['customer_phone'].toString().isNotEmpty)
                               Text('Phone: ${resv['customer_phone']}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
                             if (resv['address'] != null && resv['address'].toString().isNotEmpty)

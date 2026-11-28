@@ -1407,84 +1407,37 @@ exports.getLoans = async (req: any, res: any) => {
   }
 };
 
-exports.createLoan = async (req, res) => {
+exports.createLoan = async (req: any, res: any) => {
   const transaction = await req.propertyDb.transaction();
   try {
-    const { hr_loans, hr_employees, expenses, expense_categories, cash_ledger } = req.propertyDb.models;
-    const { loan_amount, employee_id, payment_method, status } = req.body;
-    
-    const initialStatus = status || 'Pending';
+    const { hr_loans } = req.propertyDb.models;
+    const { loan_amount } = req.body;
+
+    // Loans always start Pending & UNPAID; payment method and ledger deduction happen only on Pay Loan after approval
     const data = await hr_loans.create({
       ...req.body,
-      status: initialStatus,
+      payment_method: null,
+      payment_status: 'UNPAID',
+      status: 'Pending',
       remaining_balance: loan_amount,
       outlet_id: req.user.outlet_id,
       created_by: req.user.id
     }, { transaction });
 
-    // Only log expense and cash ledger if created as already approved/paid/active
-    if (initialStatus === 'Approved' || initialStatus === 'Paid' || initialStatus === 'Active') {
-      const emp = await hr_employees.findByPk(employee_id, { transaction });
-      const empName = emp ? emp.full_name : 'Employee';
-      const empCode = emp ? emp.employee_code : '';
-      const method = payment_method || 'Cash';
-
-      // Log Expense
-      let categoryId = null;
-      if (expenses && expense_categories) {
-        const [category] = await expense_categories.findOrCreate({
-          where: { category_name: 'Loans & Advances', outlet_id: req.user.outlet_id },
-          defaults: { category_name: 'Loans & Advances', user_id: req.user.id },
-          transaction
-        });
-        categoryId = category.id;
-        
-        await expenses.create({
-          category_id: categoryId,
-          base_amount: parseFloat(loan_amount),
-          net_payable_amount: parseFloat(loan_amount),
-          payment_date: new Date(),
-          expense_note: `Loan Reference #${data.id} issued to ${empName} (${empCode})`,
-          payment_method: method,
-          status: 'Paid',
-          outlet_id: req.user.outlet_id,
-          created_by: req.user.id
-        }, { transaction });
-      }
-
-      // Log Cash Ledger
-      if (cash_ledger) {
-        await cash_ledger.create({
-          outlet_id: req.user.outlet_id,
-          txn_date: moment().format('YYYY-MM-DD'),
-          transaction_type: 'EXPENSE',
-          reference_type: 'LOAN',
-          reference_id: data.id.toString(),
-          reference_no: `LOAN-ISSUED-${data.id}`,
-          party_name: empName,
-          payment_method: method,
-          notes: `Loan Reference #${data.id} issued to ${empName} (${empCode})`,
-          amount_out: parseFloat(loan_amount),
-          amount_in: 0,
-          created_by: req.user.id
-        }, { transaction });
-      }
-    }
-
     await transaction.commit();
     return res.json({ success: true, data });
-  } catch (err) {
+  } catch (err: any) {
     await transaction.rollback();
     return res.status(500).json({ success: false, message: err.message });
   }
 };
 
-exports.updateLoanStatus = async (req, res) => {
+exports.updateLoanStatus = async (req: any, res: any) => {
   const transaction = await req.propertyDb.transaction();
   try {
-    const { hr_loans, hr_employees, expenses, expense_categories, cash_ledger } = req.propertyDb.models;
+    const { hr_loans } = req.propertyDb.models;
     const { status } = req.body;
-    
+
     const loan = await hr_loans.findOne({
       where: { id: req.params.id, outlet_id: req.user.outlet_id },
       transaction
@@ -1494,61 +1447,100 @@ exports.updateLoanStatus = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Loan not found' });
     }
 
-    const prevStatus = loan.status;
     loan.status = status;
+    if (String(status).toLowerCase() === 'approved') {
+      loan.approved_at = new Date();
+      loan.approved_by = req.user.id;
+      if (!loan.payment_status) loan.payment_status = 'UNPAID';
+    }
     await loan.save({ transaction });
 
-    // When transitioning to Approved/Paid/Active, disburse and log expense & cash ledger if not already recorded
-    if ((status === 'Approved' || status === 'Paid' || status === 'Active') && 
-        (prevStatus === 'Pending' || prevStatus === 'Pending Approval' || prevStatus === 'Draft')) {
-      const emp = await hr_employees.findByPk(loan.employee_id, { transaction });
-      const empName = emp ? emp.full_name : 'Employee';
-      const empCode = emp ? emp.employee_code : '';
-      const method = loan.payment_method || 'Cash';
+    await transaction.commit();
+    return res.json({ success: true, data: loan, message: 'Loan status updated' });
+  } catch (err: any) {
+    await transaction.rollback();
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
 
-      // Log Expense
-      if (expenses && expense_categories) {
-        const [category] = await expense_categories.findOrCreate({
-          where: { category_name: 'Loans & Advances', outlet_id: req.user.outlet_id },
-          defaults: { category_name: 'Loans & Advances', user_id: req.user.id },
-          transaction
-        });
-        
-        await expenses.create({
-          category_id: category.id,
-          base_amount: parseFloat(loan.loan_amount),
-          net_payable_amount: parseFloat(loan.loan_amount),
-          payment_date: new Date(),
-          expense_note: `Loan Reference #${loan.id} disbursed to ${empName} (${empCode})`,
-          payment_method: method,
-          status: 'Paid',
-          outlet_id: req.user.outlet_id,
-          created_by: req.user.id
-        }, { transaction });
-      }
+exports.payLoan = async (req: any, res: any) => {
+  const transaction = await req.propertyDb.transaction();
+  try {
+    const { hr_loans, hr_employees, expenses, expense_categories, cash_ledger } = req.propertyDb.models;
+    const method = String(req.body?.payment_method || '').trim();
+    if (!method) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: 'Payment method is required to disburse loan.' });
+    }
 
-      // Log Cash Ledger
-      if (cash_ledger) {
-        await cash_ledger.create({
-          outlet_id: req.user.outlet_id,
-          txn_date: moment().format('YYYY-MM-DD'),
-          transaction_type: 'EXPENSE',
-          reference_type: 'LOAN',
-          reference_id: loan.id.toString(),
-          reference_no: `LOAN-ISSUED-${loan.id}`,
-          party_name: empName,
-          payment_method: method,
-          notes: `Loan Reference #${loan.id} disbursed to ${empName} (${empCode})`,
-          amount_out: parseFloat(loan.loan_amount),
-          amount_in: 0,
-          created_by: req.user.id
-        }, { transaction });
-      }
+    const loan = await hr_loans.findOne({
+      where: { id: req.params.id, outlet_id: req.user.outlet_id },
+      transaction
+    });
+    if (!loan) {
+      await transaction.rollback();
+      return res.status(404).json({ success: false, message: 'Loan not found' });
+    }
+    if (String(loan.payment_status || '').toUpperCase() === 'PAID' || String(loan.status || '').toLowerCase() === 'active') {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: 'Loan is already paid/disbursed.' });
+    }
+    if (!['approved', 'disbursed'].includes(String(loan.status || '').toLowerCase())) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: 'Loan must be approved before payment.' });
+    }
+
+    loan.status = 'Active';
+    loan.payment_status = 'PAID';
+    loan.payment_method = method;
+    loan.paid_at = new Date();
+    loan.paid_by = req.user.id;
+    await loan.save({ transaction });
+
+    const emp = await hr_employees.findByPk(loan.employee_id, { transaction });
+    const empName = emp ? emp.full_name : 'Employee';
+    const empCode = emp ? emp.employee_code : '';
+
+    if (expenses && expense_categories) {
+      const [category] = await expense_categories.findOrCreate({
+        where: { category_name: 'Loans & Advances', outlet_id: req.user.outlet_id },
+        defaults: { category_name: 'Loans & Advances', user_id: req.user.id },
+        transaction
+      });
+
+      await expenses.create({
+        category_id: category.id,
+        base_amount: parseFloat(loan.loan_amount),
+        net_payable_amount: parseFloat(loan.loan_amount),
+        payment_date: new Date(),
+        expense_note: `Loan Reference #${loan.id} paid to ${empName} (${empCode})`,
+        payment_method: method,
+        status: 'Paid',
+        outlet_id: req.user.outlet_id,
+        created_by: req.user.id
+      }, { transaction });
+    }
+
+    if (cash_ledger) {
+      await cash_ledger.create({
+        outlet_id: req.user.outlet_id,
+        txn_date: moment().format('YYYY-MM-DD'),
+        transaction_type: 'EXPENSE',
+        reference_type: 'LOAN',
+        reference_id: loan.id.toString(),
+        reference_no: `LOAN-PAID-${loan.id}`,
+        party_name: empName,
+        payment_method: method,
+        notes: `Loan Reference #${loan.id} paid to ${empName} (${empCode})`,
+        amount_out: parseFloat(loan.loan_amount),
+        amount_in: 0,
+        created_by: req.user.id
+      }, { transaction });
     }
 
     await transaction.commit();
-    return res.json({ success: true, message: 'Status updated' });
-  } catch (err) {
+    return res.json({ success: true, data: loan, message: `Loan #${loan.id} paid via ${method} and deducted from ledger.` });
+  } catch (err: any) {
     await transaction.rollback();
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -1792,6 +1784,48 @@ const activeDaysInPeriod = calcEnd.diff(calcStart, 'days') + 1;
         });
         commissions = comms.reduce((sum: number, c: any) => sum + parseFloat(c.commission_amount || 0), 0);
       }
+
+      // Auto-calculate target-based sales commission when Salesperson Tagging is enabled
+      // Includes bills tagged to emp.id OR untagged bills created_by emp.user_id
+      if (commissions === 0 && parseFloat(emp.commission_percent || 0) > 0) {
+        try {
+          const { system_settings, sales_headers } = req.propertyDb.models;
+          let taggingEnabled = true;
+          if (system_settings) {
+            const sysSet = await system_settings.findOne({ where: { outlet_id: req.user.outlet_id } }).catch(() => null);
+            if (sysSet && sysSet.enable_salesperson_tagging === false) {
+              taggingEnabled = false;
+            }
+          }
+          if (taggingEnabled && sales_headers) {
+            const empConds: any[] = [{ salesman_id: emp.id }];
+            if (emp.user_id) {
+              empConds.push({
+                salesman_id: null,
+                created_by: emp.user_id
+              });
+            }
+            const salesRows = await sales_headers.findAll({
+              where: {
+                outlet_id: req.user.outlet_id,
+                sale_date: { [Op.between]: [start.format('YYYY-MM-DD'), end.format('YYYY-MM-DD')] },
+                [Op.or]: empConds
+              },
+              attributes: ['net_amount', 'status']
+            });
+            const totalSales = (salesRows || [])
+              .filter((s: any) => !['CANCELLED', 'VOID', 'DRAFT'].includes(String(s.status || '').toUpperCase()))
+              .reduce((sum: number, s: any) => sum + parseFloat(s.net_amount || 0), 0);
+            const targetAmt = parseFloat(emp.commission_target_amount || 0);
+            const commPct = parseFloat(emp.commission_percent || 0);
+            if (totalSales > 0 && (targetAmt <= 0 || totalSales > targetAmt)) {
+              commissions = parseFloat(((totalSales * commPct) / 100.0).toFixed(2));
+            }
+          }
+        } catch (commErr: any) {
+          console.warn('Auto sales commission calc warning:', commErr?.message || commErr);
+        }
+      }
       
       let loan_deduction = 0;
       if (!salaryOverrideZero) {
@@ -1801,7 +1835,7 @@ const activeDaysInPeriod = calcEnd.diff(calcStart, 'days') + 1;
         const loans = await hr_loans.findAll({
           where: {
             employee_id: emp.id,
-            status: { [Op.in]: ['Active', 'Approved', 'Disbursed', 'In Repayment', 'Paid'] },
+            status: { [Op.in]: ['Active', 'Disbursed', 'In Repayment', 'Paid'] },
             remaining_balance: { [Op.gt]: 0 },
             ...loanOutletFilter
           }
@@ -1814,18 +1848,18 @@ const activeDaysInPeriod = calcEnd.diff(calcStart, 'days') + 1;
       }
       
       let penalties = 0;
-      if (hr_cashier_handovers && !salaryOverrideZero) {
+      if (hr_cashier_handovers) {
         const hnds = await hr_cashier_handovers.findAll({
-          where: { cashier_id: emp.id, shortage_status: 'Pending', variance: { [Op.lt]: 0 }, outlet_id: req.user.outlet_id }
+          where: { cashier_id: emp.id, shortage_status: { [Op.iLike]: 'Pending' }, variance: { [Op.lt]: 0 }, outlet_id: req.user.outlet_id }
         });
         penalties = hnds.reduce((sum: number, h: any) => sum + Math.abs(parseFloat(h.variance)), 0);
       }
       const { hr_penalties } = req.propertyDb.models;
-      if (hr_penalties && !salaryOverrideZero) {
+      if (hr_penalties) {
         const pendingPenalties = await hr_penalties.findAll({
           where: {
             employee_id: emp.id,
-            status: 'Pending',
+            status: { [Op.iLike]: 'Pending' },
             pay_period: { [Op.lte]: pay_period }
           }
         });
@@ -2126,7 +2160,7 @@ exports.runPayroll = async (req, res) => {
         const loans = await hr_loans.findAll({
           where: {
             employee_id: d.employee_id,
-            status: { [Op.in]: ['Active', 'Approved', 'Disbursed', 'In Repayment', 'Paid'] },
+            status: { [Op.in]: ['Active', 'Disbursed', 'In Repayment', 'Paid'] },
             remaining_balance: { [Op.gt]: 0 },
             ...loanOutletFilter
           }
@@ -2180,7 +2214,7 @@ exports.runPayroll = async (req, res) => {
       if (hr_penalties && d.penalty_deduction > 0) {
         await hr_penalties.update(
           { status: 'Deducted', payroll_run_id: run.id },
-          { where: { employee_id: d.employee_id, status: 'Pending', pay_period: { [Op.lte]: pay_period } } }
+          { where: { employee_id: d.employee_id, status: { [Op.iLike]: 'Pending' }, pay_period: { [Op.lte]: pay_period } } }
         );
       }
 

@@ -601,28 +601,52 @@ const createReservation = async (req, res) => {
     const t = await req.propertyDb.transaction();
     try {
         const outlet_id = req.user?.outlet_id;
-        const { table_id, customer_name, customer_phone, reservation_time, guest_count, remarks, address, gstin } = req.body;
+        const { table_id, table_ids, table_names, customer_name, customer_phone, reservation_time, guest_count, remarks, address, gstin, event_type, custom_event_name, menu_items, hall_charges, items_total, booking_amount, advance_paid, total_cost } = req.body;
         const phone = (customer_phone || req.body.phone || '').toString().trim();
-        const table = await req.propertyDb.models.restaurant_tables.findOne({
-            where: { id: table_id, outlet_id },
+        const rawIds = Array.isArray(table_ids) && table_ids.length > 0
+            ? table_ids.map((id) => Number(id)).filter((id) => id > 0)
+            : (table_id ? [Number(table_id)] : []);
+        if (rawIds.length === 0)
+            throw new Error('At least one table must be selected');
+        const primaryTableId = rawIds[0];
+        const tables = await req.propertyDb.models.restaurant_tables.findAll({
+            where: { id: rawIds, outlet_id },
             transaction: t
         });
-        if (!table)
+        if (!tables || tables.length === 0)
             throw new Error('Table not found');
+        const resolvedNames = table_names || tables.map((tb) => tb.table_name).join(', ');
+        const hCharges = Number(hall_charges || 0);
+        const iTotal = Number(items_total || 0);
+        const bAmt = Number(booking_amount || 0);
+        const aPaid = Number(advance_paid || 0);
+        const tCost = Number(total_cost !== undefined ? total_cost : (hCharges + iTotal + bAmt));
         const reservation = await req.propertyDb.models.table_reservations.create({
             outlet_id,
-            table_id,
+            table_id: primaryTableId,
+            table_ids: rawIds,
+            table_names: resolvedNames,
             customer_name,
             customer_phone: phone,
             reservation_time,
             guest_count: guest_count || 1,
-            status: 'Pending',
+            status: req.body.status || 'Pending',
             remarks,
             address,
-            gstin
+            gstin,
+            event_type: event_type || 'Dining',
+            custom_event_name: custom_event_name || null,
+            menu_items: Array.isArray(menu_items) ? menu_items : [],
+            hall_charges: hCharges,
+            items_total: iTotal,
+            booking_amount: bAmt,
+            advance_paid: aPaid,
+            total_cost: tCost
         }, { transaction: t });
-        // Update table status to Reserved
-        await table.update({ status: 'Reserved' }, { transaction: t });
+        // Update all selected tables' status to Reserved
+        for (const tb of tables) {
+            await tb.update({ status: 'Reserved' }, { transaction: t });
+        }
         // Auto-add or update reservation customer details in customer database
         if (phone || customer_name) {
             try {
@@ -691,15 +715,22 @@ const updateReservationStatus = async (req, res) => {
         if (!reservation)
             throw new Error('Reservation not found');
         await reservation.update({ status }, { transaction: t });
-        const table = await req.propertyDb.models.restaurant_tables.findOne({
-            where: { id: reservation.table_id, outlet_id },
+        const targetIds = Array.isArray(reservation.table_ids) && reservation.table_ids.length > 0
+            ? reservation.table_ids.map((tid) => Number(tid)).filter((tid) => tid > 0)
+            : [Number(reservation.table_id)];
+        const tables = await req.propertyDb.models.restaurant_tables.findAll({
+            where: { id: targetIds, outlet_id },
             transaction: t
         });
-        if (status === 'Seated' && table) {
-            await table.update({ status: 'Occupied', current_guest_count: reservation.guest_count }, { transaction: t });
+        if (status === 'Seated') {
+            for (const tb of tables) {
+                await tb.update({ status: 'Occupied', current_guest_count: reservation.guest_count }, { transaction: t });
+            }
         }
-        else if (status === 'Cancelled' && table) {
-            await table.update({ status: 'Available' }, { transaction: t });
+        else if (status === 'Cancelled') {
+            for (const tb of tables) {
+                await tb.update({ status: 'Available' }, { transaction: t });
+            }
         }
         await t.commit();
         res.json({ success: true, data: reservation });

@@ -4937,7 +4937,10 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
       case 'Finance':
         return Icons.account_balance_outlined;
       case 'Stock View':
-        return Icons.inventory_2_outlined;
+      case 'Inventory & Warehouse':
+        return Icons.warehouse_outlined;
+      case 'Retail & POS':
+        return Icons.storefront_outlined;
       case 'Reports':
         return Icons.analytics_outlined;
       case 'Developer & Integrations':
@@ -5006,7 +5009,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
 
       // Operations
       {
-        'category': 'Operations',
+        'category': 'Retail & POS',
         'icon': Icons.shopping_bag_outlined,
         'label': 'Customer App (Delivery)',
         'permission': 'CUSTOMER_APP',
@@ -5021,7 +5024,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         ),
       },
       {
-        'category': 'Operations',
+        'category': 'Retail & POS',
         'icon': Icons.admin_panel_settings_outlined,
         'label': 'Supplier / Retailer Console',
         'permission': 'RETAILER_CONSOLE',
@@ -5036,7 +5039,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         ),
       },
       {
-        'category': 'Operations',
+        'category': 'Retail & POS',
         'icon': Icons.delivery_dining_outlined,
         'label': 'Rider Delivery Portal',
         'permission': 'RIDER_PORTAL',
@@ -5051,7 +5054,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         ),
       },
       {
-        'category': 'Operations',
+        'category': 'Retail & POS',
         'icon': Icons.storefront_rounded,
         'label': 'B2B Wholesale Marketplace',
         'permission': 'PURCHASE_ORDER',
@@ -5080,21 +5083,21 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         ),
       },
       {
-        'category': 'Operations',
+        'category': 'Inventory & Warehouse',
         'icon': Icons.shopping_cart_checkout,
         'label': 'Vendor Purchase Order (PO)',
         'permission': 'PURCHASE_ORDER',
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PurchaseOrderScreen())),
       },
       {
-        'category': 'Operations',
+        'category': 'Inventory & Warehouse',
         'icon': Icons.download_rounded,
         'label': 'Vendor Receive Order (GRN)',
         'permission': 'STOCK_IN',
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const GoodsReceivingScreen())),
       },
       {
-        'category': 'Operations',
+        'category': 'Inventory & Warehouse',
         'icon': Icons.hourglass_bottom_rounded,
         'label': 'Receiving Expiry & Batch Tracker',
         'subLabel': 'Shelf-life intelligence, batch ledgers & expiry risk across Retail, Restaurant, Store & Clinic',
@@ -5103,14 +5106,14 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ExpiryTrackerScreen())),
       },
       {
-        'category': 'Operations',
+        'category': 'Inventory & Warehouse',
         'icon': Icons.upload,
         'label': 'Stock Dispatch',
         'permission': 'STOCK_OUT',
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StockIssueScreen())),
       },
       {
-        'category': 'Operations',
+        'category': 'Inventory & Warehouse',
         'icon': Icons.request_page_outlined,
         'label': 'Material Requisition / Request Item',
         'permission': 'ITEM_REQUEST',
@@ -5118,14 +5121,14 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StockRequestScreen())),
       },
       {
-        'category': 'Operations',
+        'category': 'Inventory & Warehouse',
         'icon': Icons.swap_horiz,
         'label': 'Stock Transfer',
         'permission': 'STOCK_TRANSFER',
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StockTransferScreen())),
       },
       {
-        'category': 'Operations',
+        'category': 'Inventory & Warehouse',
         'icon': Icons.local_shipping,
         'label': 'Inter-Outlet Stock Dispatch',
         'subLabel': 'Dispatch stock from current outlet to a child outlet',
@@ -5134,7 +5137,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StockDispatchScreen())),
       },
       {
-        'category': 'Operations',
+        'category': 'Inventory & Warehouse',
         'icon': Icons.call_received,
         'label': 'Receive Stock at Child Outlet',
         'subLabel': 'Confirm receipt and credit stock at destination outlet',
@@ -5143,28 +5146,28 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StockReceiveScreen())),
       },
       {
-        'category': 'Operations',
+        'category': 'Inventory & Warehouse',
         'icon': Icons.build,
         'label': 'Product Assembly',
         'permission': 'PRODUCT_ASSEMBLY',
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AssemblyScreen())),
       },
       {
-        'category': 'Operations',
+        'category': 'Inventory & Warehouse',
         'icon': Icons.undo,
         'label': 'Return Department Items',
         'permission': 'RETURN_ISSUE',
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReturnIssueScreen())),
       },
       {
-        'category': 'Operations',
+        'category': 'Inventory & Warehouse',
         'icon': Icons.assignment_return,
         'label': 'Return Purchase to Vendor',
         'permission': 'SUPPLIER_RETURN',
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SupplierReturnScreen())),
       },
       {
-        'category': 'Operations',
+        'category': 'Inventory & Warehouse',
         'icon': Icons.fact_check_outlined,
         'label': 'Stock Taking (Physical Audit)',
         'subLabel': 'Count physical stock, calculate variance, and reconcile inventory',
@@ -5173,7 +5176,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StockTakingScreen())),
       },
       {
-        'category': 'Operations',
+        'category': 'Inventory & Warehouse',
         'icon': Icons.warning_amber,
         'label': 'Damage Items',
         'permission': 'DAMAGE',
@@ -5644,21 +5647,21 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
 
       // Stock View
       {
-        'category': 'Stock View',
+        'category': 'Inventory & Warehouse',
         'icon': Icons.inventory_2,
         'label': 'Stock Balance',
         'permission': 'STOCK_BALANCE',
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StockBalanceScreen())),
       },
       {
-        'category': 'Stock View',
+        'category': 'Inventory & Warehouse',
         'icon': Icons.hourglass_bottom,
         'label': 'Expiry & Batch Tracker',
         'permission': 'STOCK_BALANCE',
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ExpiryTrackerScreen())),
       },
       {
-        'category': 'Stock View',
+        'category': 'Inventory & Warehouse',
         'icon': Icons.warning,
         'label': 'Damage Summary',
         'permission': 'DAMAGE_SUMMARY',
@@ -6138,6 +6141,8 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
     final categories = [
       'LYNX Innovation Hub',
       'Billing',
+      'Retail & POS',
+      'Inventory & Warehouse',
       'Operations',
       'Modify',
       _isHospitalityBusiness ? 'Masters & Departments' : 'Masters',
@@ -6270,7 +6275,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SaleScreen())),
       },
       {
-        'category': 'Operations',
+        'category': 'Retail & POS',
         'icon': Icons.storefront_rounded,
         'label': 'B2B Wholesale Marketplace',
         'subLabel': 'Browse verified vendors, order commodities at wholesale rates & auto-generate PO',

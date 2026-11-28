@@ -94,6 +94,7 @@ router.put('/leaves/:id/reject', ctrl.rejectLeave);
 router.get('/loans', ctrl.getLoans);
 router.post('/loans', ctrl.createLoan);
 router.put('/loans/:id/status', ctrl.updateLoanStatus);
+router.post('/loans/:id/pay', ctrl.payLoan);
 // Penalties
 router.get('/penalties', ctrl.getPenalties);
 router.post('/penalties', ctrl.createPenalty);

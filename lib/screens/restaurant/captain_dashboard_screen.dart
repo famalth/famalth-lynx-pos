@@ -27,11 +27,13 @@ import '../dashboard/retailer_console_screen.dart';
 class CaptainDashboardScreen extends StatefulWidget {
   final int? initialTableId;
   final int initialSidebarTab;
+  final bool returnSettleResult;
 
   const CaptainDashboardScreen({
     super.key,
     this.initialTableId,
     this.initialSidebarTab = 0,
+    this.returnSettleResult = false,
   });
 
   @override
@@ -3702,7 +3704,7 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
     final String tableName = (tableObj['table_name'] ?? tableObj['name'] ?? 'Table #$tableId').toString();
 
     if (mounted) {
-      if (Navigator.canPop(context)) {
+      if (widget.returnSettleResult && Navigator.canPop(context)) {
         Navigator.pop(context, {
           'action': 'settle',
           'table': tableObj.isNotEmpty ? tableObj : {'id': tableId, 'table_name': tableName},
@@ -4561,7 +4563,7 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
     }
 
     if (mounted) {
-      if (Navigator.canPop(context)) {
+      if (widget.returnSettleResult && Navigator.canPop(context)) {
         Navigator.pop(context, {
           'action': 'settle',
           'table': {'id': null, 'table_name': 'Takeaway $kotNo'},
@@ -4986,7 +4988,7 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(vertical: 8),
                             ),
-                            onPressed: () => _clearNcOrder(kotId, kotNo),
+                            onPressed: () => _clearNcOrder(kotId, kotNo, existingRemarks: kot['remarks']?.toString()),
                             child: const Text('Clear Order', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                           ),
                         ),
@@ -5002,7 +5004,7 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
     );
   }
 
-  Future<void> _clearNcOrder(int kotId, String kotNo) async {
+  Future<void> _clearNcOrder(int kotId, String kotNo, {String? existingRemarks}) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -5030,9 +5032,10 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
 
     if (confirmed == true) {
       try {
+        final trimmedRem = (existingRemarks ?? '').trim();
         final res = await ApiClient.put('/api/restaurant/kots/$kotId/status', {
           'status': 'NC Cleared',
-          'remarks': 'NC Order Cleared by Staff',
+          'remarks': trimmedRem.isNotEmpty ? trimmedRem : 'NC Order Cleared by Staff',
         });
         if (res['success'] == true && mounted) {
           setState(() {

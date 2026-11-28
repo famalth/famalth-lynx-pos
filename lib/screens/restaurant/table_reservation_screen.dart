@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../controllers/restaurant/restaurant_controller.dart';
+import '../../core/api/api_client.dart';
+import '../../core/api/endpoints.dart';
+import 'reservation_report_screen.dart';
 
 class TableReservationScreen extends StatefulWidget {
   const TableReservationScreen({
@@ -18,8 +21,24 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
 
   String _selectedTimeSlot = '10:30 PM';
   int _guestCount = 2;
-  int? _selectedTableId;
-  String? _selectedTableName;
+  final List<int> _selectedTableIds = [];
+  final List<String> _selectedTableNames = [];
+  int? get _selectedTableId => _selectedTableIds.isNotEmpty ? _selectedTableIds.first : null;
+  set _selectedTableId(int? v) {
+    if (v == null) {
+      _selectedTableIds.clear();
+      _selectedTableNames.clear();
+    }
+  }
+  String? get _selectedTableName => _selectedTableNames.isNotEmpty ? _selectedTableNames.join(', ') : null;
+
+  String _eventType = 'Dining';
+  final TextEditingController _customEventCtrl = TextEditingController();
+  final TextEditingController _hallChargesCtrl = TextEditingController(text: '0');
+  final TextEditingController _bookingAmtCtrl = TextEditingController(text: '0');
+  final TextEditingController _advancePaidCtrl = TextEditingController(text: '0');
+  List<Map<String, dynamic>> _masterMenuItems = [];
+  final List<Map<String, dynamic>> _selectedMenuItems = [];
 
   final TextEditingController _guestNameCtrl = TextEditingController();
   final TextEditingController _phoneCtrl = TextEditingController();
@@ -106,10 +125,18 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
     _upcomingDates = List.generate(14, (i) => DateTime.now().add(Duration(days: i)));
     _selectFirstAvailableSlot();
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final ctrl = Provider.of<RestaurantController>(context, listen: false);
       ctrl.loadTables();
       ctrl.loadReservations();
+      try {
+        final res = await ApiClient.get(ApiEndpoints.items);
+        if (res['success'] == true && res['data'] is List && mounted) {
+          setState(() {
+            _masterMenuItems = List<Map<String, dynamic>>.from(res['data']);
+          });
+        }
+      } catch (_) {}
     });
   }
 
@@ -579,7 +606,6 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
                         onTap: () {
                           setState(() {
                             _guestCount = count;
-                            _selectedTableId = null;
                           });
                         },
                         borderRadius: BorderRadius.circular(8),
@@ -612,9 +638,9 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
 
             const SizedBox(height: 16),
 
-            // ── Section 4: Compact Tables Selection ────────────────────────
+            // ── Section 4: Multiple Table Selection ────────────────────────
             _cardSection(
-              title: 'Select Table (Compact View)',
+              title: 'Select Table(s) — Multi-Table Supported',
               icon: Icons.table_restaurant,
               child: ctrl.tables.isEmpty
                   ? const Padding(
@@ -629,15 +655,22 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
                       runSpacing: 10,
                       children: ctrl.tables.map((table) {
                         final bool isOccupied = _isTableOccupiedOrBooked(table, ctrl);
-                        final bool isSelected = _selectedTableId == table['id'];
+                        final int tid = int.tryParse((table['id'] ?? 0).toString()) ?? 0;
+                        final String tname = (table['table_name'] ?? 'Table').toString();
+                        final bool isSelected = _selectedTableIds.contains(tid);
 
                         return InkWell(
                           onTap: isOccupied
                               ? null
                               : () {
                                   setState(() {
-                                    _selectedTableId = table['id'];
-                                    _selectedTableName = table['table_name'];
+                                    if (isSelected) {
+                                      _selectedTableIds.remove(tid);
+                                      _selectedTableNames.remove(tname);
+                                    } else {
+                                      _selectedTableIds.add(tid);
+                                      _selectedTableNames.add(tname);
+                                    }
                                   });
                                 },
                           borderRadius: BorderRadius.circular(10),
@@ -799,75 +832,302 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
               ),
             ),
 
+            const SizedBox(height: 16),
+
+            // ── Section 5: Event Type, Menu Items & Estimated Quotation ────
+            _buildEventAndQuotationSection(),
+
             const SizedBox(height: 20),
 
-            // Confirm Button
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: primaryBlue,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  elevation: 1,
+            // Print / Send Quotation + Confirm Buttons
+            Row(
+              children: [
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.print_outlined, size: 18),
+                  label: const Text('Print Quote'),
+                  onPressed: () => ReservationQuotationHelper.printQuotation(context, _buildReservationPayload()),
                 ),
-                onPressed: _selectedTableId == null
-                    ? null
-                    : () async {
-                        final String guestName = _guestNameCtrl.text.trim();
-                        final String phone = _phoneCtrl.text.trim();
-
-                        if (guestName.isEmpty) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Please enter guest name.')),
-                          );
-                          return;
-                        }
-
-                        final String formattedTimeStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
-                        final String fullResvDateTime = '$formattedTimeStr $_selectedTimeSlot';
-
-                        final success = await ctrl.saveReservation({
-                          'table_id': _selectedTableId,
-                          'customer_name': guestName,
-                          'customer_phone': phone,
-                          'phone': phone,
-                          'guest_count': _guestCount,
-                          'reservation_time': fullResvDateTime,
-                          'status': 'Confirmed',
-                          'remarks': _notesCtrl.text.trim(),
-                          'address': _addressCtrl.text.trim(),
-                          'gstin': _gstinCtrl.text.trim(),
-                        });
-
-                        if (mounted) {
-                          if (success) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Table $_selectedTableName booked successfully for $guestName!'),
-                                backgroundColor: Colors.green.shade700,
-                              ),
-                            );
-                            Navigator.pop(context);
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Failed to save reservation. Please try again.')),
-                            );
-                          }
-                        }
-                      },
-                child: Text(
-                  _selectedTableId == null
-                      ? 'Select an Available Table above'
-                      : 'Confirm Booking for $_selectedTableName (${DateFormat('d MMM').format(_selectedDate)} at $_selectedTimeSlot)',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.share_outlined, size: 18, color: Colors.green),
+                  label: const Text('Send Quote'),
+                  onPressed: () => ReservationQuotationHelper.shareQuotation(context, _buildReservationPayload()),
                 ),
-              ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: SizedBox(
+                    height: 48,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primaryBlue,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        elevation: 1,
+                      ),
+                      onPressed: _selectedTableIds.isEmpty
+                          ? null
+                          : () async {
+                              final String guestName = _guestNameCtrl.text.trim();
+                              if (guestName.isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Please enter guest name.')),
+                                );
+                                return;
+                              }
+                              final payload = _buildReservationPayload();
+                              final success = await ctrl.saveReservation(payload);
+                              if (mounted) {
+                                if (success) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Table $_selectedTableName booked successfully for $guestName!'),
+                                      backgroundColor: Colors.green.shade700,
+                                    ),
+                                  );
+                                  Navigator.pop(context);
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Failed to save reservation. Please try again.')),
+                                  );
+                                }
+                              }
+                            },
+                      child: Text(
+                        _selectedTableIds.isEmpty
+                            ? 'Select Table(s) above'
+                            : 'Confirm Booking (${_selectedTableName ?? ''})',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
       ),
     );
+  }
+
+  double get _itemsTotal => _selectedMenuItems.fold<double>(
+      0, (s, m) => s + ((double.tryParse((m['qty'] ?? 1).toString()) ?? 1) * (double.tryParse((m['rate'] ?? 0).toString()) ?? 0)));
+
+  Map<String, dynamic> _buildReservationPayload() {
+    final formattedTimeStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
+    final hall = double.tryParse(_hallChargesCtrl.text.trim()) ?? 0;
+    final bookAmt = double.tryParse(_bookingAmtCtrl.text.trim()) ?? 0;
+    final advPaid = double.tryParse(_advancePaidCtrl.text.trim()) ?? 0;
+    final itemsTot = _itemsTotal;
+    final totalCost = hall + itemsTot + bookAmt;
+    return {
+      'table_id': _selectedTableId,
+      'table_ids': _selectedTableIds,
+      'table_names': _selectedTableName,
+      'customer_name': _guestNameCtrl.text.trim().isEmpty ? 'Guest' : _guestNameCtrl.text.trim(),
+      'customer_phone': _phoneCtrl.text.trim(),
+      'phone': _phoneCtrl.text.trim(),
+      'guest_count': _guestCount,
+      'reservation_time': '$formattedTimeStr $_selectedTimeSlot',
+      'status': 'Confirmed',
+      'remarks': _notesCtrl.text.trim(),
+      'address': _addressCtrl.text.trim(),
+      'gstin': _gstinCtrl.text.trim(),
+      'event_type': _eventType,
+      'custom_event_name': _eventType == 'Custom' ? _customEventCtrl.text.trim() : null,
+      'menu_items': _selectedMenuItems,
+      'hall_charges': hall,
+      'items_total': itemsTot,
+      'booking_amount': bookAmt,
+      'advance_paid': advPaid,
+      'total_cost': totalCost,
+    };
+  }
+
+  Widget _buildEventAndQuotationSection() {
+    final hall = double.tryParse(_hallChargesCtrl.text.trim()) ?? 0;
+    final bookAmt = double.tryParse(_bookingAmtCtrl.text.trim()) ?? 0;
+    final advPaid = double.tryParse(_advancePaidCtrl.text.trim()) ?? 0;
+    final itemsTot = _itemsTotal;
+    final totalCost = hall + itemsTot + bookAmt;
+    final balance = totalCost - advPaid;
+
+    return _cardSection(
+      title: 'Event Type, Menu Items & Estimated Quotation',
+      icon: Icons.celebration_outlined,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: ['Dining', 'Lunch', 'Dinner', 'Birthday Party', 'Anniversary', 'Custom'].map((ev) {
+              final sel = _eventType == ev;
+              return ChoiceChip(
+                label: Text(ev, style: TextStyle(fontSize: 12, fontWeight: sel ? FontWeight.bold : FontWeight.normal)),
+                selected: sel,
+                onSelected: (_) => setState(() => _eventType = ev),
+              );
+            }).toList(),
+          ),
+          if (_eventType == 'Custom') ...[
+            const SizedBox(height: 10),
+            TextField(
+              controller: _customEventCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Custom Event Name',
+                hintText: 'e.g. Corporate Meetup, Engagement...',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Pre-Selected Menu Items (${_selectedMenuItems.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.restaurant_menu, size: 15),
+                label: const Text('Add Menu Item', style: TextStyle(fontSize: 12)),
+                onPressed: _openMenuPickerDialog,
+              ),
+            ],
+          ),
+          if (_selectedMenuItems.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            ..._selectedMenuItems.asMap().entries.map((entry) {
+              final idx = entry.key;
+              final m = entry.value;
+              final q = double.tryParse((m['qty'] ?? 1).toString()) ?? 1;
+              final r = double.tryParse((m['rate'] ?? 0).toString()) ?? 0;
+              return ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text('${m['item_name']}  (${q.toStringAsFixed(0)} x ₹${r.toStringAsFixed(2)})', style: const TextStyle(fontSize: 13)),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('₹${(q * r).toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, size: 17, color: Colors.red),
+                      onPressed: () => setState(() => _selectedMenuItems.removeAt(idx)),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _hallChargesCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Hall / Venue Charges (₹)', isDense: true, border: OutlineInputBorder()),
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _bookingAmtCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Booking Amount (₹)', isDense: true, border: OutlineInputBorder()),
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _advancePaidCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Advance Paid (₹)', isDense: true, border: OutlineInputBorder()),
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Wrap(
+              spacing: 16,
+              runSpacing: 6,
+              children: [
+                Text('Items Total: ₹${itemsTot.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                Text('Hall: ₹${hall.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                Text('Total Cost: ₹${totalCost.toStringAsFixed(2)}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: primaryBlue)),
+                Text('Advance: ₹${advPaid.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.green)),
+                Text('Balance: ₹${balance.toStringAsFixed(2)}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.deepOrange)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openMenuPickerDialog() async {
+    String q = '';
+    final picked = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (dCtx) => StatefulBuilder(
+        builder: (dCtx, setDs) {
+          final filtered = _masterMenuItems
+              .where((it) => q.isEmpty || (it['item_name'] ?? '').toString().toLowerCase().contains(q.toLowerCase()))
+              .take(40)
+              .toList();
+          return AlertDialog(
+            title: const Text('Select Menu Item'),
+            content: SizedBox(
+              width: 400,
+              height: 360,
+              child: Column(
+                children: [
+                  TextField(
+                    autofocus: true,
+                    decoration: const InputDecoration(hintText: 'Search menu item...', prefixIcon: Icon(Icons.search), isDense: true, border: OutlineInputBorder()),
+                    onChanged: (v) => setDs(() => q = v),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: filtered.length,
+                      itemBuilder: (_, idx) {
+                        final it = filtered[idx];
+                        final rate = double.tryParse((it['retail_sale_price'] ?? it['rate'] ?? 0).toString()) ?? 0;
+                        return ListTile(
+                          dense: true,
+                          title: Text((it['item_name'] ?? '').toString()),
+                          trailing: Text('₹${rate.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                          onTap: () => Navigator.pop(dCtx, it),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    if (picked == null) return;
+    final rate = double.tryParse((picked['retail_sale_price'] ?? picked['rate'] ?? 0).toString()) ?? 0;
+    setState(() {
+      _selectedMenuItems.add({
+        'item_id': picked['id'],
+        'item_name': picked['item_name'],
+        'qty': _guestCount,
+        'rate': rate,
+        'amount': _guestCount * rate,
+      });
+    });
   }
 }

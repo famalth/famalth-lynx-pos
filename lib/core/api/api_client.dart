@@ -273,11 +273,12 @@ class ApiClient {
                     await ControlPlaneStorage.clear();
                     final nav = globalNavigatorKey.currentState;
                     if (nav != null) {
-                      final targetScreen = AppConfig.isMobileBilling
-                          ? const MobileBillingAuthScreen()
-                          : (isAdminConsole
-                              ? const ControlPlaneLoginScreen()
-                              : const LoginScreen());
+                      final targetScreen = ApiClient.appHomeWidget ??
+                          (AppConfig.isMobileBilling
+                              ? const MobileBillingAuthScreen()
+                              : (isAdminConsole
+                                  ? const ControlPlaneLoginScreen()
+                                  : const LoginScreen()));
                       nav.pushAndRemoveUntil(
                         MaterialPageRoute(builder: (_) => targetScreen),
                         (route) => false,
@@ -378,9 +379,10 @@ class ApiClient {
                     await ControlPlaneStorage.clear();
                     final nav = globalNavigatorKey.currentState;
                     if (nav != null) {
-                      final targetScreen = AppConfig.isMobileBilling
-                          ? const MobileBillingAuthScreen()
-                          : const LoginScreen();
+                      final targetScreen = ApiClient.appHomeWidget ??
+                          (AppConfig.isMobileBilling
+                              ? const MobileBillingAuthScreen()
+                              : const LoginScreen());
                       nav.pushAndRemoveUntil(
                         MaterialPageRoute(builder: (_) => targetScreen),
                         (route) => false,
@@ -397,6 +399,7 @@ class ApiClient {
   }
 
   // ---------------- AUTOMATIC SESSION EXPIRATION & RELOGIN HANDLER ----------------
+  static Widget? appHomeWidget;
   static bool _isHandlingSessionExpired = false;
 
   static Future<void> handleSessionExpired({String? reason}) async {
@@ -414,11 +417,12 @@ class ApiClient {
       final nav = globalNavigatorKey.currentState;
       if (nav != null) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          final targetScreen = AppConfig.isMobileBilling
-              ? MobileBillingAuthScreen(notice: message)
-              : (isAdminConsole
-                  ? const ControlPlaneLoginScreen()
-                  : const LoginScreen());
+          final targetScreen = ApiClient.appHomeWidget ??
+              (AppConfig.isMobileBilling
+                  ? MobileBillingAuthScreen(notice: message)
+                  : (isAdminConsole
+                      ? const ControlPlaneLoginScreen()
+                      : const LoginScreen()));
 
           nav.pushAndRemoveUntil(
             MaterialPageRoute(builder: (_) => targetScreen),
@@ -530,8 +534,14 @@ class ApiClient {
           lowerCode == 'invalid_credentials' ||
           lowerCode == 'wrong_password';
 
+      final bool isVerificationError = (path?.contains('verify') ?? false) ||
+          lowerMsg.contains('pin') ||
+          lowerMsg.contains('otp') ||
+          lowerMsg.contains('supervisor') ||
+          response.body.contains('"authorized":false');
       final bool isSessionExpired = !isAuthLoginPath &&
           !isCredentialsError &&
+          !isVerificationError &&
           (response.statusCode == 401 ||
               lowerCode == 'session_expired' ||
               lowerCode == 'invalid_token' ||

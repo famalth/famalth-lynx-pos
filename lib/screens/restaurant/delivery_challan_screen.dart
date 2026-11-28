@@ -484,7 +484,8 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                             DataColumn(label: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold))),
                           ],
                           rows: filteredList.map((item) {
-                            final isIssued = item['status'] == 'Issued';
+                            final stUpper = (item['status'] ?? '').toString().toUpperCase();
+                            final isIssued = stUpper != 'CONVERTED_TO_SALE' && stUpper != 'CANCELLED' && stUpper != 'RETURNED';
                             final deliveryStatus = (item['delivery_status'] ?? 'PENDING').toString().toUpperCase();
                             final dateStr = item['challan_date'] != null
                                 ? DateFormat('dd-MM-yyyy hh:mm a').format(DateTime.parse(item['challan_date']))
@@ -665,7 +666,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                                           ),
                                           onPressed: () => _openInBillingScreen(context, item['id']),
                                           icon: const Icon(Icons.point_of_sale, size: 14),
-                                          label: const Text('Bill', style: TextStyle(fontSize: 11)),
+                                          label: const Text('Issue Bill', style: TextStyle(fontSize: 11)),
                                         ),
                                         const SizedBox(width: 4),
                                         ElevatedButton.icon(
@@ -2896,6 +2897,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
         'item_name': it['item_name'],
         'unit': it['unit'] ?? 'PCS',
         'qty': double.tryParse(it['qty']?.toString() ?? '1') ?? 1.0,
+        'rate': double.tryParse((it['rate'] ?? it['price'] ?? 0).toString()) ?? 0.0,
       };
     }).toList();
 

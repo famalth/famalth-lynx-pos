@@ -488,9 +488,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
     String status = '';
     if (punch.isNotEmpty) {
       final s = punch['status']?.toString().toLowerCase().trim() ?? '';
-      if (punch['punch_in'] != null || s == 'present' || s == 'late') {
-        status = 'P';
-      } else if (s == 'absent') {
+      if (s == 'absent') {
         status = 'A';
       } else if (s == 'leave' || s == 'on-leave' || s == 'unpaid leave' || s == 'paid leave') {
         status = 'L';
@@ -500,6 +498,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
         status = 'F';
       } else if (s == 'weekly off' || s == 'weekly-off') {
         status = 'W';
+      } else if (punch['punch_in'] != null || s == 'present' || s == 'late') {
+        status = 'P';
       } else {
         status = 'P';
       }

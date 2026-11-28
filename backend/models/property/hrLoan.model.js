@@ -9,6 +9,12 @@ module.exports = (sequelize, DataTypes) => {
         monthly_emi: { type: DataTypes.DECIMAL(12, 2), allowNull: false },
         remaining_balance: { type: DataTypes.DECIMAL(12, 2), allowNull: false },
         status: { type: DataTypes.STRING(50), allowNull: false, defaultValue: 'Pending' },
+        payment_method: { type: DataTypes.STRING(50), allowNull: true },
+        payment_status: { type: DataTypes.STRING(30), allowNull: false, defaultValue: 'UNPAID' },
+        approved_at: { type: DataTypes.DATE, allowNull: true },
+        approved_by: { type: DataTypes.INTEGER, allowNull: true },
+        paid_at: { type: DataTypes.DATE, allowNull: true },
+        paid_by: { type: DataTypes.INTEGER, allowNull: true },
         notes: { type: DataTypes.TEXT, allowNull: true },
         created_by: { type: DataTypes.INTEGER, allowNull: false }
     }, {

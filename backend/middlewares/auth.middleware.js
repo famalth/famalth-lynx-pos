@@ -69,8 +69,50 @@ const authMiddleware = async (req, res, next) => {
             ...data,
             id: data.user_id || data.id
         };
-        // Strict User Existence Check: if the token's user no longer exists (or is inactive), reject with 401 so client logs out immediately
-        if (req.propertyDb?.models?.users) {
+        // Strict Account Existence Check:
+        // - Portal tokens (Employee, Driver, Customer, Supplier, Rider) do NOT live in `users` table.
+        // - Regular POS/Admin/Staff tokens MUST exist and be active in `users`.
+        const tokenRole = String(data.role || '').toUpperCase();
+        const isPortalNonUserToken = Boolean(data.employee_id ||
+            data.driver_id ||
+            data.customer_id ||
+            data.supplier_id ||
+            data.rider_id ||
+            ['EMPLOYEE', 'DRIVER', 'CUSTOMER', 'SUPPLIER', 'RIDER'].includes(tokenRole));
+        if (isPortalNonUserToken) {
+            try {
+                if (data.employee_id && req.propertyDb?.models?.hr_employees) {
+                    const emp = await req.propertyDb.models.hr_employees.findByPk(Number(data.employee_id), {
+                        attributes: ['id', 'status'],
+                        bypassOutletFilter: true
+                    });
+                    if (!emp || String(emp.status || '').trim().toLowerCase() !== 'active') {
+                        return res.status(401).json({
+                            success: false,
+                            code: 'EMPLOYEE_INACTIVE',
+                            forceLogout: true,
+                            message: 'Employee account is inactive or no longer exists. Please login again.'
+                        });
+                    }
+                }
+                else if (data.driver_id && req.propertyDb?.models?.transport_drivers) {
+                    const drv = await req.propertyDb.models.transport_drivers.findByPk(Number(data.driver_id), {
+                        attributes: ['id', 'is_active'],
+                        bypassOutletFilter: true
+                    });
+                    if (!drv || drv.is_active === false) {
+                        return res.status(401).json({
+                            success: false,
+                            code: 'DRIVER_INACTIVE',
+                            forceLogout: true,
+                            message: 'Driver account is inactive or no longer exists. Please login again.'
+                        });
+                    }
+                }
+            }
+            catch (_) { }
+        }
+        else if (req.propertyDb?.models?.users) {
             try {
                 const rawUserId = Number(req.user.id || 0);
                 const validUser = rawUserId

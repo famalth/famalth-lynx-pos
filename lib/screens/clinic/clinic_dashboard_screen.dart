@@ -2228,38 +2228,79 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
 
           const SizedBox(height: 10),
 
-          // Multi-status Filter Chips Row for Reception Desk
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                const Text('Attendance:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
-                const SizedBox(width: 6),
-                _attendanceChip('ALL', 'All Queue'),
-                const SizedBox(width: 4),
-                _attendanceChip('UNATTENDED', 'Waiting in Queue'),
-                const SizedBox(width: 4),
-                _attendanceChip('ATTENDED', 'Attended (Visited)'),
-
-                const SizedBox(width: 14),
-                const Text('Fee Status:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
-                const SizedBox(width: 6),
-                _feeChip('ALL', 'All Fees'),
-                const SizedBox(width: 4),
-                _feeChip('PAID', 'Fee Paid'),
-                const SizedBox(width: 4),
-                _feeChip('UNPAID', 'Fee Unpaid / Pay Later'),
-
-                const SizedBox(width: 14),
-                const Text('Dispensing:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
-                const SizedBox(width: 6),
-                _billingChip('ALL', 'All Dispensing'),
-                const SizedBox(width: 4),
-                _billingChip('UNBILLED', 'Unbilled (Pending)'),
-                const SizedBox(width: 4),
-                _billingChip('BILLED', 'Billed'),
-              ],
-            ),
+          // Professional Zoho / Microsoft-style Dropdown Filter Bar for Reception Desk
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              SizedBox(
+                width: 190,
+                child: DropdownButtonFormField<String>(
+                  value: _attendanceFilter,
+                  isDense: true,
+                  decoration: InputDecoration(
+                    labelText: 'Attendance',
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'ALL', child: Text('All Queue', style: TextStyle(fontSize: 12))),
+                    DropdownMenuItem(value: 'UNATTENDED', child: Text('Waiting in Queue', style: TextStyle(fontSize: 12))),
+                    DropdownMenuItem(value: 'ATTENDED', child: Text('Attended (Visited)', style: TextStyle(fontSize: 12))),
+                  ],
+                  onChanged: (v) {
+                    setState(() => _attendanceFilter = v ?? 'ALL');
+                    _fetchAppointments();
+                  },
+                ),
+              ),
+              SizedBox(
+                width: 190,
+                child: DropdownButtonFormField<String>(
+                  value: _feeStatusFilter,
+                  isDense: true,
+                  decoration: InputDecoration(
+                    labelText: 'Fee Status',
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'ALL', child: Text('All Fees', style: TextStyle(fontSize: 12))),
+                    DropdownMenuItem(value: 'PAID', child: Text('Fee Paid', style: TextStyle(fontSize: 12))),
+                    DropdownMenuItem(value: 'UNPAID', child: Text('Fee Unpaid / Pay Later', style: TextStyle(fontSize: 12))),
+                  ],
+                  onChanged: (v) {
+                    setState(() => _feeStatusFilter = v ?? 'ALL');
+                    _fetchAppointments();
+                  },
+                ),
+              ),
+              SizedBox(
+                width: 190,
+                child: DropdownButtonFormField<String>(
+                  value: _billingStatusFilter,
+                  isDense: true,
+                  decoration: InputDecoration(
+                    labelText: 'Dispensing',
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'ALL', child: Text('All Dispensing', style: TextStyle(fontSize: 12))),
+                    DropdownMenuItem(value: 'UNBILLED', child: Text('Unbilled (Pending)', style: TextStyle(fontSize: 12))),
+                    DropdownMenuItem(value: 'BILLED', child: Text('Billed', style: TextStyle(fontSize: 12))),
+                  ],
+                  onChanged: (v) {
+                    setState(() => _billingStatusFilter = v ?? 'ALL');
+                    _fetchAppointments();
+                  },
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -2973,11 +3014,25 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
 
                     const SizedBox(width: 8),
 
-                    _docFilterChip('ALL', 'All Patients (${doctorQueue.length})'),
-                    const SizedBox(width: 4),
-                    _docFilterChip('UNATTENDED', 'Waiting in Queue'),
-                    const SizedBox(width: 4),
-                    _docFilterChip('ATTENDED', 'Attended / Visited'),
+                    SizedBox(
+                      width: 190,
+                      child: DropdownButtonFormField<String>(
+                        value: _doctorAttendanceFilter,
+                        isDense: true,
+                        decoration: InputDecoration(
+                          labelText: 'Queue Status',
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        items: [
+                          DropdownMenuItem(value: 'ALL', child: Text('All Patients (${doctorQueue.length})', style: const TextStyle(fontSize: 12))),
+                          const DropdownMenuItem(value: 'UNATTENDED', child: Text('Waiting in Queue', style: TextStyle(fontSize: 12))),
+                          const DropdownMenuItem(value: 'ATTENDED', child: Text('Attended / Visited', style: TextStyle(fontSize: 12))),
+                        ],
+                        onChanged: (v) => setState(() => _doctorAttendanceFilter = v ?? 'ALL'),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -3368,13 +3423,24 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
                   ],
                 ),
               ),
-              Wrap(
-                spacing: 6,
-                children: [
-                  _pharmacyFilterChip('ALL', 'All Prescriptions'),
-                  _pharmacyFilterChip('UNBILLED', 'Pending Dispense (Unbilled)'),
-                  _pharmacyFilterChip('BILLED', 'Dispensed & Billed'),
-                ],
+              SizedBox(
+                width: 230,
+                child: DropdownButtonFormField<String>(
+                  value: _pharmacyBillingFilter,
+                  isDense: true,
+                  decoration: InputDecoration(
+                    labelText: 'Dispensing Status',
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'ALL', child: Text('All Prescriptions', style: TextStyle(fontSize: 12))),
+                    DropdownMenuItem(value: 'UNBILLED', child: Text('Pending Dispense (Unbilled)', style: TextStyle(fontSize: 12))),
+                    DropdownMenuItem(value: 'BILLED', child: Text('Dispensed & Billed', style: TextStyle(fontSize: 12))),
+                  ],
+                  onChanged: (v) => setState(() => _pharmacyBillingFilter = v ?? 'ALL'),
+                ),
               ),
             ],
           ),
@@ -5412,17 +5478,75 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                 children: [
                   const Text('Select Test from Master:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
                   const SizedBox(height: 6),
-                  DropdownButtonFormField<String>(
-                    value: allAvailableTests.contains(selectedTestName) ? selectedTestName : (allAvailableTests.isNotEmpty ? allAvailableTests.first : null),
-                    isExpanded: true,
-                    decoration: InputDecoration(
-                      isDense: true,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                    items: allAvailableTests.map((t) => DropdownMenuItem(value: t, child: Text(t, style: const TextStyle(fontSize: 13)))).toList(),
-                    onChanged: (val) {
-                      if (val != null) setDState(() => selectedTestName = val);
+                  InkWell(
+                    onTap: () async {
+                      String q = '';
+                      final picked = await showDialog<String>(
+                        context: ctx,
+                        builder: (sCtx) => StatefulBuilder(
+                          builder: (sCtx, setS) {
+                            final filtered = allAvailableTests
+                                .where((t) => q.isEmpty || t.toLowerCase().contains(q.toLowerCase()))
+                                .toList();
+                            return AlertDialog(
+                              title: const Text('Search Diagnostic Test', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                              content: SizedBox(
+                                width: 380,
+                                height: 340,
+                                child: Column(
+                                  children: [
+                                    TextField(
+                                      autofocus: true,
+                                      decoration: InputDecoration(
+                                        hintText: 'Search test name...',
+                                        prefixIcon: const Icon(Icons.search, size: 18),
+                                        isDense: true,
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                      ),
+                                      onChanged: (v) => setS(() => q = v),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Expanded(
+                                      child: filtered.isEmpty
+                                          ? const Center(child: Text('No matching tests', style: TextStyle(color: Colors.grey)))
+                                          : ListView.builder(
+                                              itemCount: filtered.length,
+                                              itemBuilder: (_, idx) {
+                                                final item = filtered[idx];
+                                                final isSel = item == selectedTestName;
+                                                return ListTile(
+                                                  dense: true,
+                                                  selected: isSel,
+                                                  title: Text(item, style: TextStyle(fontSize: 13, fontWeight: isSel ? FontWeight.bold : FontWeight.normal)),
+                                                  trailing: isSel ? const Icon(Icons.check, color: Color(0xFF0284C7), size: 16) : null,
+                                                  onTap: () => Navigator.pop(sCtx, item),
+                                                );
+                                              },
+                                            ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              actions: [
+                                TextButton(onPressed: () => Navigator.pop(sCtx), child: const Text('Close')),
+                              ],
+                            );
+                          },
+                        ),
+                      );
+                      if (picked != null) setDState(() => selectedTestName = picked);
                     },
+                    child: InputDecorator(
+                      decoration: InputDecoration(
+                        isDense: true,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        suffixIcon: const Icon(Icons.search, size: 18),
+                      ),
+                      child: Text(
+                        allAvailableTests.contains(selectedTestName) ? selectedTestName : (allAvailableTests.isNotEmpty ? allAvailableTests.first : 'Select test'),
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 12),
                   TextField(
@@ -7611,29 +7735,28 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
                     if (_paymentOption == 'PAID_NOW') ...[
                       const SizedBox(height: 8),
                       Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Universal Mode: ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                          const Padding(
+                            padding: EdgeInsets.only(top: 8),
+                            child: Text('Universal Mode: ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                          ),
                           const SizedBox(width: 6),
                           Expanded(
-                            child: SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Row(
-                                children: (_masterPaymentMethods.isNotEmpty
-                                    ? _masterPaymentMethods.map((m) => (m['name'] ?? 'CASH').toString().toUpperCase()).toList()
-                                    : ['CASH', 'CARD', 'UPI', 'BANK_TRANSFER']).map((m) {
-                                  final sel = _paymentMode.toUpperCase() == m.toUpperCase();
-                                  return Padding(
-                                    padding: const EdgeInsets.only(right: 6),
-                                    child: ChoiceChip(
-                                      label: Text(m, style: TextStyle(fontSize: 10, fontWeight: sel ? FontWeight.bold : FontWeight.normal)),
-                                      selected: sel,
-                                      selectedColor: const Color(0xFF0284C7).withOpacity(0.2),
-                                      onSelected: (v) => setState(() => _paymentMode = m),
-                                    ),
-                                  );
-                                }).toList(),
-                              ),
+                            child: Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: (_masterPaymentMethods.isNotEmpty
+                                  ? _masterPaymentMethods.map((m) => (m['name'] ?? 'CASH').toString().toUpperCase()).toList()
+                                  : ['CASH', 'CARD', 'UPI', 'BANK_TRANSFER']).map((m) {
+                                final sel = _paymentMode.toUpperCase() == m.toUpperCase();
+                                return ChoiceChip(
+                                  label: Text(m, style: TextStyle(fontSize: 10, fontWeight: sel ? FontWeight.bold : FontWeight.normal)),
+                                  selected: sel,
+                                  selectedColor: const Color(0xFF0284C7).withOpacity(0.2),
+                                  onSelected: (v) => setState(() => _paymentMode = m),
+                                );
+                              }).toList(),
                             ),
                           ),
                         ],
@@ -8406,7 +8529,81 @@ class _CreateSubscriptionDialogState extends State<_CreateSubscriptionDialog> {
 
               const SizedBox(height: 18),
 
-              // Customer Details
+              // Customer Details (with Search Saved Patient by Name / Phone)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  icon: const Icon(Icons.person_search_outlined, size: 16),
+                  label: const Text('Search Saved Patient by Name / Phone', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                  onPressed: () async {
+                    try {
+                      final res = await ApiClient.get(ApiEndpoints.salesCustomers);
+                      final list = (res['success'] == true && res['data'] is List)
+                          ? List<Map<String, dynamic>>.from(res['data'])
+                          : <Map<String, dynamic>>[];
+                      if (!mounted) return;
+                      String q = '';
+                      final picked = await showDialog<Map<String, dynamic>>(
+                        context: context,
+                        builder: (sCtx) => StatefulBuilder(
+                          builder: (sCtx, setS) {
+                            final filtered = list.where((c) {
+                              if (q.trim().isEmpty) return true;
+                              final s = q.trim().toLowerCase();
+                              return (c['customer_name'] ?? '').toString().toLowerCase().contains(s) ||
+                                  (c['customer_phone'] ?? '').toString().toLowerCase().contains(s);
+                            }).take(30).toList();
+                            return AlertDialog(
+                              title: const Text('Select Saved Patient / Customer', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                              content: SizedBox(
+                                width: 380,
+                                height: 320,
+                                child: Column(
+                                  children: [
+                                    TextField(
+                                      autofocus: true,
+                                      decoration: const InputDecoration(
+                                        hintText: 'Search by name or mobile number...',
+                                        prefixIcon: Icon(Icons.search, size: 18),
+                                        isDense: true,
+                                        border: OutlineInputBorder(),
+                                      ),
+                                      onChanged: (v) => setS(() => q = v),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Expanded(
+                                      child: filtered.isEmpty
+                                          ? const Center(child: Text('No saved customer/patient found', style: TextStyle(color: Colors.grey)))
+                                          : ListView.builder(
+                                              itemCount: filtered.length,
+                                              itemBuilder: (_, idx) {
+                                                final c = filtered[idx];
+                                                return ListTile(
+                                                  dense: true,
+                                                  title: Text((c['customer_name'] ?? 'Guest').toString(), style: const TextStyle(fontWeight: FontWeight.w600)),
+                                                  subtitle: Text((c['customer_phone'] ?? '').toString()),
+                                                  onTap: () => Navigator.pop(sCtx, c),
+                                                );
+                                              },
+                                            ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      );
+                      if (picked != null) {
+                        setState(() {
+                          _nameCtrl.text = (picked['customer_name'] ?? '').toString();
+                          _phoneCtrl.text = (picked['customer_phone'] ?? '').toString();
+                        });
+                      }
+                    } catch (_) {}
+                  },
+                ),
+              ),
               Row(
                 children: [
                   Expanded(

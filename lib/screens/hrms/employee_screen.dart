@@ -1589,35 +1589,6 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
           onChanged: (v) => setState(() => _shiftId = v),
         ),
         const SizedBox(height: 12),
-        // ── Approvers (from existing employees list — no add needed) ──
-        _dropdownField<int>(
-          label: 'Level 1 Approver (Leave)',
-          icon: Icons.verified_user_outlined,
-          value: _approver1Id,
-          items: [
-            const DropdownMenuItem<int>(value: null, child: Text('None', style: TextStyle(color: Color(0xFF9CA3AF)))),
-            ...widget.employees.map((e) => DropdownMenuItem<int>(
-                value: e['id'] as int?,
-                child: Text('${e['full_name']} (${e['employee_code']})'))),
-          ],
-          onChanged: (v) => setState(() => _approver1Id = v),
-        ),
-
-        const SizedBox(height: 12),
-        _dropdownField<int>(
-          label: 'Level 2 Approver (Escalation)',
-          icon: Icons.admin_panel_settings_outlined,
-          value: _approver2Id,
-          items: [
-            const DropdownMenuItem<int>(value: null, child: Text('None', style: TextStyle(color: Color(0xFF9CA3AF)))),
-            ...widget.employees.map((e) => DropdownMenuItem<int>(
-                value: e['id'] as int?,
-                child: Text('${e['full_name']} (${e['employee_code']})'))),
-          ],
-          onChanged: (v) => setState(() => _approver2Id = v),
-        ),
-
-        const SizedBox(height: 12),
         _dropdownField<int>(
           label: 'Linked System User (for Login Attendance & POS)',
           icon: Icons.person_pin_outlined,
@@ -2609,12 +2580,6 @@ class _EmployeeDetailScreenState extends State<_EmployeeDetailScreen>
           _infoRow('Bound Device Lock',
               emp['bound_device_id'] != null ? '${emp['bound_device_id']} (Locked)' : 'Unlocked (No device bound)'),
         ]),
-        _infoCard('LEAVE APPROVERS', [
-          _infoRow('Level 1 Approver',
-              _lookup(widget.employees, emp['level1_approver_id'], 'full_name')),
-          _infoRow('Level 2 Approver',
-              _lookup(widget.employees, emp['level2_approver_id'], 'full_name')),
-        ]),
         if (emp['status'].toString().toLowerCase() == 'terminated')
           _infoCard('TERMINATION DETAILS', [
             _infoRow('Termination Date', emp['terminated_date']),
@@ -3471,22 +3436,6 @@ class _EmployeeDetailScreenState extends State<_EmployeeDetailScreen>
                 ),
               ),
               const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: paymentMethod,
-                decoration: InputDecoration(
-                  labelText: 'Payment Method',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                  prefixIcon: const Icon(Icons.account_balance_wallet_outlined),
-                ),
-                items: const [
-                  DropdownMenuItem(value: 'Cash', child: Text('Cash')),
-                  DropdownMenuItem(value: 'Bank Transfer', child: Text('Bank Transfer')),
-                  DropdownMenuItem(value: 'Cheque', child: Text('Cheque')),
-                  DropdownMenuItem(value: 'UPI', child: Text('UPI')),
-                ],
-                onChanged: (v) => setDs(() => paymentMethod = v!),
-              ),
-              const SizedBox(height: 12),
               TextField(
                 controller: notesCtrl,
                 decoration: InputDecoration(
@@ -3515,7 +3464,6 @@ class _EmployeeDetailScreenState extends State<_EmployeeDetailScreen>
                     'monthly_emi': double.tryParse(emiCtrl.text) ?? 0,
                     'remaining_balance': amount,
                     'notes': notesCtrl.text.trim(),
-                    'payment_method': paymentMethod,
                     'status': 'Pending',
                   });
                   Navigator.pop(ctx);

@@ -56,6 +56,46 @@ module.exports = (sequelize, DataTypes) => {
         gstin: {
             type: DataTypes.STRING(20),
             allowNull: true
+        },
+        table_ids: {
+            type: DataTypes.JSONB,
+            defaultValue: []
+        },
+        table_names: {
+            type: DataTypes.TEXT,
+            allowNull: true
+        },
+        event_type: {
+            type: DataTypes.STRING(60),
+            defaultValue: 'Dining'
+        },
+        custom_event_name: {
+            type: DataTypes.STRING(150),
+            allowNull: true
+        },
+        menu_items: {
+            type: DataTypes.JSONB,
+            defaultValue: []
+        },
+        hall_charges: {
+            type: DataTypes.DECIMAL(12, 2),
+            defaultValue: 0
+        },
+        items_total: {
+            type: DataTypes.DECIMAL(12, 2),
+            defaultValue: 0
+        },
+        booking_amount: {
+            type: DataTypes.DECIMAL(12, 2),
+            defaultValue: 0
+        },
+        advance_paid: {
+            type: DataTypes.DECIMAL(12, 2),
+            defaultValue: 0
+        },
+        total_cost: {
+            type: DataTypes.DECIMAL(12, 2),
+            defaultValue: 0
         }
     }, {
         tableName: 'table_reservations',

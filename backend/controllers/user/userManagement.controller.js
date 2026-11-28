@@ -554,7 +554,7 @@ exports.verifySupervisorPin = async (req, res) => {
                 activeSupervisorOtps.delete(outlet_id); // Consume OTP
             return res.json({ success: true, authorized: true, message: 'Supervisor override authorized!' });
         }
-        res.status(401).json({ success: false, authorized: false, message: 'Invalid Supervisor PIN or OTP!' });
+        res.status(403).json({ success: false, authorized: false, message: 'Invalid Supervisor PIN or OTP!' });
     }
     catch (err) {
         res.status(500).json({ success: false, authorized: false, message: err.message });

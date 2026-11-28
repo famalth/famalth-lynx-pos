@@ -2265,22 +2265,28 @@ async function invokeMutationController(handler, activeDb, scope, outletId, opts
     return responseBody;
 }
 async function resolveMasterItem(activeDb, outletId, it) {
+    const selectCols = `im.id, im.item_code, im.item_name, im.brand, im.unit,
+    im.rate AS buy_rate,
+    im.retail_sale_price AS sale_rate,
+    im.tax_percent AS gst_percent,
+    im.is_tax_inclusive AS is_sale_tax_inclusive,
+    (COALESCE(im.opening_balance, 0) + COALESCE((SELECT SUM(qty_in - qty_out) FROM stock_ledger sl WHERE sl.outlet_id = im.outlet_id AND sl.item_code = im.item_code), 0)) AS current_stock`;
     let item = null;
     if (it?.itemId) {
-        const [rows] = await activeDb.query(`SELECT id, item_code, item_name, brand, unit, buy_rate, sale_rate, gst_percent, current_stock, is_sale_tax_inclusive
-       FROM item_master WHERE outlet_id = $1 AND id = $2 LIMIT 1`, { bind: [outletId, Number(it.itemId)] });
+        const [rows] = await activeDb.query(`SELECT ${selectCols}
+       FROM item_master im WHERE im.outlet_id = $1 AND im.id = $2 LIMIT 1`, { bind: [outletId, Number(it.itemId)] });
         item = rows?.[0];
     }
     else if (it?.itemCode) {
-        const [rows] = await activeDb.query(`SELECT id, item_code, item_name, brand, unit, buy_rate, sale_rate, gst_percent, current_stock, is_sale_tax_inclusive
-       FROM item_master WHERE outlet_id = $1 AND LOWER(TRIM(item_code)) = LOWER(TRIM($2)) LIMIT 1`, { bind: [outletId, String(it.itemCode)] });
+        const [rows] = await activeDb.query(`SELECT ${selectCols}
+       FROM item_master im WHERE im.outlet_id = $1 AND LOWER(TRIM(im.item_code)) = LOWER(TRIM($2)) LIMIT 1`, { bind: [outletId, String(it.itemCode)] });
         item = rows?.[0];
     }
     else if (it?.itemName) {
         const q = String(it.itemName).trim();
-        const [rows] = await activeDb.query(`SELECT id, item_code, item_name, brand, unit, buy_rate, sale_rate, gst_percent, current_stock, is_sale_tax_inclusive
-       FROM item_master WHERE outlet_id = $1 AND (item_name ILIKE $2 OR LOWER(TRIM(item_code)) = LOWER(TRIM($3)))
-       ORDER BY id ASC LIMIT 1`, { bind: [outletId, `%${q}%`, q] });
+        const [rows] = await activeDb.query(`SELECT ${selectCols}
+       FROM item_master im WHERE im.outlet_id = $1 AND (im.item_name ILIKE $2 OR LOWER(TRIM(im.item_code)) = LOWER(TRIM($3)))
+       ORDER BY im.id ASC LIMIT 1`, { bind: [outletId, `%${q}%`, q] });
         item = rows?.[0];
     }
     if (!item) {

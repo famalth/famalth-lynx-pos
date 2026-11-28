@@ -160,6 +160,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (homeWidget != null) {
+      ApiClient.appHomeWidget = homeWidget;
       final name = homeWidget.runtimeType.toString();
       if (name.contains('MobileBilling')) {
         AppConfig.isMobileBilling = true;

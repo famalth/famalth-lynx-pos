@@ -5721,6 +5721,38 @@ COMMIT;
         ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS pf_uan_number VARCHAR(50);
       `);
         }
+    },
+    {
+        version: 138,
+        description: 'Add loan approval and payment tracking columns to hr_loans',
+        up: async (db) => {
+            await db.query(`
+        ALTER TABLE hr_loans ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50);
+        ALTER TABLE hr_loans ADD COLUMN IF NOT EXISTS payment_status VARCHAR(30) DEFAULT 'UNPAID';
+        ALTER TABLE hr_loans ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP;
+        ALTER TABLE hr_loans ADD COLUMN IF NOT EXISTS approved_by INTEGER;
+        ALTER TABLE hr_loans ADD COLUMN IF NOT EXISTS paid_at TIMESTAMP;
+        ALTER TABLE hr_loans ADD COLUMN IF NOT EXISTS paid_by INTEGER;
+      `);
+        }
+    },
+    {
+        version: 139,
+        description: 'Add event, menu items, multi-table, and quotation charge columns to table_reservations',
+        up: async (db) => {
+            await db.query(`
+        ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS table_ids JSONB DEFAULT '[]';
+        ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS table_names TEXT;
+        ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS event_type VARCHAR(60) DEFAULT 'Dining';
+        ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS custom_event_name VARCHAR(150);
+        ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS menu_items JSONB DEFAULT '[]';
+        ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS hall_charges DECIMAL(12, 2) DEFAULT 0;
+        ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS items_total DECIMAL(12, 2) DEFAULT 0;
+        ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS booking_amount DECIMAL(12, 2) DEFAULT 0;
+        ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS advance_paid DECIMAL(12, 2) DEFAULT 0;
+        ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS total_cost DECIMAL(12, 2) DEFAULT 0;
+      `);
+        }
     }
 ];
 exports.default = exports.migrations;
