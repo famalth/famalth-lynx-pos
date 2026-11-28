@@ -176,14 +176,15 @@ Implemented in `backend/services/mcp.service.ts`:
   - `name`: Customer name search fallback.
 
 ### Extended Full ERP Tool Suite (`backend/services/mcpErpTools.service.ts`)
-In addition to the 6 core POS tools in `mcp.service.ts`, `mcpErpTools.service.ts` registers **24 enterprise ERP tools** with full multi-tenant outlet scoping (`allowedOutletIds`) and transactional integrity:
+In addition to the 6 core POS tools in `mcp.service.ts`, `mcpErpTools.service.ts` registers **32 enterprise ERP tools** (38 total tools) with full multi-tenant outlet scoping (`allowedOutletIds`) and transactional integrity:
 
 | Domain | Tool Name | Purpose & Key Capabilities |
 | :--- | :--- | :--- |
 | **Store Profile** | `get_outlet_profile` | Returns outlet metadata, GSTIN, address, currency, and active module flags. |
 | **Accounting & Reports** | `get_accounting_reports` | Computes Profit & Loss (P&L), Trial Balance, Balance Sheet, Cash Ledger, Vouchers & Expenses. |
 | **Accounting & Ledgers** | `manage_bank_and_capital`, `record_finance_entry`, `get_party_ledgers` | Manages bank accounts/capital, posts balanced double-entry vouchers/expenses, and reads party aging ledgers. |
-| **Procurement** | `create_purchase_order`, `approve_purchase_order`, `create_supplier` | Drafts and approves vendor Purchase Orders (`PO-`), and provisions new supplier records. |
+| **Procurement & Vendor Settlement** | `create_purchase_order`, `approve_purchase_order`, `create_supplier`, `list_supplier_bills`, `pay_supplier_bill`, `create_vendor_return` | Drafts and approves vendor Purchase Orders (`PO-`), lists payable bills, settles supplier invoices, and issues debit notes. |
+| **Warehouse, GRN & Inventory** | `create_receiving`, `create_stock_dispatch`, `create_material_requisition`, `create_department_return`, `create_damage_entry` | Records Goods Receiving Notes (`RC-`), stock dispatches (`INT-`), requisitions (`REC-`), department returns, and damage write-offs (`DMG-`). |
 | **Restaurant & Dining** | `create_table_order` | Dispatches live KOT tickets (`KOT-`) to kitchen screens for dine-in floor tables. |
 | **CRM & Loyalty** | `create_customer`, `manage_loyalty_program`, `manage_lucky_draw_campaign`, `manage_pricing_and_promos`, `manage_sales_schemes` | Registers customers, configures reward points tiers, launches raffle campaigns, and manages promotional rules/schemes. |
 | **HRMS** | `get_attendance`, `create_employee` | Queries staff attendance punches/shifts and creates employee profiles. |

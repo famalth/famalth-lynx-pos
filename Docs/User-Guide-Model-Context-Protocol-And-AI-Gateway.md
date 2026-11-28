@@ -179,14 +179,15 @@ In Cursor, go to **Settings** $\rightarrow$ **Features** $\rightarrow$ **MCP Ser
 - **What it does**: Retrieves customer purchase frequency, total lifetime spend, visit history, and unpaid credit balances.
 - **Example Question**: *"What is the outstanding credit balance and total lifetime spend for customer Amit Patel?"*
 
-### Full Enterprise ERP AI Tools (24+ Additional Capabilities)
-Beyond daily billing and inventory lookups, Famalth Lynx exposes full ERP control over MCP so your AI assistant can manage accounting, procurement, hospitality, HRMS, and system backups:
+### Full Enterprise ERP AI Tools (32+ Additional Capabilities - 38 Total)
+Beyond daily billing and inventory lookups, Famalth Lynx exposes full ERP control over MCP so your AI assistant can manage accounting, procurement, warehouse operations, hospitality, HRMS, and system backups:
 
 | Category | Available MCP Tools | Example Natural Language Command |
 | :--- | :--- | :--- |
 | **Store & Outlet Profile** | `get_outlet_profile` | *"Show me our store GSTIN, address, currency settings, and active modules."* |
 | **Financial Accounting** | `get_accounting_reports`, `manage_bank_and_capital`, `record_finance_entry`, `get_party_ledgers` | *"Pull this month's Profit & Loss, Trial Balance, and Balance Sheet."* / *"Record a ₹1,200 electricity expense paid via Cash."* |
-| **Procurement & Suppliers** | `create_purchase_order`, `approve_purchase_order`, `create_supplier` | *"Draft a Purchase Order for 50kg Sugar from Metro Wholesalers and approve it."* |
+| **Procurement & Suppliers** | `create_purchase_order`, `approve_purchase_order`, `create_supplier`, `list_supplier_bills`, `pay_supplier_bill`, `create_vendor_return` | *"Draft a Purchase Order for 50kg Sugar from Metro Wholesalers, check unpaid supplier bills, and settle bill #INV-402 via Bank."* |
+| **Warehouse, GRN & Stock** | `create_receiving`, `create_stock_dispatch`, `create_material_requisition`, `create_department_return`, `create_damage_entry` | *"Create a GRN for 20 cases of Mineral Water received today"* / *"Write off 3 damaged cartons of Milk from Kitchen store."* |
 | **Restaurant & Dining** | `create_table_order` | *"Send 2 Butter Chicken and 4 Garlic Naan to Table 5."* |
 | **CRM, Loyalty & Promos** | `create_customer`, `manage_loyalty_program`, `manage_lucky_draw_campaign`, `manage_pricing_and_promos`, `manage_sales_schemes` | *"Create a 10% Happy Hour discount rule for Beverages from 4 PM to 7 PM."* |
 | **HRMS & Attendance** | `get_attendance`, `create_employee` | *"Who punched in late today across our staff?"* |

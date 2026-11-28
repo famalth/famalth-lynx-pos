@@ -517,6 +517,21 @@ graph TD
 * **Master Deduplication Engine (`backend/utils/masterDedupe.ts`)**:
   * Prevents duplicate master items, suppliers, and employee records during cloud imports and multi-branch synchronizations.
 
+---
+
+### 41. 📦 MCP Warehouse, GRN & Vendor Settlement Expansion (38 Tools) (Nov 2026)
+* **8 New Operational ERP MCP Tools (`mcpErpTools.service.ts`)**:
+  * Added `create_receiving` (GRN inward), `create_stock_dispatch` (department/branch issues), `create_material_requisition`, `create_department_return`, `create_damage_entry` (spoilage write-offs), `create_vendor_return` (debit notes), `list_supplier_bills`, and `pay_supplier_bill` (supplier settlement with ledger posting).
+  * Expanded total production MCP tool suite from 30 to **38 full ERP & POS tools**.
+
+---
+
+### 42. 💰 HRMS Fixed Salary Component & Payroll Refinements (Nov 2026)
+* **Fixed Monthly Amount Input (`hrms_masters_screen.dart`, `payroll_screen.dart`)**:
+  * Salary components configured as `Fixed` now accept and display direct monthly flat currency amounts (`₹<amount> / month`) alongside `Percentage (%)` and `Formula` expressions.
+  * Synchronized payroll calculation, office portal attendance checks, and delivery challan refinements across backend and Flutter clients.
+
+
 
 
 

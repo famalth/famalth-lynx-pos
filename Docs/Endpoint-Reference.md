@@ -635,7 +635,7 @@ Idempotency-Key: <UUID> (Optional for safe retries)
 
 ### Protocol Transports & Metadata
 - `GET /api/v1/developer/mcp/config` - Retrieve active MCP server version, protocol capabilities, transport status, and connected outlet cluster info.
-- `GET /api/v1/developer/mcp/tools` - Enumerate all 30+ active AI & ERP tools with JSON Schema parameters, output schemas, and security scopes.
+- `GET /api/v1/developer/mcp/tools` - Enumerate all 38 active AI & ERP tools with JSON Schema parameters, output schemas, and security scopes.
 - `POST /api/v1/developer/mcp` - Standard JSON-RPC 2.0 transport over HTTP (supports `initialize`, `tools/list`, `tools/call`, `prompts/list`, `prompts/get`, `ping`).
 - `GET /api/v1/developer/mcp/sse` - Remote MCP Server-Sent Events (SSE) streaming transport for Claude Desktop, Cursor AI, and continuous LLM streaming sessions. Emits `event: endpoint`.
 - `POST /api/v1/developer/mcp/messages` - Endpoint for client message exchange over SSE transport session.
