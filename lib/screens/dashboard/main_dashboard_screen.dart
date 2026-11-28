@@ -86,6 +86,7 @@ import '../restaurant/waiter_app_screen.dart';
 import '../restaurant/kots_history_screen.dart';
 import '../restaurant/table_qr_designer_screen.dart';
 import '../restaurant/table_reservation_screen.dart';
+import '../restaurant/reservation_report_screen.dart';
 import '../dining/table_dining_screen.dart';
 import '../settings/mpesa_config_screen.dart';
 import '../settings/payment_gateways_screen.dart';
@@ -276,6 +277,10 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
   final Set<String> _seenDiningCallIds = {};
   bool _isDiningAlertOpen = false;
   bool _hasInitializedDiningCalls = false;
+  final Set<String> _seenReservationIds = {};
+  bool _hasInitializedReservations = false;
+  bool _hasShownTodayEventAlert = false;
+  bool _isReservationAlertOpen = false;
   String currentVersion = "";
   final InventoryDashboardController dashboardCtrl =
       InventoryDashboardController();
@@ -773,6 +778,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
     }
     if (ModuleCapability.hasRestaurant(_businessModule)) {
       _fetchAndCheckDiningAlerts();
+      _fetchAndCheckReservationAlerts();
     }
     _customerOrderPollTimer = Timer.periodic(const Duration(seconds: 8), (_) {
       if (mounted) {
@@ -781,6 +787,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         }
         if (ModuleCapability.hasRestaurant(_businessModule)) {
           _fetchAndCheckDiningAlerts();
+          _fetchAndCheckReservationAlerts();
         }
       }
     });
@@ -983,6 +990,261 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
       },
     ).then((_) {
       _isDiningAlertOpen = false;
+    });
+  }
+
+  Future<void> _fetchAndCheckReservationAlerts() async {
+    if (!ModuleCapability.hasRestaurant(_businessModule)) return;
+    try {
+      final res = await ApiClient.get(ApiEndpoints.restaurantReservations, silent: true);
+      if (res['success'] == true && res['data'] is List) {
+        final List<dynamic> list = res['data'];
+        final now = DateTime.now();
+
+        if (!_hasInitializedReservations) {
+          final List<Map<String, dynamic>> todayEvents = [];
+          for (final raw in list) {
+            if (raw is! Map) continue;
+            final r = Map<String, dynamic>.from(raw);
+            final id = r['id']?.toString() ?? '';
+            if (id.isNotEmpty) _seenReservationIds.add(id);
+
+            final st = (r['status'] ?? '').toString().toLowerCase();
+            if (st == 'cancelled' || st == 'completed' || st == 'rejected') continue;
+            final dt = DateTime.tryParse((r['reservation_time'] ?? '').toString())?.toLocal();
+            if (dt != null && dt.year == now.year && dt.month == now.month && dt.day == now.day) {
+              todayEvents.add(r);
+            }
+          }
+          _hasInitializedReservations = true;
+
+          if (todayEvents.isNotEmpty && !_hasShownTodayEventAlert && !_isReservationAlertOpen && !_isDiningAlertOpen && !_isCustomerOrderAlertOpen && mounted) {
+            _hasShownTodayEventAlert = true;
+            _showReservationAlertDialog(
+              todayEvents.first,
+              isTodayEventReminder: true,
+              totalCount: todayEvents.length,
+              todayEvents: todayEvents,
+            );
+          }
+          return;
+        }
+
+        final newBookings = <Map<String, dynamic>>[];
+        for (final raw in list) {
+          if (raw is! Map) continue;
+          final r = Map<String, dynamic>.from(raw);
+          final id = r['id']?.toString() ?? '';
+          final st = (r['status'] ?? '').toString().toLowerCase();
+          if (id.isNotEmpty && !_seenReservationIds.contains(id) && st != 'cancelled' && st != 'rejected') {
+            newBookings.add(r);
+          }
+        }
+
+        if (newBookings.isNotEmpty && !_isReservationAlertOpen && !_isDiningAlertOpen && !_isCustomerOrderAlertOpen && mounted) {
+          for (final b in newBookings) {
+            final id = b['id']?.toString() ?? '';
+            if (id.isNotEmpty) _seenReservationIds.add(id);
+          }
+          _showReservationAlertDialog(
+            newBookings.first,
+            isTodayEventReminder: false,
+            totalCount: newBookings.length,
+          );
+        }
+      }
+    } catch (_) {}
+  }
+
+  void _showReservationAlertDialog(
+    Map<String, dynamic> booking, {
+    required bool isTodayEventReminder,
+    int totalCount = 1,
+    List<Map<String, dynamic>>? todayEvents,
+  }) {
+    if (_isReservationAlertOpen || !mounted) return;
+    _isReservationAlertOpen = true;
+
+    final guestName = (booking['customer_name'] ?? 'Guest').toString();
+    final phone = (booking['customer_phone'] ?? '').toString();
+    final pax = booking['guest_count'] ?? 2;
+    final evType = (booking['event_type'] ?? 'Dining').toString();
+    final customEv = (booking['custom_event_name'] ?? '').toString().trim();
+    final eventLabel = (evType == 'Custom' && customEv.isNotEmpty) ? customEv : evType;
+    final tables = (booking['table_names'] ?? (booking['table_id'] != null ? 'T${booking['table_id']}' : 'Hall / Table')).toString();
+    final dt = DateTime.tryParse((booking['reservation_time'] ?? '').toString())?.toLocal();
+    final timeStr = dt != null ? DateFormat('dd MMM yyyy, hh:mm a').format(dt) : (booking['reservation_time'] ?? '').toString();
+
+    final accentColor = isTodayEventReminder ? const Color(0xFF7C3AED) : const Color(0xFF0284C7);
+    final headerTitle = isTodayEventReminder
+        ? (totalCount > 1 ? "Today's Scheduled Events ($totalCount)" : "Today's Event / Booking")
+        : 'New Table / Event Booking';
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+          contentPadding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: accentColor.withValues(alpha: 0.14),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: accentColor, width: 1.5),
+                ),
+                child: Icon(
+                  isTodayEventReminder ? Icons.celebration_rounded : Icons.event_available_rounded,
+                  color: accentColor,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        headerTitle,
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (!isTodayEventReminder && totalCount > 1) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEF4444),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '+$totalCount',
+                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 400,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (isTodayEventReminder && todayEvents != null && todayEvents.length > 1) ...[
+                  ...todayEvents.take(4).map((ev) {
+                    final eDt = DateTime.tryParse((ev['reservation_time'] ?? '').toString())?.toLocal();
+                    final eTime = eDt != null ? DateFormat('hh:mm a').format(eDt) : '';
+                    final eType = (ev['event_type'] ?? 'Dining').toString();
+                    final eTables = (ev['table_names'] ?? 'Table').toString();
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.event_note, size: 16, color: accentColor),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '${ev['customer_name'] ?? 'Guest'} • $eType ($eTables) • ${ev['guest_count'] ?? 2} Pax',
+                              style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          Text(eTime, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: accentColor)),
+                        ],
+                      ),
+                    );
+                  }),
+                ] else ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '$guestName ($pax Pax)',
+                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: accentColor.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                eventLabel.toUpperCase(),
+                                style: TextStyle(color: accentColor, fontSize: 10, fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text('Tables / Hall: $tables', style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Color(0xFF334155))),
+                        const SizedBox(height: 3),
+                        Text('Time: $timeStr', style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
+                        if (phone.isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Text('Phone: $phone', style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Dismiss', style: TextStyle(color: Color(0xFF64748B))),
+            ),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: accentColor,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              icon: const Icon(Icons.assessment_outlined, size: 18),
+              label: const Text('Open Report', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              onPressed: () {
+                Navigator.pop(ctx);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ReservationReportScreen()),
+                );
+              },
+            ),
+          ],
+        );
+      },
+    ).then((_) {
+      _isReservationAlertOpen = false;
     });
   }
 

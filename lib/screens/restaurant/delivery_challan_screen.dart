@@ -125,7 +125,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
       if (_selectedStatusFilter == 'ISSUED' && (status != 'ISSUED' && deliveryStatus != 'PENDING')) return false;
       if (_selectedStatusFilter == 'IN_TRANSIT' && deliveryStatus != 'IN_TRANSIT') return false;
       if (_selectedStatusFilter == 'DELIVERED' && deliveryStatus != 'DELIVERED') return false;
-      if (_selectedStatusFilter == 'CONVERTED' && status != 'CONVERTED_TO_SALE') return false;
+      if (_selectedStatusFilter == 'CONVERTED' && status != 'CONVERTED_TO_SALE' && status != 'BILL_ISSUED') return false;
 
       if (query.isEmpty) return true;
       final challanNo = (item['challan_no'] ?? '').toString().toLowerCase();
@@ -152,7 +152,10 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
     final totalCount = dateFiltered.length;
     final inTransitCount = dateFiltered.where((c) => (c['delivery_status'] ?? '').toString().toUpperCase() == 'IN_TRANSIT').length;
     final deliveredCount = dateFiltered.where((c) => (c['delivery_status'] ?? '').toString().toUpperCase() == 'DELIVERED').length;
-    final pendingCount = dateFiltered.where((c) => c['status'] == 'Issued').length;
+    final pendingCount = dateFiltered.where((c) {
+      final st = (c['status'] ?? '').toString().toUpperCase();
+      return st != 'CONVERTED_TO_SALE' && st != 'BILL_ISSUED' && st != 'NO_BILL_NEEDED' && st != 'CANCELLED' && st != 'RETURNED';
+    }).length;
     final totalDispatchedQty = dateFiltered.fold<double>(
       0.0,
       (sum, c) => sum + (double.tryParse(c['total_qty']?.toString() ?? '0') ?? 0.0),
@@ -485,7 +488,9 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                           ],
                           rows: filteredList.map((item) {
                             final stUpper = (item['status'] ?? '').toString().toUpperCase();
-                            final isIssued = stUpper != 'CONVERTED_TO_SALE' && stUpper != 'CANCELLED' && stUpper != 'RETURNED';
+                            final isBilled = stUpper == 'CONVERTED_TO_SALE' || stUpper == 'BILL_ISSUED';
+                            final isNoBillNeeded = stUpper == 'NO_BILL_NEEDED';
+                            final canChooseBilling = !isBilled && !isNoBillNeeded && stUpper != 'CANCELLED' && stUpper != 'RETURNED';
                             final deliveryStatus = (item['delivery_status'] ?? 'PENDING').toString().toUpperCase();
                             final dateStr = item['challan_date'] != null
                                 ? DateFormat('dd-MM-yyyy hh:mm a').format(DateTime.parse(item['challan_date']))
@@ -655,8 +660,8 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                                         ),
                                       ],
 
-                                      // Convert to Final Sales Invoice
-                                      if (isIssued) ...[
+                                      // Billing Options: Issue Bill / Not Needed Bill, or status badge once resolved
+                                      if (canChooseBilling) ...[
                                         OutlinedButton.icon(
                                           style: OutlinedButton.styleFrom(
                                             foregroundColor: const Color(0xFF008060),
@@ -669,26 +674,66 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                                           label: const Text('Issue Bill', style: TextStyle(fontSize: 11)),
                                         ),
                                         const SizedBox(width: 4),
-                                        ElevatedButton.icon(
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: const Color(0xFF008060),
-                                            foregroundColor: Colors.white,
+                                        OutlinedButton.icon(
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: const Color(0xFF64748B),
+                                            side: const BorderSide(color: Color(0xFFCBD5E1)),
                                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                                           ),
                                           onPressed: () async {
-                                            final success = await ctrl.updateChallanStatus(item['id'], 'Converted_To_Sale');
+                                            final success = await ctrl.updateChallanStatus(item['id'], 'No_Bill_Needed');
                                             if (success && context.mounted) {
                                               ScaffoldMessenger.of(context).showSnackBar(
                                                 const SnackBar(
-                                                  content: Text('Delivery Challan converted to final Sales Invoice!'),
-                                                  backgroundColor: Color(0xFF008060),
+                                                  content: Text('Challan marked as Not Needed Bill'),
+                                                  backgroundColor: Color(0xFF475569),
                                                 ),
                                               );
                                             }
                                           },
-                                          icon: const Icon(Icons.check, size: 14),
-                                          label: const Text('Convert', style: TextStyle(fontSize: 11)),
+                                          icon: const Icon(Icons.do_not_disturb_on_outlined, size: 14),
+                                          label: const Text('Not Needed Bill', style: TextStyle(fontSize: 11)),
+                                        ),
+                                      ] else if (isBilled) ...[
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFECFDF5),
+                                            borderRadius: BorderRadius.circular(6),
+                                            border: Border.all(color: const Color(0xFF6EE7B7)),
+                                          ),
+                                          child: const Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.check_circle_outline, size: 13, color: Color(0xFF047857)),
+                                              SizedBox(width: 4),
+                                              Text(
+                                                'Bill Issued',
+                                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF047857)),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ] else if (isNoBillNeeded) ...[
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFF1F5F9),
+                                            borderRadius: BorderRadius.circular(6),
+                                            border: Border.all(color: const Color(0xFFCBD5E1)),
+                                          ),
+                                          child: const Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.block_outlined, size: 13, color: Color(0xFF475569)),
+                                              SizedBox(width: 4),
+                                              Text(
+                                                'Not Needed Bill',
+                                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
+                                              ),
+                                            ],
+                                          ),
                                         ),
                                       ],
                                     ],
@@ -2902,7 +2947,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
     }).toList();
 
     if (context.mounted) {
-      await Navigator.push(
+      final billed = await Navigator.push<bool>(
         context,
         MaterialPageRoute(
           builder: (_) => SaleScreen(
@@ -2915,8 +2960,10 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
         ),
       );
 
-      await restCtrl.updateChallanStatus(challanId, 'Converted_To_Sale');
-      _loadData();
+      if (billed == true) {
+        await restCtrl.updateChallanStatus(challanId, 'Bill_Issued');
+        _loadData();
+      }
     }
   }
 

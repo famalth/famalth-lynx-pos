@@ -19,7 +19,8 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
   late DateTime _selectedDate;
   late List<DateTime> _upcomingDates;
 
-  String _selectedTimeSlot = '10:30 PM';
+  final List<String> _selectedTimeSlots = ['10:30 PM'];
+  String get _selectedTimeSlot => _selectedTimeSlots.isNotEmpty ? _selectedTimeSlots.first : '10:30 PM';
   int _guestCount = 2;
   final List<int> _selectedTableIds = [];
   final List<String> _selectedTableNames = [];
@@ -33,12 +34,18 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
   String? get _selectedTableName => _selectedTableNames.isNotEmpty ? _selectedTableNames.join(', ') : null;
 
   String _eventType = 'Dining';
+  String _pricingMode = 'VENUE_AND_FOOD'; // 'VENUE_ONLY' | 'VENUE_AND_FOOD'
   final TextEditingController _customEventCtrl = TextEditingController();
-  final TextEditingController _hallChargesCtrl = TextEditingController(text: '0');
+  final TextEditingController _hallCountCtrl = TextEditingController(text: '1');
+  final TextEditingController _hallRateCtrl = TextEditingController(text: '0');
+  final TextEditingController _perPersonRateCtrl = TextEditingController(text: '0');
   final TextEditingController _bookingAmtCtrl = TextEditingController(text: '0');
   final TextEditingController _advancePaidCtrl = TextEditingController(text: '0');
   List<Map<String, dynamic>> _masterMenuItems = [];
+  List<Map<String, dynamic>> _customers = [];
+  final TextEditingController _customerSearchCtrl = TextEditingController();
   final List<Map<String, dynamic>> _selectedMenuItems = [];
+  final List<Map<String, dynamic>> _extraCharges = [];
 
   final TextEditingController _guestNameCtrl = TextEditingController();
   final TextEditingController _phoneCtrl = TextEditingController();
@@ -83,12 +90,16 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
       for (final slot in _sessions[sessionKey]!) {
         final timeStr = slot['time']!;
         if (!_isSlotPast(timeStr)) {
-          _selectedTimeSlot = timeStr;
+          _selectedTimeSlots
+            ..clear()
+            ..add(timeStr);
           return;
         }
       }
     }
-    _selectedTimeSlot = _sessions.values.first.first['time']!;
+    _selectedTimeSlots
+      ..clear()
+      ..add(_sessions.values.first.first['time']!);
   }
 
   bool _isSlotPast(String timeStr) {
@@ -137,6 +148,14 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
           });
         }
       } catch (_) {}
+      try {
+        final cRes = await ApiClient.get(ApiEndpoints.salesCustomers, silent: true);
+        if (cRes['success'] == true && cRes['data'] is List && mounted) {
+          setState(() {
+            _customers = (cRes['data'] as List).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+          });
+        }
+      } catch (_) {}
     });
   }
 
@@ -150,11 +169,10 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
     super.dispose();
   }
 
-  DateTime? _getSelectedSlotDateTime() {
-    final slot = _selectedTimeSlot;
-    if (slot == null || slot.isEmpty) return null;
+  DateTime? _parseSlotDateTime(String slotStr) {
+    if (slotStr.trim().isEmpty) return null;
     try {
-      final parts = slot.split(' ');
+      final parts = slotStr.trim().split(' ');
       final timeParts = parts[0].split(':');
       int hour = int.parse(timeParts[0]);
       final int minute = int.parse(timeParts[1]);
@@ -172,27 +190,54 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
     }
   }
 
-  bool _isTableOccupiedOrBooked(dynamic table, RestaurantController ctrl) {
-    final int tableId = table['id'];
-    final selectedSlotTime = _getSelectedSlotDateTime();
+  DateTime? _getSelectedSlotDateTime() => _parseSlotDateTime(_selectedTimeSlot);
 
-    // Check existing reservations for time slot overlap
+  List<DateTime> _parseReservationSlotTimes(dynamic resv, DateTime baseResvTime) {
+    final List<DateTime> times = [baseResvTime];
+    final remarks = (resv['remarks'] ?? '').toString();
+    final match = RegExp(r'\[Slots:\s*([^\]]+)\]').firstMatch(remarks);
+    if (match != null) {
+      final rawSlots = match.group(1)!.split(',');
+      for (final s in rawSlots) {
+        final parsed = _parseSlotDateTime(s.trim());
+        if (parsed != null) {
+          times.add(DateTime(baseResvTime.year, baseResvTime.month, baseResvTime.day, parsed.hour, parsed.minute));
+        }
+      }
+    }
+    return times;
+  }
+
+  bool _isTableOccupiedOrBooked(dynamic table, RestaurantController ctrl) {
+    final int tableId = int.tryParse('${table['id']}') ?? -1;
+    final selectedSlotTimes = _selectedTimeSlots.map(_parseSlotDateTime).whereType<DateTime>().toList();
+
+    // Check existing reservations for multi-slot & multi-table overlap
     for (final resv in ctrl.reservations) {
-      final int? resvTableId = resv['table_id'] ?? resv['table']?['id'];
-      if (resvTableId == tableId) {
+      final int? resvTableId = int.tryParse('${resv['table_id'] ?? resv['table']?['id']}');
+      final List<int> resvTableIds = (resv['table_ids'] is List)
+          ? (resv['table_ids'] as List).map((e) => int.tryParse('$e')).whereType<int>().toList()
+          : <int>[];
+      final bool matchesTable = resvTableId == tableId || resvTableIds.contains(tableId);
+
+      if (matchesTable) {
         final String resvStatus = (resv['status'] ?? '').toString().toLowerCase();
         if (resvStatus != 'cancelled' && resvStatus != 'completed' && resvStatus != 'rejected') {
-          final DateTime? resvTime = DateTime.tryParse(resv['reservation_time'] ?? '');
+          final DateTime? resvTime = DateTime.tryParse(resv['reservation_time'] ?? '')?.toLocal();
           if (resvTime != null) {
             final isSameDay = resvTime.year == _selectedDate.year &&
                 resvTime.month == _selectedDate.month &&
                 resvTime.day == _selectedDate.day;
 
             if (isSameDay) {
-              if (selectedSlotTime != null) {
-                final diffInMinutes = resvTime.difference(selectedSlotTime).inMinutes.abs();
-                if (diffInMinutes < 60) {
-                  return true; // Already booked for this time slot
+              if (selectedSlotTimes.isNotEmpty) {
+                final existingTimes = _parseReservationSlotTimes(resv, resvTime);
+                for (final selDt in selectedSlotTimes) {
+                  for (final exDt in existingTimes) {
+                    if (exDt.difference(selDt).inMinutes.abs() < 60) {
+                      return true; // Overlaps with an already booked slot
+                    }
+                  }
                 }
               } else {
                 return true;
@@ -211,10 +256,11 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
           _selectedDate.month == now.month &&
           _selectedDate.day == now.day;
 
-      if (isToday && selectedSlotTime != null) {
-        final diffInMinutes = now.difference(selectedSlotTime).inMinutes.abs();
-        if (diffInMinutes < 90) {
-          return true;
+      if (isToday && selectedSlotTimes.isNotEmpty) {
+        for (final selDt in selectedSlotTimes) {
+          if (now.difference(selDt).inMinutes.abs() < 90) {
+            return true;
+          }
         }
       }
     }
@@ -334,6 +380,25 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
           'Book Table',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: primaryDark),
         ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: primaryBlue,
+                side: const BorderSide(color: Color(0xFFBFDBFE)),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              icon: const Icon(Icons.assessment_outlined, size: 16),
+              label: const Text('Reports', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5)),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ReservationReportScreen()),
+              ),
+            ),
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -442,10 +507,22 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
 
             const SizedBox(height: 16),
 
-            // ── Section 2: Select Time Slot ─────────────────────────
+            // ── Section 2: Select Time Slot (Multi-Slot Supported) ────
             _cardSection(
-              title: 'Select Time Slot',
+              title: 'Select Time Slot(s) — Multi-Slot for 2h/4h+ Events',
               icon: Icons.access_time_outlined,
+              trailing: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: activeBlueBg,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: activeBlueBorder.withValues(alpha: 0.4)),
+                ),
+                child: Text(
+                  '${_selectedTimeSlots.length} Slot${_selectedTimeSlots.length > 1 ? 's' : ''} (${_selectedTimeSlots.length}h)',
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: primaryBlue),
+                ),
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: _sessions.keys.map((sessionName) {
@@ -483,7 +560,7 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
                           children: slots.map((slot) {
                             final timeStr = slot['time']!;
                             final labelStr = slot['label']!;
-                            final isSelected = _selectedTimeSlot == timeStr;
+                            final isSelected = _selectedTimeSlots.contains(timeStr);
                             final isPast = _isSlotPast(timeStr);
 
                             return InkWell(
@@ -491,7 +568,19 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
                                   ? null
                                   : () {
                                       setState(() {
-                                        _selectedTimeSlot = timeStr;
+                                        if (_selectedTimeSlots.contains(timeStr)) {
+                                          if (_selectedTimeSlots.length > 1) {
+                                            _selectedTimeSlots.remove(timeStr);
+                                          }
+                                        } else {
+                                          _selectedTimeSlots.add(timeStr);
+                                        }
+                                        _selectedTimeSlots.sort((a, b) {
+                                          final da = _parseSlotDateTime(a);
+                                          final db = _parseSlotDateTime(b);
+                                          if (da == null || db == null) return 0;
+                                          return da.compareTo(db);
+                                        });
                                         _selectedTableId = null;
                                       });
                                     },
@@ -759,7 +848,80 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
               title: 'Guest Details',
               icon: Icons.person_outline,
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  TextField(
+                    controller: _customerSearchCtrl,
+                    style: const TextStyle(fontSize: 13),
+                    decoration: InputDecoration(
+                      labelText: 'Search Existing Customer (Name or Phone)',
+                      hintText: 'Type customer name or phone number...',
+                      prefixIcon: const Icon(Icons.search, size: 18),
+                      suffixIcon: _customerSearchCtrl.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.close, size: 16),
+                              onPressed: () => setState(() => _customerSearchCtrl.clear()),
+                            )
+                          : null,
+                      isDense: true,
+                      filled: true,
+                      fillColor: const Color(0xFFF8FAFC),
+                      border: const OutlineInputBorder(),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  if (_customerSearchCtrl.text.trim().isNotEmpty) ...[
+                    Builder(
+                      builder: (_) {
+                        final q = _customerSearchCtrl.text.trim().toLowerCase();
+                        final matches = _customers.where((c) {
+                          final name = (c['name'] ?? c['customer_name'] ?? '').toString().toLowerCase();
+                          final phone = (c['phone'] ?? c['mobile'] ?? c['customer_phone'] ?? '').toString().toLowerCase();
+                          return name.contains(q) || phone.contains(q);
+                        }).take(6).toList();
+                        if (matches.isEmpty) {
+                          return const Padding(
+                            padding: EdgeInsets.only(top: 6, bottom: 4),
+                            child: Text('No matching saved customer found — enter details below.', style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B))),
+                          );
+                        }
+                        return Container(
+                          margin: const EdgeInsets.only(top: 6, bottom: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFFCBD5E1)),
+                          ),
+                          child: Column(
+                            children: matches.map((c) {
+                              final cName = (c['name'] ?? c['customer_name'] ?? 'Guest').toString();
+                              final cPhone = (c['phone'] ?? c['mobile'] ?? c['customer_phone'] ?? '').toString();
+                              final cAddr = (c['address'] ?? '').toString();
+                              final cGstin = (c['gstin'] ?? '').toString();
+                              return ListTile(
+                                dense: true,
+                                leading: const Icon(Icons.person, size: 18, color: primaryBlue),
+                                title: Text(cName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                                subtitle: cPhone.isNotEmpty ? Text(cPhone, style: const TextStyle(fontSize: 11.5)) : null,
+                                trailing: const Text('Select', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: primaryBlue)),
+                                onTap: () {
+                                  setState(() {
+                                    _guestNameCtrl.text = cName;
+                                    _phoneCtrl.text = cPhone;
+                                    if (cAddr.isNotEmpty) _addressCtrl.text = cAddr;
+                                    if (cGstin.isNotEmpty) _gstinCtrl.text = cGstin;
+                                    _customerSearchCtrl.clear();
+                                  });
+                                },
+                              );
+                            }).toList(),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                  const SizedBox(height: 10),
                   Row(
                     children: [
                       Expanded(
@@ -909,16 +1071,62 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
     );
   }
 
-  double get _itemsTotal => _selectedMenuItems.fold<double>(
+  bool get _hasPerPersonCharge => _pricingMode == 'VENUE_AND_FOOD' && _perPersonRate > 0;
+
+  double get _itemsTotal => _hasPerPersonCharge
+      ? 0.0
+      : _selectedMenuItems.fold<double>(
+          0, (s, m) => s + ((double.tryParse((m['qty'] ?? 1).toString()) ?? 1) * (double.tryParse((m['rate'] ?? 0).toString()) ?? 0)));
+
+  double get _extraChargesTotal => _extraCharges.fold<double>(
       0, (s, m) => s + ((double.tryParse((m['qty'] ?? 1).toString()) ?? 1) * (double.tryParse((m['rate'] ?? 0).toString()) ?? 0)));
+
+  int get _hallCount => int.tryParse(_hallCountCtrl.text.trim()) ?? 0;
+  double get _hallRate => double.tryParse(_hallRateCtrl.text.trim()) ?? 0;
+  double get _hallTotal => _hallCount * _hallRate;
+  double get _perPersonRate => _pricingMode == 'VENUE_AND_FOOD' ? (double.tryParse(_perPersonRateCtrl.text.trim()) ?? 0) : 0;
+  double get _perPersonTotal => _pricingMode == 'VENUE_AND_FOOD' ? (_guestCount * _perPersonRate) : 0;
+  double get _autoTotalBookingAmount => _hallTotal + _perPersonTotal + _itemsTotal + _extraChargesTotal;
 
   Map<String, dynamic> _buildReservationPayload() {
     final formattedTimeStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
-    final hall = double.tryParse(_hallChargesCtrl.text.trim()) ?? 0;
-    final bookAmt = double.tryParse(_bookingAmtCtrl.text.trim()) ?? 0;
+    final hall = _hallTotal;
+    final perPersonTot = _perPersonTotal;
+    final extraTot = _extraChargesTotal;
     final advPaid = double.tryParse(_advancePaidCtrl.text.trim()) ?? 0;
-    final itemsTot = _itemsTotal;
-    final totalCost = hall + itemsTot + bookAmt;
+    final menuItemsTot = _itemsTotal;
+    final combinedItemsTot = menuItemsTot + perPersonTot + extraTot;
+    final totalCost = _autoTotalBookingAmount;
+
+    final effectiveMenuItems = _selectedMenuItems.map((m) {
+      if (_hasPerPersonCharge) {
+        return {
+          ...m,
+          'rate': 0.0,
+          'amount': 0.0,
+          'included_in_per_person': true,
+        };
+      }
+      return m;
+    }).toList();
+
+    final List<Map<String, dynamic>> quoteItems = [
+      ...effectiveMenuItems,
+      if (_hasPerPersonCharge)
+        {
+          'item_name': 'Food Package (Per Person)',
+          'qty': _guestCount,
+          'rate': _perPersonRate,
+          'amount': perPersonTot,
+          'category': 'PER_PERSON',
+        },
+      ..._extraCharges.map((e) => {...e, 'category': 'EXTRA_CHARGE'}),
+    ];
+
+    final baseRemarks = _notesCtrl.text.trim();
+    final slotTag = _selectedTimeSlots.length > 1 ? '[Slots: ${_selectedTimeSlots.join(', ')}]' : '';
+    final fullRemarks = [baseRemarks, slotTag].where((s) => s.isNotEmpty).join(' ').trim();
+
     return {
       'table_id': _selectedTableId,
       'table_ids': _selectedTableIds,
@@ -928,31 +1136,39 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
       'phone': _phoneCtrl.text.trim(),
       'guest_count': _guestCount,
       'reservation_time': '$formattedTimeStr $_selectedTimeSlot',
+      'selected_slots': _selectedTimeSlots,
+      'duration_hours': _selectedTimeSlots.length,
       'status': 'Confirmed',
-      'remarks': _notesCtrl.text.trim(),
+      'remarks': fullRemarks,
       'address': _addressCtrl.text.trim(),
       'gstin': _gstinCtrl.text.trim(),
       'event_type': _eventType,
       'custom_event_name': _eventType == 'Custom' ? _customEventCtrl.text.trim() : null,
-      'menu_items': _selectedMenuItems,
+      'menu_items': quoteItems,
       'hall_charges': hall,
-      'items_total': itemsTot,
-      'booking_amount': bookAmt,
+      'hall_count': _hallCount,
+      'hall_rate': _hallRate,
+      'pricing_mode': _pricingMode,
+      'per_person_rate': _perPersonRate,
+      'items_total': combinedItemsTot,
+      'booking_amount': totalCost,
       'advance_paid': advPaid,
       'total_cost': totalCost,
     };
   }
 
   Widget _buildEventAndQuotationSection() {
-    final hall = double.tryParse(_hallChargesCtrl.text.trim()) ?? 0;
-    final bookAmt = double.tryParse(_bookingAmtCtrl.text.trim()) ?? 0;
+    final hall = _hallTotal;
+    final perPersonTot = _perPersonTotal;
+    final extraTot = _extraChargesTotal;
     final advPaid = double.tryParse(_advancePaidCtrl.text.trim()) ?? 0;
     final itemsTot = _itemsTotal;
-    final totalCost = hall + itemsTot + bookAmt;
+    final totalCost = _autoTotalBookingAmount;
     final balance = totalCost - advPaid;
+    _bookingAmtCtrl.text = totalCost.toStringAsFixed(2);
 
     return _cardSection(
-      title: 'Event Type, Menu Items & Estimated Quotation',
+      title: 'Event Type, Venue / Food & Estimated Quotation',
       icon: Icons.celebration_outlined,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -981,7 +1197,94 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
               ),
             ),
           ],
+          const SizedBox(height: 14),
+          const Text('Booking Charge Option', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              ChoiceChip(
+                label: const Text('Venue / Hall Only', style: TextStyle(fontSize: 12)),
+                selected: _pricingMode == 'VENUE_ONLY',
+                onSelected: (_) => setState(() => _pricingMode = 'VENUE_ONLY'),
+              ),
+              ChoiceChip(
+                label: const Text('Venue + Food (Per Person)', style: TextStyle(fontSize: 12)),
+                selected: _pricingMode == 'VENUE_AND_FOOD',
+                onSelected: (_) => setState(() => _pricingMode = 'VENUE_AND_FOOD'),
+              ),
+            ],
+          ),
           const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              SizedBox(
+                width: 145,
+                child: TextField(
+                  controller: _hallCountCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Halls / Venues Qty', isDense: true, border: OutlineInputBorder()),
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+              SizedBox(
+                width: 170,
+                child: TextField(
+                  controller: _hallRateCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                    labelText: 'Rate / Venue (₹)',
+                    helperText: 'Total: ₹${hall.toStringAsFixed(0)}',
+                    isDense: true,
+                    border: const OutlineInputBorder(),
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+              if (_pricingMode == 'VENUE_AND_FOOD')
+                SizedBox(
+                  width: 195,
+                  child: TextField(
+                    controller: _perPersonRateCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      labelText: 'Food Rate / Person (₹)',
+                      helperText: '$_guestCount Pax × ₹${_perPersonRate.toStringAsFixed(0)} = ₹${perPersonTot.toStringAsFixed(0)}',
+                      isDense: true,
+                      border: const OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+              SizedBox(
+                width: 185,
+                child: TextField(
+                  controller: _bookingAmtCtrl,
+                  readOnly: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Booking Amount (Auto ₹)',
+                    filled: true,
+                    fillColor: Color(0xFFF1F5F9),
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 165,
+                child: TextField(
+                  controller: _advancePaidCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Advance Paid (₹)', isDense: true, border: OutlineInputBorder()),
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -998,18 +1301,59 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
             ..._selectedMenuItems.asMap().entries.map((entry) {
               final idx = entry.key;
               final m = entry.value;
-              final q = double.tryParse((m['qty'] ?? 1).toString()) ?? 1;
+              final q = (double.tryParse((m['qty'] ?? 1).toString()) ?? 1).round();
               final r = double.tryParse((m['rate'] ?? 0).toString()) ?? 0;
-              return ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: Text('${m['item_name']}  (${q.toStringAsFixed(0)} x ₹${r.toStringAsFixed(2)})', style: const TextStyle(fontSize: 13)),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
+              return Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Row(
                   children: [
-                    Text('₹${(q * r).toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    Expanded(
+                      child: Text(
+                        '${m['item_name']}  (@ ₹${r.toStringAsFixed(2)})',
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.remove_circle_outline, size: 18),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: q > 1
+                          ? () => setState(() {
+                                _selectedMenuItems[idx]['qty'] = q - 1;
+                                _selectedMenuItems[idx]['amount'] = (q - 1) * r;
+                              })
+                          : null,
+                    ),
+                    Text('$q', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    IconButton(
+                      icon: const Icon(Icons.add_circle_outline, size: 18, color: primaryBlue),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => setState(() {
+                        _selectedMenuItems[idx]['qty'] = q + 1;
+                        _selectedMenuItems[idx]['amount'] = (q + 1) * r;
+                      }),
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 95,
+                      child: Text(
+                        _hasPerPersonCharge ? 'Included (₹0)' : '₹${(q * r).toStringAsFixed(2)}',
+                        textAlign: TextAlign.right,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: _hasPerPersonCharge ? 11.5 : 13,
+                          color: _hasPerPersonCharge ? const Color(0xFF059669) : const Color(0xFF0F172A),
+                        ),
+                      ),
+                    ),
                     IconButton(
                       icon: const Icon(Icons.delete_outline, size: 17, color: Colors.red),
+                      visualDensity: VisualDensity.compact,
                       onPressed: () => setState(() => _selectedMenuItems.removeAt(idx)),
                     ),
                   ],
@@ -1019,35 +1363,77 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
           ],
           const SizedBox(height: 12),
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Expanded(
-                child: TextField(
-                  controller: _hallChargesCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'Hall / Venue Charges (₹)', isDense: true, border: OutlineInputBorder()),
-                  onChanged: (_) => setState(() {}),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: TextField(
-                  controller: _bookingAmtCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'Booking Amount (₹)', isDense: true, border: OutlineInputBorder()),
-                  onChanged: (_) => setState(() {}),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: TextField(
-                  controller: _advancePaidCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'Advance Paid (₹)', isDense: true, border: OutlineInputBorder()),
-                  onChanged: (_) => setState(() {}),
-                ),
+              Text('Extra Charges / Decoration (${_extraCharges.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.auto_awesome, size: 15),
+                label: const Text('Add Extra Charge', style: TextStyle(fontSize: 12)),
+                onPressed: _openAddExtraChargeDialog,
               ),
             ],
           ),
+          if (_extraCharges.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            ..._extraCharges.asMap().entries.map((entry) {
+              final idx = entry.key;
+              final ex = entry.value;
+              final q = (double.tryParse((ex['qty'] ?? 1).toString()) ?? 1).round();
+              final r = double.tryParse((ex['rate'] ?? 0).toString()) ?? 0;
+              return Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFFBEB),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFFDE68A)),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${ex['item_name']}  (@ ₹${r.toStringAsFixed(2)})',
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.remove_circle_outline, size: 18),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: q > 1
+                          ? () => setState(() {
+                                _extraCharges[idx]['qty'] = q - 1;
+                                _extraCharges[idx]['amount'] = (q - 1) * r;
+                              })
+                          : null,
+                    ),
+                    Text('$q', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    IconButton(
+                      icon: const Icon(Icons.add_circle_outline, size: 18, color: primaryBlue),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => setState(() {
+                        _extraCharges[idx]['qty'] = q + 1;
+                        _extraCharges[idx]['amount'] = (q + 1) * r;
+                      }),
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 85,
+                      child: Text(
+                        '₹${(q * r).toStringAsFixed(2)}',
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, size: 17, color: Colors.red),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => setState(() => _extraCharges.removeAt(idx)),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ],
           const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.all(12),
@@ -1060,8 +1446,13 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
               spacing: 16,
               runSpacing: 6,
               children: [
-                Text('Items Total: ₹${itemsTot.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                Text('Hall: ₹${hall.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                Text('Hall ($_hallCount × ₹${_hallRate.toStringAsFixed(0)}): ₹${hall.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                if (_pricingMode == 'VENUE_AND_FOOD' && perPersonTot > 0)
+                  Text('Food ($_guestCount × ₹${_perPersonRate.toStringAsFixed(0)}): ₹${perPersonTot.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                if (itemsTot > 0)
+                  Text('Menu Items: ₹${itemsTot.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                if (extraTot > 0)
+                  Text('Extra/Decor: ₹${extraTot.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                 Text('Total Cost: ₹${totalCost.toStringAsFixed(2)}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: primaryBlue)),
                 Text('Advance: ₹${advPaid.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.green)),
                 Text('Balance: ₹${balance.toStringAsFixed(2)}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.deepOrange)),
@@ -1071,6 +1462,88 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _openAddExtraChargeDialog() async {
+    final nameCtrl = TextEditingController();
+    final qtyCtrl = TextEditingController(text: '1');
+    final rateCtrl = TextEditingController(text: '0');
+    final presets = ['Balloons & Decoration', 'DJ & Sound', 'Projector & Screen', 'Stage Lighting', 'Flower Decor'];
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dCtx) => StatefulBuilder(
+        builder: (dCtx, setDs) => AlertDialog(
+          title: const Text('Add Extra Charge / Decoration'),
+          content: SizedBox(
+            width: 380,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: presets.map((p) => ActionChip(
+                    label: Text(p, style: const TextStyle(fontSize: 11)),
+                    onPressed: () => setDs(() => nameCtrl.text = p),
+                  )).toList(),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: nameCtrl,
+                  autofocus: true,
+                  decoration: const InputDecoration(labelText: 'Item / Service Name', isDense: true, border: OutlineInputBorder()),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: qtyCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(labelText: 'Qty', isDense: true, border: OutlineInputBorder()),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextField(
+                        controller: rateCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(labelText: 'Rate (₹)', isDense: true, border: OutlineInputBorder()),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dCtx, false), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () {
+                if (nameCtrl.text.trim().isEmpty) return;
+                Navigator.pop(dCtx, true);
+              },
+              child: const Text('Add'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed == true) {
+      final qty = int.tryParse(qtyCtrl.text.trim()) ?? 1;
+      final rate = double.tryParse(rateCtrl.text.trim()) ?? 0;
+      setState(() {
+        _extraCharges.add({
+          'item_name': nameCtrl.text.trim(),
+          'qty': qty < 1 ? 1 : qty,
+          'rate': rate,
+          'amount': (qty < 1 ? 1 : qty) * rate,
+        });
+      });
+    }
   }
 
   Future<void> _openMenuPickerDialog() async {

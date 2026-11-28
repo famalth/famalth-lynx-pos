@@ -8116,7 +8116,8 @@ class _SaleScreenState extends State<SaleScreen> {
     final bool isRestaurantTableSale = _preloadedTableId != null || order.tableId != null;
     final bool isClinicConsultationSale = _preloadedAppointmentId != null;
     final bool isNavigatedTableBilling = widget.preloadedTableId != null;
-    if (isEditing || (status == 'COMPLETED' && (isNavigatedTableBilling || isClinicConsultationSale)) || ((status == 'PRINTED' || status == 'RUNNING') && isNavigatedTableBilling)) {
+    final bool isNavigatedChallanBilling = widget.challanNo != null && widget.challanNo!.trim().isNotEmpty;
+    if (isEditing || (status == 'COMPLETED' && (isNavigatedTableBilling || isClinicConsultationSale || isNavigatedChallanBilling)) || ((status == 'PRINTED' || status == 'RUNNING') && isNavigatedTableBilling)) {
       if (Navigator.canPop(context)) {
         Navigator.pop(context, true);
       }

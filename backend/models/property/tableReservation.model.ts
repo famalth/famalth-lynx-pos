@@ -96,6 +96,34 @@ module.exports = (sequelize, DataTypes) => {
         total_cost: {
             type: DataTypes.DECIMAL(12, 2),
             defaultValue: 0
+        },
+        hall_count: {
+            type: DataTypes.INTEGER,
+            defaultValue: 1
+        },
+        hall_rate: {
+            type: DataTypes.DECIMAL(12, 2),
+            defaultValue: 0
+        },
+        pricing_mode: {
+            type: DataTypes.STRING(30),
+            defaultValue: 'VENUE_AND_FOOD'
+        },
+        per_person_rate: {
+            type: DataTypes.DECIMAL(12, 2),
+            defaultValue: 0
+        },
+        selected_slots: {
+            type: DataTypes.JSONB,
+            defaultValue: []
+        },
+        duration_hours: {
+            type: DataTypes.INTEGER,
+            defaultValue: 1
+        },
+        cancellation_reason: {
+            type: DataTypes.TEXT,
+            allowNull: true
         }
     }, {
         tableName: 'table_reservations',

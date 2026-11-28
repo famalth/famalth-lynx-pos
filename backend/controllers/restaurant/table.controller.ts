@@ -621,7 +621,9 @@ export const createReservation = async (req: Request, res: Response) => {
             table_id, table_ids, table_names, customer_name, customer_phone, reservation_time,
             guest_count, remarks, address, gstin,
             event_type, custom_event_name, menu_items,
-            hall_charges, items_total, booking_amount, advance_paid, total_cost
+            hall_charges, hall_count, hall_rate, pricing_mode, per_person_rate,
+            selected_slots, duration_hours,
+            items_total, booking_amount, advance_paid, total_cost
         } = req.body;
         const phone = (customer_phone || req.body.phone || '').toString().trim();
 
@@ -661,6 +663,12 @@ export const createReservation = async (req: Request, res: Response) => {
             custom_event_name: custom_event_name || null,
             menu_items: Array.isArray(menu_items) ? menu_items : [],
             hall_charges: hCharges,
+            hall_count: Number(hall_count || 1),
+            hall_rate: Number(hall_rate || 0),
+            pricing_mode: pricing_mode || 'VENUE_AND_FOOD',
+            per_person_rate: Number(per_person_rate || 0),
+            selected_slots: Array.isArray(selected_slots) ? selected_slots : [],
+            duration_hours: Number(duration_hours || (Array.isArray(selected_slots) && selected_slots.length > 0 ? selected_slots.length : 1)),
             items_total: iTotal,
             booking_amount: bAmt,
             advance_paid: aPaid,
@@ -728,7 +736,7 @@ export const updateReservationStatus = async (req: Request, res: Response) => {
     try {
         const outlet_id = (req as any).user?.outlet_id;
         const { id } = req.params;
-        const { status } = req.body;
+        const { status, cancellation_reason, remarks } = req.body;
 
         const reservation = await (req as any).propertyDb.models.table_reservations.findOne({
             where: { id, outlet_id },
@@ -736,7 +744,15 @@ export const updateReservationStatus = async (req: Request, res: Response) => {
         });
         if (!reservation) throw new Error('Reservation not found');
 
-        await reservation.update({ status }, { transaction: t });
+        const updateFields: any = { status };
+        const reasonStr = (cancellation_reason || remarks || '').toString().trim();
+        if (status === 'Cancelled' && reasonStr) {
+            const prevRemarks = (reservation.remarks || '').toString().trim();
+            updateFields.cancellation_reason = reasonStr;
+            updateFields.remarks = prevRemarks ? `${prevRemarks} | Cancelled: ${reasonStr}` : `Cancelled: ${reasonStr}`;
+        }
+
+        await reservation.update(updateFields, { transaction: t });
 
         const targetIds: number[] = Array.isArray(reservation.table_ids) && reservation.table_ids.length > 0
             ? reservation.table_ids.map((tid: any) => Number(tid)).filter((tid: number) => tid > 0)

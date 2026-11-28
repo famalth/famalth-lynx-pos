@@ -486,9 +486,13 @@ class RestaurantController extends ChangeNotifier {
     }
   }
 
-  Future<bool> updateReservationStatus(int id, String status) async {
+  Future<bool> updateReservationStatus(int id, String status, {String? cancellationReason}) async {
     try {
-      final res = await ApiClient.put('${ApiEndpoints.restaurantReservations}/$id/status', {'status': status});
+      final body = <String, dynamic>{'status': status};
+      if (cancellationReason != null && cancellationReason.trim().isNotEmpty) {
+        body['cancellation_reason'] = cancellationReason.trim();
+      }
+      final res = await ApiClient.put('${ApiEndpoints.restaurantReservations}/$id/status', body);
       await loadReservations();
       await loadTables();
       return res['success'] == true;

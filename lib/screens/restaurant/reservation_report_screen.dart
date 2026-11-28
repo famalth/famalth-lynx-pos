@@ -23,6 +23,17 @@ class ReservationQuotationHelper {
     return custom.isNotEmpty ? '$ev ($custom)' : ev;
   }
 
+  static String extractCancellationReason(Map<String, dynamic> r) {
+    final direct = (r['cancellation_reason'] ?? '').toString().trim();
+    if (direct.isNotEmpty) return direct;
+    final rawRemarks = (r['remarks'] ?? '').toString();
+    final cleaned = rawRemarks.replaceAll(RegExp(r'\[Slots:\s*[^\]]+\]'), '').trim();
+    final match = RegExp(r'Cancelled:\s*(.+)$', caseSensitive: false).firstMatch(cleaned);
+    if (match != null) return match.group(1)!.trim();
+    final cleanNoSep = cleaned.replaceFirst(RegExp(r'^\|+\s*'), '').trim();
+    return cleanNoSep;
+  }
+
   static Future<Uint8List> buildQuotationPdf(Map<String, dynamic> r) async {
     final pdf = await PosInvoicePrinter.createDocument();
     final customer = (r['customer_name'] ?? 'Guest').toString();
@@ -149,6 +160,152 @@ class ReservationQuotationHelper {
     final name = (r['customer_name'] ?? 'Guest').toString().replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
     await Printing.sharePdf(bytes: bytes, filename: 'Quotation_$name.pdf');
   }
+
+  static void showQuotationDialog(BuildContext context, Map<String, dynamic> r) {
+    final customer = (r['customer_name'] ?? 'Guest').toString();
+    final phone = (r['customer_phone'] ?? '').toString();
+    final tables = formatTables(r);
+    final event = formatEvent(r);
+    final pax = int.tryParse((r['guest_count'] ?? 1).toString()) ?? 1;
+    final hallCharges = double.tryParse((r['hall_charges'] ?? 0).toString()) ?? 0;
+    final itemsTotal = double.tryParse((r['items_total'] ?? 0).toString()) ?? 0;
+    final totalCost = double.tryParse((r['total_cost'] ?? (hallCharges + itemsTotal)).toString()) ?? 0;
+    final advancePaid = double.tryParse((r['advance_paid'] ?? 0).toString()) ?? 0;
+    final balanceDue = totalCost - advancePaid;
+    final rawTime = (r['reservation_time'] ?? '').toString();
+    final dt = DateTime.tryParse(rawTime)?.toLocal();
+    final dateFmt = dt != null ? DateFormat('dd MMM yyyy, hh:mm a').format(dt) : rawTime;
+    final menuItems = (r['menu_items'] is List) ? (r['menu_items'] as List) : [];
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: Row(
+          children: [
+            const Icon(Icons.receipt_long_outlined, color: Color(0xFF0B5CAD)),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text('Reservation & Event Quotation', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFF6FF),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                (r['status'] ?? 'Confirmed').toString(),
+                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0B5CAD)),
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('$customer  •  $pax Pax', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 4),
+                      Text('Event: $event  •  Tables: $tables', style: const TextStyle(fontSize: 12.5, color: Color(0xFF334155))),
+                      Text('Date & Time: $dateFmt', style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
+                      if (phone.isNotEmpty) Text('Phone: $phone', style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
+                      if ((r['address'] ?? '').toString().trim().isNotEmpty)
+                        Text('Address: ${r['address']}', style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
+                      if ((r['gstin'] ?? '').toString().trim().isNotEmpty)
+                        Text('GSTIN: ${r['gstin']}', style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
+                    ],
+                  ),
+                ),
+                if (menuItems.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  const Text('Items & Charges Breakdown', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  const SizedBox(height: 6),
+                  ...menuItems.map((m) {
+                    final q = double.tryParse((m['qty'] ?? 1).toString()) ?? 1;
+                    final rate = double.tryParse((m['rate'] ?? 0).toString()) ?? 0;
+                    final amt = double.tryParse((m['amount'] ?? (q * rate)).toString()) ?? (q * rate);
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 3),
+                      child: Row(
+                        children: [
+                          Expanded(child: Text('${m['item_name'] ?? 'Item'} (${q.toStringAsFixed(q % 1 == 0 ? 0 : 1)} × ₹${rate.toStringAsFixed(2)})', style: const TextStyle(fontSize: 12.5))),
+                          Text('₹${amt.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12.5)),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Column(
+                    children: [
+                      _previewRow('Hall / Venue Charges', hallCharges),
+                      _previewRow('Food / Menu / Extra Charges', itemsTotal),
+                      const Divider(height: 14),
+                      _previewRow('Total Booking Cost', totalCost, bold: true, color: const Color(0xFF0B5CAD)),
+                      _previewRow('Advance Paid', advancePaid, color: Colors.green.shade700),
+                      _previewRow('Balance Payable', balanceDue, bold: true, color: Colors.deepOrange),
+                    ],
+                  ),
+                ),
+                if ((r['remarks'] ?? '').toString().trim().isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Text('Remarks: ${r['remarks']}', style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.share_outlined, size: 16, color: Colors.green),
+            label: const Text('Share'),
+            onPressed: () => shareQuotation(context, r),
+          ),
+          FilledButton.icon(
+            icon: const Icon(Icons.print_outlined, size: 16),
+            label: const Text('Print'),
+            onPressed: () => printQuotation(context, r),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static Widget _previewRow(String label, double val, {bool bold = false, Color? color}) {
+    final st = TextStyle(fontSize: bold ? 13 : 12, fontWeight: bold ? FontWeight.bold : FontWeight.w500, color: color ?? const Color(0xFF0F172A));
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: st),
+          Text('₹${val.toStringAsFixed(2)}', style: st),
+        ],
+      ),
+    );
+  }
 }
 
 class ReservationReportScreen extends StatefulWidget {
@@ -222,9 +379,15 @@ class _ReservationReportScreenState extends State<ReservationReportScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6FA),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0F172A),
-        foregroundColor: Colors.white,
-        title: const Text('Reservation & Event Quotation Report', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF0F172A),
+        elevation: 0,
+        surfaceTintColor: Colors.transparent,
+        title: const Text('Reservation & Event Quotation Report', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+        bottom: const PreferredSize(
+          preferredSize: Size.fromHeight(1),
+          child: Divider(height: 1, color: Color(0xFFE2E8F0)),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -366,10 +529,29 @@ class _ReservationReportScreenState extends State<ReservationReportScreen> {
                           DataCell(Text(CurrencyService.format(itemsT))),
                           DataCell(Text(CurrencyService.format(tot), style: const TextStyle(fontWeight: FontWeight.bold))),
                           DataCell(Text(CurrencyService.format(adv), style: const TextStyle(color: Colors.green))),
-                          DataCell(Text((r['status'] ?? 'Pending').toString())),
+                          DataCell(
+                            Builder(builder: (_) {
+                              final st = (r['status'] ?? 'Pending').toString();
+                              final reason = st.toLowerCase() == 'cancelled' ? ReservationQuotationHelper.extractCancellationReason(r) : '';
+                              if (reason.isEmpty) return Text(st);
+                              return Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(st, style: const TextStyle(color: Color(0xFFB91C1C), fontWeight: FontWeight.w600)),
+                                  Text(reason, style: const TextStyle(fontSize: 10.5, color: Color(0xFFDC2626))),
+                                ],
+                              );
+                            }),
+                          ),
                           DataCell(Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              IconButton(
+                                icon: const Icon(Icons.visibility_outlined, size: 18, color: Color(0xFF475569)),
+                                tooltip: 'View Quotation',
+                                onPressed: () => ReservationQuotationHelper.showQuotationDialog(context, r),
+                              ),
                               IconButton(
                                 icon: const Icon(Icons.print_outlined, size: 18, color: Colors.blue),
                                 tooltip: 'Print Quotation',

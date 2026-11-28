@@ -5772,6 +5772,21 @@ COMMIT;
         ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS total_cost DECIMAL(12, 2) DEFAULT 0;
       `);
     }
+  },
+  {
+    version: 140,
+    description: 'Add venue count/rate, per-person pricing, multi-slot duration, and cancellation reason to table_reservations',
+    up: async (db) => {
+      await db.query(`
+        ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS hall_count INTEGER DEFAULT 1;
+        ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS hall_rate DECIMAL(12, 2) DEFAULT 0;
+        ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS pricing_mode VARCHAR(30) DEFAULT 'VENUE_AND_FOOD';
+        ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS per_person_rate DECIMAL(12, 2) DEFAULT 0;
+        ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS selected_slots JSONB DEFAULT '[]';
+        ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS duration_hours INTEGER DEFAULT 1;
+        ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS cancellation_reason TEXT;
+      `);
+    }
   }
 ];
 

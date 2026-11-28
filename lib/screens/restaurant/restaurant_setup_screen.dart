@@ -1297,6 +1297,11 @@ class _RestaurantSetupScreenState extends State<RestaurantSetupScreen> with Sing
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             IconButton(
+                              icon: const Icon(Icons.visibility_outlined, size: 18, color: Color(0xFF475569)),
+                              tooltip: 'View Quotation',
+                              onPressed: () => ReservationQuotationHelper.showQuotationDialog(context, Map<String, dynamic>.from(resv as Map)),
+                            ),
+                            IconButton(
                               icon: const Icon(Icons.print_outlined, size: 18, color: Colors.blue),
                               tooltip: 'Print Quotation',
                               onPressed: () => ReservationQuotationHelper.printQuotation(context, Map<String, dynamic>.from(resv as Map)),
@@ -1317,7 +1322,7 @@ class _RestaurantSetupScreenState extends State<RestaurantSetupScreen> with Sing
                             ),
                             const SizedBox(width: 8),
                             OutlinedButton(
-                              onPressed: () => ctrl.updateReservationStatus(resv['id'], 'Cancelled'),
+                              onPressed: () => _showCancelReservationDialog(context, ctrl, Map<String, dynamic>.from(resv as Map)),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Colors.red,
                                 side: const BorderSide(color: Colors.red),
@@ -1384,22 +1389,128 @@ class _RestaurantSetupScreenState extends State<RestaurantSetupScreen> with Sing
                                 color: isSeated ? const Color(0xFFDCFCE7) : const Color(0xFFFEE2E2),
                                 borderRadius: BorderRadius.circular(4),
                               ),
-                              child: Text(
-                                resv['status'] ?? 'Seated',
-                                style: TextStyle(
-                                  color: isSeated ? const Color(0xFF15803D) : const Color(0xFFB91C1C),
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
+                                child: Text(
+                                  resv['status'] ?? 'Seated',
+                                  style: TextStyle(
+                                    color: isSeated ? const Color(0xFF15803D) : const Color(0xFFB91C1C),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                      );
+                              if (!isSeated) ...[
+                                Builder(builder: (_) {
+                                  final reason = ReservationQuotationHelper.extractCancellationReason(Map<String, dynamic>.from(resv as Map));
+                                  if (reason.isEmpty) return const SizedBox.shrink();
+                                  return Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Text(
+                                      'Reason: $reason',
+                                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFFB91C1C)),
+                                    ),
+                                  );
+                                }),
+                              ],
+                            ],
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.visibility_outlined, size: 18, color: Color(0xFF475569)),
+                                tooltip: 'View Quotation',
+                                onPressed: () => ReservationQuotationHelper.showQuotationDialog(context, Map<String, dynamic>.from(resv as Map)),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.print_outlined, size: 18, color: Colors.blue),
+                                tooltip: 'Print Quotation',
+                                onPressed: () => ReservationQuotationHelper.printQuotation(context, Map<String, dynamic>.from(resv as Map)),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.share_outlined, size: 18, color: Colors.green),
+                                tooltip: 'Send Quotation',
+                                onPressed: () => ReservationQuotationHelper.shareQuotation(context, Map<String, dynamic>.from(resv as Map)),
+                              ),
+                            ],
+                          ),
+                        );
                     },
                   ),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showCancelReservationDialog(BuildContext context, RestaurantController ctrl, Map<String, dynamic> resv) {
+    final reasonCtrl = TextEditingController();
+    final quickReasons = ['Guest Requested', 'No-Show / Late', 'Date Rescheduled', 'Double Booking', 'Event Cancelled'];
+
+    showDialog(
+      context: context,
+      builder: (dCtx) => StatefulBuilder(
+        builder: (dCtx, setDs) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          title: Row(
+            children: [
+              const Icon(Icons.cancel_outlined, color: Colors.red),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Cancel Booking — ${resv['customer_name'] ?? 'Guest'}',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 400,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: quickReasons.map((r) => ActionChip(
+                    label: Text(r, style: const TextStyle(fontSize: 11)),
+                    onPressed: () => setDs(() => reasonCtrl.text = r),
+                  )).toList(),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: reasonCtrl,
+                  autofocus: true,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'Cancellation Reason *',
+                    hintText: 'Enter reason for cancelling this reservation...',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dCtx), child: const Text('Back')),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () async {
+                final reason = reasonCtrl.text.trim();
+                if (reason.isEmpty) {
+                  ScaffoldMessenger.of(dCtx).showSnackBar(
+                    const SnackBar(content: Text('Please enter a cancellation reason.')),
+                  );
+                  return;
+                }
+                Navigator.pop(dCtx);
+                await ctrl.updateReservationStatus(resv['id'], 'Cancelled', cancellationReason: reason);
+              },
+              child: const Text('Confirm Cancel'),
+            ),
+          ],
+        ),
       ),
     );
   }
