@@ -149,7 +149,7 @@ Authentication is strictly evaluated as a 3-tuple:
 $$\text{Authentication} = \langle \text{Outlet Code}, \text{Username}, \text{PIN} \rangle$$
 
 1. When `username` is provided (from the dropdown or input), the backend queries:
-   $$\sigma_{\text{outlet\_id} = \text{target} \land \text{username} = \text{selected} \land \text{is\_active} = \text{true}}(\text{Users})$$
+   $$\sigma_{\text{outletId} = \text{target} \land \text{username} = \text{selected} \land \text{isActive} = \text{true}}(\text{Users})$$
 2. Validates the matched user's `pin_code`.
 3. Allows all staff members in the same outlet to have the same default PIN (`1234`) or distinct PINs without collision.
 

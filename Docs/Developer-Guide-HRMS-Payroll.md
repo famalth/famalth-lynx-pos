@@ -56,7 +56,7 @@ The HRMS subsystem is modularized into:
 - `payroll_period_id` (Year, Month, Status: `DRAFT`, `FINALIZED`, `PAID`)
 - `gross_earnings` = $\text{Basic} + \text{HRA} + \text{DA} + \text{Overtime Pay} + \text{Bonuses}$
 - `total_deductions` = $\text{PF} + \text{ESI} + \text{Professional Tax} + \text{Advance Repayments} + \text{Loss of Pay (LOP)}$
-- `net_salary` = $\text{gross_earnings} - \text{total_deductions}$
+- `net_salary` = $\text{Gross Earnings} - \text{Total Deductions}$
 
 ---
 

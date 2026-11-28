@@ -104,7 +104,7 @@ External systems (custom eCommerce websites, ERPs, mobile apps) can integrate us
 
 ### 2. HMAC-SHA256 Webhook Verification
 Every outgoing webhook payload includes an `X-Famalth-Signature` header computed as:
-$$\text{Signature} = \text{HMAC-SHA256}(\text{payload\_json}, \text{secret\_token})$$
+$$\text{Signature} = \text{HMAC-SHA256}(\text{payloadJson}, \text{secretToken})$$
 Receiving servers can verify this signature to guarantee authenticity.
 
 ---

@@ -89,7 +89,7 @@ $$a = \sin^2\left(\frac{\Delta\phi}{2}\right) + \cos(\phi_1)\cos(\phi_2)\sin^2\l
 $$c = 2 \cdot \text{atan2}\left(\sqrt{a}, \sqrt{1-a}\right)$$
 $$d = R \cdot c \quad (\text{where } R = 6,371,000 \text{ meters})$$
 
-If $d > \text{office.geofence\_radius\_meters}$, the request is rejected with `HTTP 403 Forbidden: Geofence violation`.
+If `d > office.geofence_radius_meters`, the request is rejected with `HTTP 403 Forbidden: Geofence violation`.
 
 ### Hardware Device Binding & Anti-Spoofing Guard
 - On initial sign-in, the employee's unique client device ID (`device_uuid`) is stored in `hr_employees.bound_device_id`.

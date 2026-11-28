@@ -137,7 +137,7 @@ In the UI layer, `_CashLedgerScreenState` renders both Debit (charges) and Credi
 ### 4. Tax-Inclusive Flag Synchronization in Receiving
 In `backend/controllers/inventory/receiving.controller.ts` and `lib/models/inventory/receive_item_model.dart`:
 - When receiving inventory, `is_tax_inclusive` is extracted directly from the joined `item_master` record:
-  $$\text{Net Rate} = \begin{cases} \frac{\text{Purchase Rate}}{1 + \frac{\text{Tax \%}}{100}} & \text{if } \text{is\_tax\_inclusive} = \text{true} \\ \text{Purchase Rate} & \text{if } \text{is\_tax\_inclusive} = \text{false} \end{cases}$$
+  $$\text{Net Rate} = \begin{cases} \frac{\text{Purchase Rate}}{1 + \frac{\text{Tax \%}}{100}} & \text{if tax inclusive = true} \\ \text{Purchase Rate} & \text{if tax inclusive = false} \end{cases}$$
 - The resulting cost basis is posted to `stock_ledger.valuation_rate` and input GST accounts without rounding drift.
 
 ### 5. Bulk FIFO Advance Adjustment Engine
