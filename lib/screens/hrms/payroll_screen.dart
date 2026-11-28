@@ -424,8 +424,9 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
     }
   }
 
-  Future<void> _fetchPreviewData() async {
+  Future<void> _fetchPreviewData({bool showFeedback = false}) async {
     final period = DateFormat('yyyy-MM').format(_currentMonth);
+    if (showFeedback && mounted) setState(() => _loadingTab = true);
     try {
       final payload = {
         'pay_period': period,
@@ -433,11 +434,37 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
       };
       final res = await ApiClient.post('/api/hrms/payroll/preview', payload);
       if (res['success'] == true && res['data'] != null) {
-        setState(() {
-          _previewData = List<Map<String, dynamic>>.from(res['data'] ?? []);
-        });
+        final list = List<Map<String, dynamic>>.from(res['data'] ?? []);
+        if (mounted) {
+          setState(() {
+            _previewData = list;
+            _showPreview = true;
+          });
+          if (showFeedback) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(list.isEmpty
+                    ? 'No active employees found for $period.'
+                    : 'Calculated payroll preview for ${list.length} employee(s).'),
+                backgroundColor: list.isEmpty ? Colors.orange : const Color(0xFF059669),
+              ),
+            );
+          }
+        }
+      } else if (showFeedback && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(res['message']?.toString() ?? 'Failed to calculate payroll preview.')),
+        );
       }
-    } catch (_) {}
+    } catch (e) {
+      if (showFeedback && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error calculating preview: $e')),
+        );
+      }
+    } finally {
+      if (showFeedback && mounted) setState(() => _loadingTab = false);
+    }
   }
 
   void _previousMonth() {
@@ -728,8 +755,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                     side: const BorderSide(color: Color(0xFFE5E7EB)),
                   ),
                   onPressed: () {
-                    _fetchPreviewData();
-                    setState(() => _showPreview = true);
+                    _fetchPreviewData(showFeedback: true);
                   },
                 ),
                 ElevatedButton.icon(

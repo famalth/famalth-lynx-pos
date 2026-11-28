@@ -1600,7 +1600,7 @@ exports.previewPayroll = async (req, res) => {
     
     const { hr_pay_structures, hr_salary_components } = req.propertyDb.models;
     const { office_id } = req.body || {};
-    const empWhere: any = { status: 'Active', outlet_id: req.user.outlet_id };
+    const empWhere: any = { status: { [Op.iLike]: 'Active' }, outlet_id: req.user.outlet_id };
     if (office_id && office_id !== 'all' && office_id !== '0') {
       empWhere.office_id = office_id;
     }
@@ -2988,7 +2988,7 @@ exports.bulkRevise = async (req, res) => {
     const { type, value, designation_id, office_id, employee_ids, effective_date } = req.body;
     
     // Find target employees (designation_id represents Grade / pay_structure_id)
-    const where: any = { status: 'Active', outlet_id: req.user.outlet_id };
+    const where: any = { status: { [Op.iLike]: 'Active' }, outlet_id: req.user.outlet_id };
     if (employee_ids && employee_ids.length > 0) {
       where.id = employee_ids;
     } else {
@@ -3078,7 +3078,7 @@ exports.bulkBonus = async (req: any, res: any) => {
     const { type, value, designation_id, employee_ids, payment_mode, payment_method, reason, payment_month } = req.body;
     
     // Find target employees
-    const where: any = { status: 'Active', outlet_id: req.user.outlet_id };
+    const where: any = { status: { [Op.iLike]: 'Active' }, outlet_id: req.user.outlet_id };
     if (employee_ids && employee_ids.length > 0) {
       where.id = employee_ids;
     } else if (designation_id) {
@@ -3472,7 +3472,7 @@ exports.createHoliday = async (req, res) => {
     });
 
     // 2. Batch mark attendance as Holiday for active employees (all or matching office)
-    const empWhere: any = { outlet_id: req.user.outlet_id, status: 'Active' };
+    const empWhere: any = { outlet_id: req.user.outlet_id, status: { [Op.iLike]: 'Active' } };
     if (parsedOfficeId !== null) {
       empWhere.office_id = parsedOfficeId;
     }
@@ -3583,7 +3583,7 @@ exports.autoWeeklyOffs = async (req, res) => {
     const daysInMonth = startDate.daysInMonth();
 
     const employees = await hr_employees.findAll({
-      where: { outlet_id: req.user.outlet_id, status: 'Active' },
+      where: { outlet_id: req.user.outlet_id, status: { [Op.iLike]: 'Active' } },
       include: [{ model: hr_shifts, as: 'shift' }]
     });
 

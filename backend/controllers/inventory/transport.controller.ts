@@ -299,7 +299,7 @@ export class TransportController {
       const updatePayload: any = {};
       if (driver_name !== undefined) updatePayload.driver_name = driver_name ? driver_name.trim() : driver.driver_name;
       if (phone !== undefined) updatePayload.phone = phone ? phone.trim() : driver.phone;
-      if (email !== undefined) updatePayload.email = email ? email.trim().toLowerCase() : driver.email;
+      if (email !== undefined) updatePayload.email = email && String(email).trim() ? String(email).trim().toLowerCase() : null;
       if (license_number !== undefined) updatePayload.license_number = license_number ? license_number.trim().toUpperCase() : null;
       if (address !== undefined) updatePayload.address = address ? address.trim() : null;
       if (status !== undefined) {

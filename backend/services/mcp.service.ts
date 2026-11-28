@@ -34,7 +34,15 @@ const {
     toolCreateOutletBackup,
     toolManagePlugins,
     toolCreateSubscription,
-    toolManageSalesSchemes
+    toolManageSalesSchemes,
+    toolCreateReceiving,
+    toolCreateStockDispatch,
+    toolCreateMaterialRequisition,
+    toolCreateDepartmentReturn,
+    toolCreateDamageEntry,
+    toolCreateVendorReturn,
+    toolListSupplierBills,
+    toolPaySupplierBill
 } = require('./mcpErpTools.service');
 
 export interface McpOutletScope {
@@ -1129,6 +1137,22 @@ export async function executeTool(db: any, outletContext: any = 1, toolName: str
             return await toolCreateSubscription(db, normalizeOutletScope(outletContext), args);
         case 'manage_sales_schemes':
             return await toolManageSalesSchemes(db, normalizeOutletScope(outletContext), args);
+        case 'create_receiving':
+            return await toolCreateReceiving(db, normalizeOutletScope(outletContext), args);
+        case 'create_stock_dispatch':
+            return await toolCreateStockDispatch(db, normalizeOutletScope(outletContext), args);
+        case 'create_material_requisition':
+            return await toolCreateMaterialRequisition(db, normalizeOutletScope(outletContext), args);
+        case 'create_department_return':
+            return await toolCreateDepartmentReturn(db, normalizeOutletScope(outletContext), args);
+        case 'create_damage_entry':
+            return await toolCreateDamageEntry(db, normalizeOutletScope(outletContext), args);
+        case 'create_vendor_return':
+            return await toolCreateVendorReturn(db, normalizeOutletScope(outletContext), args);
+        case 'list_supplier_bills':
+            return await toolListSupplierBills(db, normalizeOutletScope(outletContext), args);
+        case 'pay_supplier_bill':
+            return await toolPaySupplierBill(db, normalizeOutletScope(outletContext), args);
         default:
             throw new Error(`Unknown MCP Tool: '${toolName}'. Available tools: ${MCP_TOOLS.map(t => t.name).join(', ')}`);
     }

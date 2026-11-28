@@ -1338,11 +1338,11 @@ class TenantBackupService {
                 const snapOutletCode = isAll ? 'ALL' : (options.outletCode || `OUT_${options.outletId || 1}`);
                 await TenantBackupService.ensureCloudSnapshotTable(activeDb);
                 await activeDb.query(`INSERT INTO cloud_backup_snapshots (outlet_id, outlet_code, filename, scope, size_bytes, file_base64, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
-         ON CONFLICT (filename) DO UPDATE SET
-           size_bytes = EXCLUDED.size_bytes,
-           file_base64 = EXCLUDED.file_base64,
-           created_at = CURRENT_TIMESTAMP;`, {
+           VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+           ON CONFLICT (filename) DO UPDATE SET
+             size_bytes = EXCLUDED.size_bytes,
+             file_base64 = EXCLUDED.file_base64,
+             created_at = CURRENT_TIMESTAMP;`, {
                     bind: [
                         isAll ? 0 : (options.outletId || 1),
                         snapOutletCode,
@@ -1697,7 +1697,7 @@ class TenantBackupService {
                                 await activeDb.query('RELEASE SAVEPOINT sp_del', { transaction: t });
                             }
                             catch (_) {
-                                await activeDb.query('ROLLBACK TO SAVEPOINT sp_del', { transaction: t }).catch(() => {});
+                                await activeDb.query('ROLLBACK TO SAVEPOINT sp_del', { transaction: t }).catch(() => { });
                             }
                         }
                     }
@@ -1790,7 +1790,7 @@ class TenantBackupService {
                             totalRecordsRestored += (affected > 0 ? affected : 0);
                         }
                         catch (_) {
-                            await activeDb.query('ROLLBACK TO SAVEPOINT sp_row', { transaction: t }).catch(() => {});
+                            await activeDb.query('ROLLBACK TO SAVEPOINT sp_row', { transaction: t }).catch(() => { });
                         }
                     }
                     tablesRestored.push(tbl);
@@ -1889,7 +1889,7 @@ class TenantBackupService {
                             totalRecordsRestored += (affected > 0 ? affected : 0);
                         }
                         catch (_) {
-                            await activeDb.query('ROLLBACK TO SAVEPOINT sp_row', { transaction: t }).catch(() => {});
+                            await activeDb.query('ROLLBACK TO SAVEPOINT sp_row', { transaction: t }).catch(() => { });
                         }
                     }
                     tablesRestored.push(tbl);

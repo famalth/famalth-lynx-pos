@@ -267,7 +267,7 @@ class TransportController {
             if (phone !== undefined)
                 updatePayload.phone = phone ? phone.trim() : driver.phone;
             if (email !== undefined)
-                updatePayload.email = email ? email.trim().toLowerCase() : driver.email;
+                updatePayload.email = email && String(email).trim() ? String(email).trim().toLowerCase() : null;
             if (license_number !== undefined)
                 updatePayload.license_number = license_number ? license_number.trim().toUpperCase() : null;
             if (address !== undefined)

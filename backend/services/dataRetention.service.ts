@@ -66,6 +66,7 @@ export const RETENTION_TABLES: TablePurgeDef[] = [
   { table: 'request_headers', module: 'INVENTORY', dateColumn: 'created_at' },
   { table: 'delivery_challan_items', module: 'INVENTORY', isChild: true, parentTable: 'delivery_challan_headers', parentFk: 'challan_id' },
   { table: 'delivery_challan_headers', module: 'INVENTORY', dateColumn: 'created_at' },
+  { table: 'transport_driver_locations', module: 'INVENTORY', dateColumn: 'created_at' },
 
   // 6. Milk Subscriptions
   { table: 'milk_subscription_consumptions', module: 'SALES', isChild: true, parentTable: 'milk_subscriptions', parentFk: 'subscription_id' },
@@ -148,6 +149,8 @@ export const RETENTION_TABLES: TablePurgeDef[] = [
   { table: 'taxes_master', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
   { table: 'tax_profiles', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
   { table: 'stock_locations', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
+  { table: 'transport_drivers', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
+  { table: 'transport_vehicles', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
 
   // Clinic Masters
   { table: 'clinic_doctors', module: 'CLINIC_MASTERS', dateColumn: 'created_at' },

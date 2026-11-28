@@ -85,7 +85,7 @@ async function resolveEmployee(req, models) {
     // 5. Active employee in current outlet
     if (!employee && outlet_id) {
         employee = await hr_employees.findOne({
-            where: { outlet_id, status: 'Active' },
+            where: { outlet_id, status: { [Op.iLike]: 'Active' } },
             include: includes,
             order: [['id', 'ASC']]
         });
@@ -139,7 +139,7 @@ exports.getOffices = async (req, res) => {
         const result = await Promise.all(uniqueOffices.map(async (off) => {
             const plain = off.toJSON ? off.toJSON() : off;
             const empCount = await hr_employees.count({
-                where: { office_id: off.id, status: 'Active', outlet_id }
+                where: { office_id: off.id, status: { [Op.iLike]: 'Active' }, outlet_id }
             });
             return {
                 ...plain,
@@ -227,7 +227,7 @@ exports.deleteOffice = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Office not found.' });
         }
         const assignedCount = await hr_employees.count({
-            where: { office_id: office.id, status: 'Active', outlet_id }
+            where: { office_id: office.id, status: { [Op.iLike]: 'Active' }, outlet_id }
         });
         if (assignedCount > 0) {
             return res.status(400).json({
@@ -264,7 +264,7 @@ exports.employeeLogin = async (req, res) => {
                     { employee_code: { [Op.iLike]: cleanUsername } },
                     { contact_email: { [Op.iLike]: cleanUsername } }
                 ],
-                status: 'Active'
+                status: { [Op.iLike]: 'Active' }
             },
             include: [
                 { model: hr_offices, as: 'office' },
@@ -372,7 +372,7 @@ exports.employeeRequestResetOtp = async (req, res) => {
                     { employee_code: { [Op.iLike]: cleanInput } },
                     { contact_email: { [Op.iLike]: cleanInput } }
                 ],
-                status: 'Active'
+                status: { [Op.iLike]: 'Active' }
             },
             include: [
                 { model: hr_offices, as: 'office' },
@@ -475,7 +475,7 @@ exports.employeeResetPassword = async (req, res) => {
                     { employee_code: { [Op.iLike]: cleanInput } },
                     { contact_email: { [Op.iLike]: cleanInput } }
                 ],
-                status: 'Active'
+                status: { [Op.iLike]: 'Active' }
             },
             order: [['id', 'DESC']]
         });
@@ -591,7 +591,7 @@ exports.employeeGeotaggedPunch = async (req, res) => {
                     bound_device_id: deviceId,
                     id: { [Op.ne]: employee.id },
                     outlet_id: employee.outlet_id,
-                    status: 'Active'
+                    status: { [Op.iLike]: 'Active' }
                 }
             });
             if (boundToOther && !req.body.override_device_lock) {

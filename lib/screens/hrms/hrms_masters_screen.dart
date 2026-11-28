@@ -429,25 +429,30 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
               const SizedBox(width: 5),
               Expanded(child: _toggleChip('Formula', type == 'Formula', _amber, () => setS(() => type = 'Formula'))),
             ]),
-            if (type != 'Fixed') ...[
-              const SizedBox(height: 8),
-              TextField(
-                controller: formulaCtrl,
-                style: const TextStyle(fontSize: 13),
-                decoration: _fieldDecor(
-                    type == 'Percentage' ? 'Percentage (%)' : 'Formula',
-                    type == 'Percentage' ? 'e.g. 40' : 'e.g. Basic * 0.4',
-                    Icons.functions).copyWith(
-                  suffixIcon: type == 'Formula' ? const Tooltip(
-                    message: "Supported variables:\n- BASE: Gross base salary (e.g. 50,000)\n- BASIC: Basic salary (defaults to 50% of Base, e.g. 25,000)\nExample formula: BASIC * 0.12 or BASE * 0.06",
-                    child: Padding(
-                      padding: EdgeInsets.all(8.0),
-                      child: Icon(Icons.info_outline, color: Colors.blue, size: 18),
-                    ),
-                  ) : null,
-                ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: formulaCtrl,
+              keyboardType: type == 'Formula'
+                  ? TextInputType.text
+                  : const TextInputType.numberWithOptions(decimal: true),
+              style: const TextStyle(fontSize: 13),
+              decoration: _fieldDecor(
+                  type == 'Fixed'
+                      ? 'Fixed Amount (₹)'
+                      : (type == 'Percentage' ? 'Percentage (%)' : 'Formula'),
+                  type == 'Fixed'
+                      ? 'e.g. 1800'
+                      : (type == 'Percentage' ? 'e.g. 40' : 'e.g. Basic * 0.4'),
+                  type == 'Fixed' ? Icons.payments_outlined : Icons.functions).copyWith(
+                suffixIcon: type == 'Formula' ? const Tooltip(
+                  message: "Supported variables:\n- BASE: Gross base salary (e.g. 50,000)\n- BASIC: Basic salary (defaults to 50% of Base, e.g. 25,000)\nExample formula: BASIC * 0.12 or BASE * 0.06",
+                  child: Padding(
+                    padding: EdgeInsets.all(8.0),
+                    child: Icon(Icons.info_outline, color: Colors.blue, size: 18),
+                  ),
+                ) : null,
               ),
-            ],
+            ),
             _buildOfficeSelector(
               selectedOfficeId: selectedOfficeId,
               onChanged: (v) => setS(() => selectedOfficeId = v),
@@ -2030,9 +2035,11 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
                 _officeBadge(c['office_id']),
               ],
             ),
-            if (type != 'Fixed' && formula.isNotEmpty)
-              Text(type == 'Percentage'
-                  ? '$formula% of Basic' : formula,
+            if (formula.isNotEmpty)
+              Text(
+                  type == 'Fixed'
+                      ? '₹$formula / month'
+                      : (type == 'Percentage' ? '$formula% of Basic' : formula),
                   style: const TextStyle(fontSize: 11, color: _grey40)),
           ],
         )),
@@ -2112,25 +2119,30 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
               Expanded(child: _toggleChip('Formula', type == 'Formula', _amber,
                   () => setS(() => type = 'Formula'))),
             ]),
-            if (type != 'Fixed') ...[
-              const SizedBox(height: 8),
-              TextField(
-                controller: formulaCtrl,
-                style: const TextStyle(fontSize: 13),
-                decoration: _fieldDecor(
-                    type == 'Percentage' ? 'Percentage (%)' : 'Formula',
-                    type == 'Percentage' ? 'e.g. 40' : 'e.g. Basic * 0.4',
-                    Icons.functions).copyWith(
-                  suffixIcon: type == 'Formula' ? const Tooltip(
-                    message: "Supported variables:\n- BASE: Gross base salary (e.g. 50,000)\n- BASIC: Basic salary (defaults to 50% of Base, e.g. 25,000)\nExample formula: BASIC * 0.12 or BASE * 0.06",
-                    child: Padding(
-                      padding: EdgeInsets.all(8.0),
-                      child: Icon(Icons.info_outline, color: Colors.blue, size: 18),
-                    ),
-                  ) : null,
-                ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: formulaCtrl,
+              keyboardType: type == 'Formula'
+                  ? TextInputType.text
+                  : const TextInputType.numberWithOptions(decimal: true),
+              style: const TextStyle(fontSize: 13),
+              decoration: _fieldDecor(
+                  type == 'Fixed'
+                      ? 'Fixed Amount (₹)'
+                      : (type == 'Percentage' ? 'Percentage (%)' : 'Formula'),
+                  type == 'Fixed'
+                      ? 'e.g. 1800'
+                      : (type == 'Percentage' ? 'e.g. 40' : 'e.g. Basic * 0.4'),
+                  type == 'Fixed' ? Icons.payments_outlined : Icons.functions).copyWith(
+                suffixIcon: type == 'Formula' ? const Tooltip(
+                  message: "Supported variables:\n- BASE: Gross base salary (e.g. 50,000)\n- BASIC: Basic salary (defaults to 50% of Base, e.g. 25,000)\nExample formula: BASIC * 0.12 or BASE * 0.06",
+                  child: Padding(
+                    padding: EdgeInsets.all(8.0),
+                    child: Icon(Icons.info_outline, color: Colors.blue, size: 18),
+                  ),
+                ) : null,
               ),
-            ],
+            ),
             _buildOfficeSelector(
               selectedOfficeId: selectedOfficeId,
               onChanged: (v) => setS(() => selectedOfficeId = v),

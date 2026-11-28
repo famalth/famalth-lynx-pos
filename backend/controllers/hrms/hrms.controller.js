@@ -1511,7 +1511,7 @@ exports.previewPayroll = async (req, res) => {
         const holidayDates = holidays.map(h => h.holiday_date);
         const { hr_pay_structures, hr_salary_components } = req.propertyDb.models;
         const { office_id } = req.body || {};
-        const empWhere = { status: 'Active', outlet_id: req.user.outlet_id };
+        const empWhere = { status: { [Op.iLike]: 'Active' }, outlet_id: req.user.outlet_id };
         if (office_id && office_id !== 'all' && office_id !== '0') {
             empWhere.office_id = office_id;
         }
@@ -1580,7 +1580,7 @@ exports.previewPayroll = async (req, res) => {
             for (let d = moment(calcStart); d.isSameOrBefore(calcEnd); d.add(1, 'days')) {
                 const dateStr = d.format('YYYY-MM-DD');
                 const punch = punches.find(p => p.punch_date === dateStr);
-                const isHoliday = holidays.some(h => h.holiday_date === dateStr && (h.office_id == null || h.office_id === emp.office_id));
+                const isHoliday = holidays.some((h) => h.holiday_date === dateStr && (h.office_id == null || h.office_id === emp.office_id));
                 let isWeeklyOff = false;
                 const shift = emp.shift || {};
                 const weeklyOffs = shift.weekly_offs || ['Sunday'];
@@ -2808,7 +2808,7 @@ exports.bulkRevise = async (req, res) => {
         const { hr_employees, hr_salary_revisions } = req.propertyDb.models;
         const { type, value, designation_id, office_id, employee_ids, effective_date } = req.body;
         // Find target employees (designation_id represents Grade / pay_structure_id)
-        const where = { status: 'Active', outlet_id: req.user.outlet_id };
+        const where = { status: { [Op.iLike]: 'Active' }, outlet_id: req.user.outlet_id };
         if (employee_ids && employee_ids.length > 0) {
             where.id = employee_ids;
         }
@@ -2891,7 +2891,7 @@ exports.bulkBonus = async (req, res) => {
         const { hr_employees, hr_arrears, expenses, expense_categories, cash_ledger } = req.propertyDb.models;
         const { type, value, designation_id, employee_ids, payment_mode, payment_method, reason, payment_month } = req.body;
         // Find target employees
-        const where = { status: 'Active', outlet_id: req.user.outlet_id };
+        const where = { status: { [Op.iLike]: 'Active' }, outlet_id: req.user.outlet_id };
         if (employee_ids && employee_ids.length > 0) {
             where.id = employee_ids;
         }
@@ -3254,7 +3254,7 @@ exports.createHoliday = async (req, res) => {
             is_recurring: !!is_recurring
         });
         // 2. Batch mark attendance as Holiday for active employees (all or matching office)
-        const empWhere = { outlet_id: req.user.outlet_id, status: 'Active' };
+        const empWhere = { outlet_id: req.user.outlet_id, status: { [Op.iLike]: 'Active' } };
         if (parsedOfficeId !== null) {
             empWhere.office_id = parsedOfficeId;
         }
@@ -3355,7 +3355,7 @@ exports.autoWeeklyOffs = async (req, res) => {
         const endDate = moment(month, 'YYYY-MM').endOf('month');
         const daysInMonth = startDate.daysInMonth();
         const employees = await hr_employees.findAll({
-            where: { outlet_id: req.user.outlet_id, status: 'Active' },
+            where: { outlet_id: req.user.outlet_id, status: { [Op.iLike]: 'Active' } },
             include: [{ model: hr_shifts, as: 'shift' }]
         });
         let createdCount = 0;

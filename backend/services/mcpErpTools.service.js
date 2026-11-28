@@ -29,6 +29,14 @@ exports.toolCreateOutletBackup = toolCreateOutletBackup;
 exports.toolManagePlugins = toolManagePlugins;
 exports.toolCreateSubscription = toolCreateSubscription;
 exports.toolManageSalesSchemes = toolManageSalesSchemes;
+exports.toolCreateReceiving = toolCreateReceiving;
+exports.toolCreateStockDispatch = toolCreateStockDispatch;
+exports.toolCreateMaterialRequisition = toolCreateMaterialRequisition;
+exports.toolCreateDepartmentReturn = toolCreateDepartmentReturn;
+exports.toolCreateDamageEntry = toolCreateDamageEntry;
+exports.toolCreateVendorReturn = toolCreateVendorReturn;
+exports.toolListSupplierBills = toolListSupplierBills;
+exports.toolPaySupplierBill = toolPaySupplierBill;
 const defaultDb = require('../db/models');
 function getActiveDb(db) {
     return db?.query ? db : (db?.sequelize || defaultDb.sequelize || defaultDb);
@@ -603,6 +611,209 @@ exports.MCP_ERP_TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        name: 'create_receiving',
+        description: 'Creates a Goods Receipt Note (GRN / Vendor Receive Order) either from an approved Purchase Order (poNo/poId) or direct receiving from a supplier with vendorBillNo and items (e.g. extracted from an invoice).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                poNo: { type: 'string', description: 'Approved Purchase Order number (e.g. PO55-2-26) if receiving against a PO' },
+                poId: { type: 'number', description: 'Approved Purchase Order ID (optional)' },
+                supplierName: { type: 'string', description: 'Supplier name or code (required for direct receiving without PO)' },
+                supplierId: { type: 'number' },
+                vendorBillNo: { type: 'string', description: 'Vendor / Supplier Bill No (required, cannot be 0 or blank)' },
+                receiptDate: { type: 'string', description: 'Receipt date YYYY-MM-DD (defaults to today)' },
+                items: {
+                    type: 'array',
+                    description: 'Items received (optional if poNo provided; required for direct receiving or invoice extraction)',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            itemName: { type: 'string' },
+                            itemCode: { type: 'string' },
+                            itemId: { type: 'number' },
+                            qty: { type: 'number' },
+                            buyRate: { type: 'number' },
+                            saleRate: { type: 'number' },
+                            gstPercent: { type: 'number' },
+                            unit: { type: 'string' },
+                            expiryDate: { type: 'string' },
+                            remarks: { type: 'string' },
+                        },
+                    },
+                },
+                outletId: { type: 'number' },
+            },
+        },
+    },
+    {
+        name: 'create_stock_dispatch',
+        description: 'Dispatches stock to a department (Stock Dispatch / Issue), either against an approved Material Requisition (requestNo/requestId) or as a direct dispatch with department and items. Validates available stock.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                requestNo: { type: 'string', description: 'Approved Material Requisition number (e.g. REQ55-1-26)' },
+                requestId: { type: 'number' },
+                department: { type: 'string', description: 'Department name (required for direct dispatch)' },
+                dispatchType: { type: 'string', description: 'Dispatch type (e.g. Direct, Request, Kitchen)' },
+                issueDate: { type: 'string', description: 'Dispatch date YYYY-MM-DD (defaults to today)' },
+                items: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            itemName: { type: 'string' },
+                            itemCode: { type: 'string' },
+                            itemId: { type: 'number' },
+                            qty: { type: 'number' },
+                            rate: { type: 'number' },
+                        },
+                    },
+                },
+                outletId: { type: 'number' },
+            },
+        },
+    },
+    {
+        name: 'create_material_requisition',
+        description: 'Creates a Material Requisition (request_headers) for a department with requested items (approval_status PENDING).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                department: { type: 'string', description: 'Department name (required)' },
+                requestDate: { type: 'string', description: 'Requisition date YYYY-MM-DD (defaults to today)' },
+                items: {
+                    type: 'array',
+                    description: 'Requested items',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            itemName: { type: 'string' },
+                            itemCode: { type: 'string' },
+                            itemId: { type: 'number' },
+                            qty: { type: 'number' },
+                            rate: { type: 'number' },
+                        },
+                    },
+                },
+                outletId: { type: 'number' },
+            },
+        },
+    },
+    {
+        name: 'create_department_return',
+        description: 'Returns items from a department back to inventory against a Stock Dispatch reference (issueNo/issueId). Validates return qty against issued qty.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                issueNo: { type: 'string', description: 'Stock Dispatch / Issue number (e.g. IND55-1-26)' },
+                issueId: { type: 'number' },
+                returnDate: { type: 'string', description: 'Return date YYYY-MM-DD (defaults to today)' },
+                items: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            itemName: { type: 'string' },
+                            itemCode: { type: 'string' },
+                            itemId: { type: 'number' },
+                            qty: { type: 'number' },
+                            rate: { type: 'number' },
+                        },
+                    },
+                },
+                outletId: { type: 'number' },
+            },
+        },
+    },
+    {
+        name: 'create_damage_entry',
+        description: 'Records damaged inventory items (Damage Items / damage_headers) with available stock validation.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                damageDate: { type: 'string', description: 'Damage date YYYY-MM-DD (defaults to today)' },
+                items: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            itemName: { type: 'string' },
+                            itemCode: { type: 'string' },
+                            itemId: { type: 'number' },
+                            qty: { type: 'number' },
+                            rate: { type: 'number' },
+                            remarks: { type: 'string' },
+                        },
+                    },
+                },
+                outletId: { type: 'number' },
+            },
+        },
+    },
+    {
+        name: 'create_vendor_return',
+        description: 'Returns received purchase items to a Vendor against a GRN (grnNo/grnId). Validates return qty against remaining received qty.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                grnNo: { type: 'string', description: 'Received GRN number (e.g. GRN55-1-26)' },
+                grnId: { type: 'number' },
+                returnDate: { type: 'string', description: 'Return date YYYY-MM-DD (defaults to today)' },
+                notes: { type: 'string' },
+                items: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            itemName: { type: 'string' },
+                            itemCode: { type: 'string' },
+                            itemId: { type: 'number' },
+                            qty: { type: 'number' },
+                            rate: { type: 'number' },
+                        },
+                    },
+                },
+                outletId: { type: 'number' },
+            },
+        },
+    },
+    {
+        name: 'list_supplier_bills',
+        description: 'Lists vendor/supplier bills (Supplier Payments) with Total Purchase, Paid, Unpaid, and per-bill balance and status.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                supplierName: { type: 'string', description: 'Filter by supplier name (optional)' },
+                supplierId: { type: 'number' },
+                status: { type: 'string', enum: ['ALL', 'UNPAID', 'PARTIAL', 'PAID'] },
+                fromDate: { type: 'string', description: 'YYYY-MM-DD' },
+                toDate: { type: 'string', description: 'YYYY-MM-DD' },
+                outletId: { type: 'number' },
+            },
+        },
+    },
+    {
+        name: 'pay_supplier_bill',
+        description: 'Pays/settles an outstanding vendor bill (Supplier Payment) with full UI validation (balance check, active payment mode, round-off, credit adjustment).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                billId: { type: 'number', description: 'Supplier Bill ID' },
+                grnNo: { type: 'string', description: 'GRN No (e.g. GRN55-2-26) to look up the bill' },
+                billNo: { type: 'string', description: 'Vendor Bill No (e.g. 4560) to look up the bill' },
+                supplierName: { type: 'string', description: 'Optional supplier name to disambiguate' },
+                payAmount: { type: 'number', description: 'Amount to pay (INR)' },
+                roundOff: { type: 'number', description: 'Round off adjustment (optional, defaults to 0)' },
+                creditAdjusted: { type: 'number', description: 'Supplier credit note amount to adjust (optional)' },
+                paymentMode: { type: 'string', description: 'Active payment method (e.g. CASH, UPI, BANK, CARD)' },
+                paymentDate: { type: 'string', description: 'Payment date YYYY-MM-DD (defaults to today)' },
+                referenceNo: { type: 'string' },
+                note: { type: 'string' },
+                outletId: { type: 'number' },
+            },
+        },
+    },
 ];
 async function toolCreatePurchaseOrder(db, scope, args) {
     const activeDb = getActiveDb(db);
@@ -1002,7 +1213,7 @@ async function toolCreateEmployee(db, scope, args) {
      )
      VALUES (
        $1, $2, $3, $4, $5, $6, $7,
-       $8, $9, $10, $11, $12, 'ACTIVE',
+       $8, $9, $10, $11, $12, 'Active',
        $13, $14, $15, $16, $17,
        $18, $19,
        $20, $21, $22,
@@ -2015,4 +2226,550 @@ async function toolManageSalesSchemes(db, scope, args) {
         ],
     });
     return { status: 'CREATED', scheme: rows[0], message: `Sales Scheme "${schemeName}" created.` };
+}
+async function invokeMutationController(handler, activeDb, scope, outletId, opts = {}) {
+    let statusCode = 200;
+    let responseBody = null;
+    const req = {
+        propertyDb: activeDb,
+        user: {
+            id: Number(scope?.userId) || 1,
+            outlet_id: outletId,
+            role: scope?.role || 'ADMIN',
+            username: scope?.username || 'mcp-agent',
+        },
+        body: opts.body || {},
+        query: opts.query || {},
+        params: opts.params || {},
+        headers: {},
+        ip: '127.0.0.1',
+    };
+    const res = {
+        status(code) {
+            statusCode = code;
+            return this;
+        },
+        json(data) {
+            responseBody = data;
+            return this;
+        },
+        send(data) {
+            responseBody = data;
+            return this;
+        },
+    };
+    await handler(req, res);
+    if (statusCode >= 400 || responseBody?.success === false) {
+        throw new Error(responseBody?.message || responseBody?.error || `Controller failed with HTTP ${statusCode}`);
+    }
+    return responseBody;
+}
+async function resolveMasterItem(activeDb, outletId, it) {
+    let item = null;
+    if (it?.itemId) {
+        const [rows] = await activeDb.query(`SELECT id, item_code, item_name, brand, unit, buy_rate, sale_rate, gst_percent, current_stock, is_sale_tax_inclusive
+       FROM item_master WHERE outlet_id = $1 AND id = $2 LIMIT 1`, { bind: [outletId, Number(it.itemId)] });
+        item = rows?.[0];
+    }
+    else if (it?.itemCode) {
+        const [rows] = await activeDb.query(`SELECT id, item_code, item_name, brand, unit, buy_rate, sale_rate, gst_percent, current_stock, is_sale_tax_inclusive
+       FROM item_master WHERE outlet_id = $1 AND LOWER(TRIM(item_code)) = LOWER(TRIM($2)) LIMIT 1`, { bind: [outletId, String(it.itemCode)] });
+        item = rows?.[0];
+    }
+    else if (it?.itemName) {
+        const q = String(it.itemName).trim();
+        const [rows] = await activeDb.query(`SELECT id, item_code, item_name, brand, unit, buy_rate, sale_rate, gst_percent, current_stock, is_sale_tax_inclusive
+       FROM item_master WHERE outlet_id = $1 AND (item_name ILIKE $2 OR LOWER(TRIM(item_code)) = LOWER(TRIM($3)))
+       ORDER BY id ASC LIMIT 1`, { bind: [outletId, `%${q}%`, q] });
+        item = rows?.[0];
+    }
+    if (!item) {
+        throw new Error(`Item not found in item_master: ${it?.itemName || it?.itemCode || it?.itemId || 'unknown'}`);
+    }
+    return item;
+}
+async function toolCreateReceiving(db, scope, args) {
+    const activeDb = getActiveDb(db);
+    const outletId = resolveTargetOutlet(scope, args?.outletId);
+    const today = new Date().toISOString().slice(0, 10);
+    const receiptDate = args?.receiptDate || today;
+    const billNo = String(args?.vendorBillNo || args?.billNo || '').trim();
+    let po = null;
+    if (args?.poId || args?.poNo) {
+        const whereSql = args.poId ? `id = $2` : `LOWER(TRIM(po_no)) = LOWER(TRIM($2))`;
+        const [poRows] = await activeDb.query(`SELECT * FROM purchase_orders WHERE outlet_id = $1 AND ${whereSql} LIMIT 1`, { bind: [outletId, args.poId ? Number(args.poId) : String(args.poNo).trim()] });
+        po = poRows?.[0];
+        if (!po)
+            throw new Error(`Purchase Order not found: ${args.poNo || args.poId}`);
+        if (String(po.approval_status || 'APPROVED').toUpperCase() !== 'APPROVED') {
+            throw new Error(`Purchase Order ${po.po_no} is ${po.approval_status} and must be approved before receiving.`);
+        }
+    }
+    let supplierId = po ? Number(po.supplier_id) : (args?.supplierId ? Number(args.supplierId) : null);
+    if (!supplierId && args?.supplierName) {
+        const q = String(args.supplierName).trim();
+        const [sRows] = await activeDb.query(`SELECT id, supplier_name FROM supplier_master WHERE outlet_id = $1 AND (supplier_name ILIKE $2 OR LOWER(TRIM(supplier_code)) = LOWER(TRIM($3))) LIMIT 1`, { bind: [outletId, `%${q}%`, q] });
+        if (sRows?.[0]?.id)
+            supplierId = Number(sRows[0].id);
+    }
+    if (!po && !supplierId) {
+        const [openPos] = await activeDb.query(`SELECT id, po_no, supplier_id, order_date, total_amount FROM purchase_orders WHERE outlet_id = $1 AND approval_status = 'APPROVED' AND status IN ('OPEN', 'PARTIAL') ORDER BY id DESC LIMIT 10`, { bind: [outletId] }).catch(() => [[]]);
+        return {
+            status: 'NEEDS_INPUT',
+            missingField: 'poNo_or_supplierName',
+            availableApprovedPOs: openPos || [],
+            message: 'Please provide an approved PO number (if available) or the Supplier name, along with the Vendor Bill No and received items (or invoice details).',
+        };
+    }
+    if (!billNo || billNo === '0') {
+        return {
+            status: 'NEEDS_INPUT',
+            missingField: 'vendorBillNo',
+            message: 'Vendor Bill No is required and cannot be 0 or blank.',
+        };
+    }
+    let rawItems = Array.isArray(args?.items) ? args.items : [];
+    if (rawItems.length === 0 && po) {
+        const [poItems] = await activeDb.query(`SELECT * FROM purchase_order_items WHERE po_id = $1 ORDER BY id ASC`, { bind: [po.id] });
+        rawItems = (poItems || []).map((pi) => ({
+            itemId: pi.item_id,
+            itemCode: pi.item_code,
+            itemName: pi.item_name,
+            qty: Number(pi.qty),
+            buyRate: Number(pi.rate),
+            gstPercent: Number(pi.tax || 0),
+            unit: pi.unit,
+        }));
+    }
+    if (rawItems.length === 0) {
+        return {
+            status: 'NEEDS_INPUT',
+            missingField: 'items',
+            message: 'At least one received item (name/code, qty, buyRate) is required.',
+        };
+    }
+    const resolvedItems = [];
+    for (const row of rawItems) {
+        const item = await resolveMasterItem(activeDb, outletId, row);
+        const qty = Number(row.qty || 0);
+        if (qty <= 0)
+            throw new Error(`Receiving qty must be > 0 for ${item.item_name}`);
+        const buyRate = Number(row.buyRate ?? row.rate ?? item.buy_rate ?? 0);
+        const saleRate = row.saleRate !== undefined && row.saleRate !== null ? Number(row.saleRate) : Number(item.sale_rate ?? 0);
+        const gstPercent = Number(row.gstPercent ?? row.tax ?? item.gst_percent ?? 0);
+        resolvedItems.push({
+            item_id: item.id,
+            code: item.item_code,
+            name: item.item_name,
+            brand: row.brand || item.brand || '',
+            unit: row.unit || item.unit || 'PCS',
+            qty,
+            rate: buyRate,
+            sale_rate: saleRate,
+            tax: gstPercent,
+            is_sale_tax_inclusive: item.is_sale_tax_inclusive,
+            expiry_date: row.expiryDate || null,
+            remarks: row.remarks || null,
+        });
+    }
+    const receivingCtrl = require('../controllers/inventory/receiving.controller');
+    const result = await invokeMutationController(receivingCtrl.createReceiving, activeDb, scope, outletId, {
+        body: {
+            po_no: po ? po.id : null,
+            supplier_id: supplierId,
+            receipt_date: receiptDate,
+            supplier_bill_no: billNo,
+            status: 'CLOSED',
+            items: resolvedItems,
+        },
+    });
+    return {
+        status: 'CREATED',
+        receiving: result?.data || result,
+        message: `Goods Receipt created for bill ${billNo}${po ? ` (against PO ${po.po_no})` : ''}.`,
+    };
+}
+async function toolCreateStockDispatch(db, scope, args) {
+    const activeDb = getActiveDb(db);
+    const outletId = resolveTargetOutlet(scope, args?.outletId);
+    const issueDate = args?.issueDate || new Date().toISOString().slice(0, 10);
+    let reqHeader = null;
+    if (args?.requestId || args?.requestNo) {
+        const whereSql = args.requestId ? `id = $2` : `LOWER(TRIM(request_no)) = LOWER(TRIM($2))`;
+        const [rRows] = await activeDb.query(`SELECT * FROM request_headers WHERE outlet_id = $1 AND ${whereSql} LIMIT 1`, { bind: [outletId, args.requestId ? Number(args.requestId) : String(args.requestNo).trim()] });
+        reqHeader = rRows?.[0];
+        if (!reqHeader)
+            throw new Error(`Material Requisition not found: ${args.requestNo || args.requestId}`);
+        if (String(reqHeader.approval_status || '').toUpperCase() !== 'APPROVED') {
+            throw new Error(`Material Requisition ${reqHeader.request_no} is ${reqHeader.approval_status} and must be approved before dispatch.`);
+        }
+    }
+    const department = String(args?.department || reqHeader?.department || '').trim();
+    if (!department) {
+        const [openReqs] = await activeDb.query(`SELECT id, request_no, department, request_date FROM request_headers WHERE outlet_id = $1 AND approval_status = 'APPROVED' AND status IN ('OPEN', 'PARTIAL') ORDER BY id DESC LIMIT 10`, { bind: [outletId] }).catch(() => [[]]);
+        return {
+            status: 'NEEDS_INPUT',
+            missingField: 'department_or_requestNo',
+            availableApprovedRequests: openReqs || [],
+            message: 'Please specify an approved Material Requisition number (requestNo) or a Department name for direct dispatch.',
+        };
+    }
+    let rawItems = Array.isArray(args?.items) ? args.items : [];
+    if (rawItems.length === 0 && reqHeader) {
+        const [rItems] = await activeDb.query(`SELECT * FROM request_items WHERE request_id = $1 ORDER BY id ASC`, { bind: [reqHeader.id] });
+        rawItems = (rItems || []).map((ri) => ({
+            itemId: ri.item_id,
+            itemCode: ri.item_code,
+            qty: Number(ri.qty),
+            rate: Number(ri.rate || 0),
+        }));
+    }
+    if (rawItems.length === 0) {
+        return { status: 'NEEDS_INPUT', missingField: 'items', message: 'At least one item to dispatch is required.' };
+    }
+    const resolvedItems = [];
+    for (const row of rawItems) {
+        const item = await resolveMasterItem(activeDb, outletId, row);
+        const qty = Number(row.qty || 0);
+        if (qty <= 0)
+            throw new Error(`Dispatch qty must be > 0 for ${item.item_name}`);
+        const avail = Number(item.current_stock || 0);
+        if (qty > avail) {
+            throw new Error(`Insufficient stock for ${item.item_name} (${item.item_code}). Available: ${avail}, Requested: ${qty}`);
+        }
+        const rate = Number(row.rate ?? item.buy_rate ?? item.sale_rate ?? 0);
+        resolvedItems.push({
+            item_id: item.id,
+            item_code: item.item_code,
+            qty,
+            rate,
+            tax: Number(item.gst_percent || 0),
+        });
+    }
+    const issueCtrl = require('../controllers/inventory/issue.controller');
+    const result = await invokeMutationController(issueCtrl.createIssue, activeDb, scope, outletId, {
+        body: {
+            header: {
+                issue_date: issueDate,
+                department,
+                issue_type: args?.dispatchType || (reqHeader ? 'Request' : 'Direct'),
+                open_request_no: reqHeader ? reqHeader.id : null,
+                indent_no: reqHeader ? reqHeader.request_no : null,
+                status: 'CLOSED',
+            },
+            items: resolvedItems,
+        },
+    });
+    return {
+        status: 'CREATED',
+        dispatch: result?.data || result,
+        message: `Stock dispatched to ${department}${reqHeader ? ` (against ${reqHeader.request_no})` : ''}.`,
+    };
+}
+async function toolCreateMaterialRequisition(db, scope, args) {
+    const activeDb = getActiveDb(db);
+    const outletId = resolveTargetOutlet(scope, args?.outletId);
+    const department = String(args?.department || '').trim();
+    const requestDate = args?.requestDate || new Date().toISOString().slice(0, 10);
+    if (!department) {
+        return { status: 'NEEDS_INPUT', missingField: 'department', message: 'Department name is required for Material Requisition.' };
+    }
+    const rawItems = Array.isArray(args?.items) ? args.items : [];
+    if (rawItems.length === 0) {
+        return { status: 'NEEDS_INPUT', missingField: 'items', message: 'At least one item (name/code and qty) is required.' };
+    }
+    const resolvedItems = [];
+    for (const row of rawItems) {
+        const item = await resolveMasterItem(activeDb, outletId, row);
+        const qty = Number(row.qty || 0);
+        if (qty <= 0)
+            throw new Error(`Requisition qty must be > 0 for ${item.item_name}`);
+        resolvedItems.push({
+            item_id: item.id,
+            code: item.item_code,
+            qty,
+            rate: Number(row.rate ?? item.buy_rate ?? item.sale_rate ?? 0),
+        });
+    }
+    const requestCtrl = require('../controllers/inventory/request.controller');
+    const result = await invokeMutationController(requestCtrl.createRequest, activeDb, scope, outletId, {
+        body: {
+            department,
+            request_date: requestDate,
+            items: resolvedItems,
+        },
+    });
+    return {
+        status: 'CREATED',
+        requisition: result?.data || result,
+        message: `Material Requisition created for ${department} (Approval: PENDING).`,
+    };
+}
+async function toolCreateDepartmentReturn(db, scope, args) {
+    const activeDb = getActiveDb(db);
+    const outletId = resolveTargetOutlet(scope, args?.outletId);
+    const returnDate = args?.returnDate || new Date().toISOString().slice(0, 10);
+    let issueHeader = null;
+    if (args?.issueId || args?.issueNo) {
+        const whereSql = args.issueId ? `id = $2` : `LOWER(TRIM(issue_no)) = LOWER(TRIM($2))`;
+        const [iRows] = await activeDb.query(`SELECT * FROM issue_headers WHERE outlet_id = $1 AND ${whereSql} LIMIT 1`, { bind: [outletId, args.issueId ? Number(args.issueId) : String(args.issueNo).trim()] });
+        issueHeader = iRows?.[0];
+        if (!issueHeader)
+            throw new Error(`Stock Dispatch / Issue not found: ${args.issueNo || args.issueId}`);
+    }
+    else {
+        const [recent] = await activeDb.query(`SELECT id, issue_no, department, issue_date FROM issue_headers WHERE outlet_id = $1 ORDER BY id DESC LIMIT 10`, { bind: [outletId] }).catch(() => [[]]);
+        return {
+            status: 'NEEDS_INPUT',
+            missingField: 'issueNo',
+            recentDispatches: recent || [],
+            message: 'Please provide the Stock Dispatch reference number (issueNo) to return items against.',
+        };
+    }
+    const rawItems = Array.isArray(args?.items) ? args.items : [];
+    if (rawItems.length === 0) {
+        return { status: 'NEEDS_INPUT', missingField: 'items', message: 'Please specify the items and quantities to return.' };
+    }
+    const [issuedRows] = await activeDb.query(`SELECT ii.*, im.item_name FROM issue_items ii LEFT JOIN item_master im ON im.id = ii.item_id WHERE ii.issue_id = $1`, { bind: [issueHeader.id] });
+    const returnItems = [];
+    for (const row of rawItems) {
+        const item = await resolveMasterItem(activeDb, outletId, row);
+        const matched = (issuedRows || []).find((ir) => Number(ir.item_id) === Number(item.id));
+        if (!matched)
+            throw new Error(`Item ${item.item_name} was not part of dispatch ${issueHeader.issue_no}.`);
+        const qty = Number(row.qty || 0);
+        if (qty <= 0)
+            throw new Error(`Return qty must be > 0 for ${item.item_name}`);
+        returnItems.push({
+            issue_item_id: matched.id,
+            item_id: item.id,
+            item_code: item.item_code,
+            qty,
+            rate: Number(row.rate ?? matched.rate ?? 0),
+        });
+    }
+    const returnCtrl = require('../controllers/inventory/return.controller');
+    const result = await invokeMutationController(returnCtrl.saveReturn, activeDb, scope, outletId, {
+        body: {
+            issue_id: issueHeader.id,
+            return_date: returnDate,
+            items: returnItems,
+        },
+    });
+    return {
+        status: 'CREATED',
+        departmentReturn: result?.data || result,
+        message: `Department return recorded against ${issueHeader.issue_no}.`,
+    };
+}
+async function toolCreateDamageEntry(db, scope, args) {
+    const activeDb = getActiveDb(db);
+    const outletId = resolveTargetOutlet(scope, args?.outletId);
+    const damageDate = args?.damageDate || new Date().toISOString().slice(0, 10);
+    const rawItems = Array.isArray(args?.items) ? args.items : [];
+    if (rawItems.length === 0) {
+        return { status: 'NEEDS_INPUT', missingField: 'items', message: 'Please provide damaged item(s) with qty and optional remarks.' };
+    }
+    const resolvedItems = [];
+    for (const row of rawItems) {
+        const item = await resolveMasterItem(activeDb, outletId, row);
+        const qty = Number(row.qty || 0);
+        if (qty <= 0)
+            throw new Error(`Damage qty must be > 0 for ${item.item_name}`);
+        const avail = Number(item.current_stock || 0);
+        if (qty > avail) {
+            throw new Error(`Damage qty exceeds available stock for ${item.item_name}. Available: ${avail}, Requested: ${qty}`);
+        }
+        resolvedItems.push({
+            item_id: item.id,
+            qty,
+            rate: Number(row.rate ?? item.buy_rate ?? 0),
+            remarks: row.remarks || '',
+        });
+    }
+    const damageCtrl = require('../controllers/inventory/damage.controller');
+    const result = await invokeMutationController(damageCtrl.createDamage, activeDb, scope, outletId, {
+        body: {
+            header: { damage_date: damageDate, approval_status: 'PENDING' },
+            items: resolvedItems,
+        },
+    });
+    return {
+        status: 'CREATED',
+        damageEntry: result?.data || result,
+        message: `Damage entry recorded for ${resolvedItems.length} item(s).`,
+    };
+}
+async function toolCreateVendorReturn(db, scope, args) {
+    const activeDb = getActiveDb(db);
+    const outletId = resolveTargetOutlet(scope, args?.outletId);
+    const returnDate = args?.returnDate || new Date().toISOString().slice(0, 10);
+    let grn = null;
+    if (args?.grnId || args?.grnNo) {
+        const whereSql = args.grnId ? `id = $2` : `LOWER(TRIM(grn_no)) = LOWER(TRIM($2))`;
+        const [gRows] = await activeDb.query(`SELECT * FROM goods_receipts WHERE outlet_id = $1 AND ${whereSql} LIMIT 1`, { bind: [outletId, args.grnId ? Number(args.grnId) : String(args.grnNo).trim()] });
+        grn = gRows?.[0];
+        if (!grn)
+            throw new Error(`GRN not found: ${args.grnNo || args.grnId}`);
+    }
+    else {
+        const [recentGrns] = await activeDb.query(`SELECT id, grn_no, supplier_bill_no, receipt_date, net_amount FROM goods_receipts WHERE outlet_id = $1 ORDER BY id DESC LIMIT 10`, { bind: [outletId] }).catch(() => [[]]);
+        return {
+            status: 'NEEDS_INPUT',
+            missingField: 'grnNo',
+            recentGRNs: recentGrns || [],
+            message: 'Please provide the received GRN number (grnNo) to return items to the vendor.',
+        };
+    }
+    const rawItems = Array.isArray(args?.items) ? args.items : [];
+    if (rawItems.length === 0) {
+        return { status: 'NEEDS_INPUT', missingField: 'items', message: 'Please specify the item(s) and quantities to return to vendor.' };
+    }
+    const [grnItems] = await activeDb.query(`SELECT * FROM goods_receipt_items WHERE grn_id = $1`, { bind: [grn.id] });
+    const returnItems = [];
+    for (const row of rawItems) {
+        const item = await resolveMasterItem(activeDb, outletId, row);
+        const matched = (grnItems || []).find((gi) => Number(gi.item_id) === Number(item.id));
+        if (!matched)
+            throw new Error(`Item ${item.item_name} was not part of GRN ${grn.grn_no}.`);
+        const qty = Number(row.qty || 0);
+        if (qty <= 0)
+            throw new Error(`Return qty must be > 0 for ${item.item_name}`);
+        returnItems.push({
+            receipt_item_id: matched.id,
+            qty,
+            rate: Number(row.rate ?? matched.rate ?? 0),
+        });
+    }
+    const srCtrl = require('../controllers/inventory/supplierReturn.controller');
+    const result = await invokeMutationController(srCtrl.saveSupplierReturn, activeDb, scope, outletId, {
+        body: {
+            grn_id: grn.id,
+            supplier_id: grn.supplier_id,
+            return_date: returnDate,
+            notes: args?.notes || null,
+            items: returnItems,
+        },
+    });
+    return {
+        status: 'CREATED',
+        vendorReturn: result?.data || result,
+        message: `Vendor return recorded against GRN ${grn.grn_no}.`,
+    };
+}
+async function toolListSupplierBills(db, scope, args) {
+    const activeDb = getActiveDb(db);
+    const outletId = resolveTargetOutlet(scope, args?.outletId);
+    let supplierId = args?.supplierId ? Number(args.supplierId) : undefined;
+    if (!supplierId && args?.supplierName) {
+        const q = String(args.supplierName).trim();
+        const [sRows] = await activeDb.query(`SELECT id FROM supplier_master WHERE outlet_id = $1 AND supplier_name ILIKE $2 LIMIT 1`, { bind: [outletId, `%${q}%`] });
+        if (sRows?.[0]?.id)
+            supplierId = Number(sRows[0].id);
+    }
+    const spCtrl = require('../controllers/supplier/supplierPayment.controller');
+    const result = await invokeMutationController(spCtrl.getSupplierBills, activeDb, scope, outletId, {
+        query: {
+            ...(supplierId ? { supplier_id: supplierId } : {}),
+            ...(args?.status && args.status !== 'ALL' ? { status: String(args.status).toUpperCase() } : {}),
+            ...(args?.fromDate ? { from_date: args.fromDate } : {}),
+            ...(args?.toDate ? { to_date: args.toDate } : {}),
+        },
+    });
+    const bills = Array.isArray(result?.data) ? result.data : [];
+    const totalPurchase = bills.reduce((s, b) => s + Number(b.bill_amount || 0), 0);
+    const totalPaid = bills.reduce((s, b) => s + Number(b.paid_amount || 0), 0);
+    return {
+        count: bills.length,
+        summary: {
+            totalPurchase: Number(totalPurchase.toFixed(2)),
+            paid: Number(totalPaid.toFixed(2)),
+            unpaid: Number((totalPurchase - totalPaid).toFixed(2)),
+        },
+        bills,
+    };
+}
+async function toolPaySupplierBill(db, scope, args) {
+    const activeDb = getActiveDb(db);
+    const outletId = resolveTargetOutlet(scope, args?.outletId);
+    let bill = null;
+    if (args?.billId) {
+        const [rows] = await activeDb.query(`SELECT sb.*, gr.grn_no, sm.supplier_name
+       FROM supplier_bills sb
+       LEFT JOIN goods_receipts gr ON gr.id = sb.grn_id
+       LEFT JOIN supplier_master sm ON sm.id = sb.supplier_id
+       WHERE sb.outlet_id = $1 AND sb.id = $2 LIMIT 1`, { bind: [outletId, Number(args.billId)] });
+        bill = rows?.[0];
+    }
+    else if (args?.grnNo || args?.billNo) {
+        const conds = [`sb.outlet_id = $1`];
+        const bind = [outletId];
+        if (args?.grnNo) {
+            bind.push(String(args.grnNo).trim());
+            conds.push(`LOWER(TRIM(gr.grn_no)) = LOWER(TRIM($${bind.length}))`);
+        }
+        if (args?.billNo) {
+            bind.push(String(args.billNo).trim());
+            conds.push(`LOWER(TRIM(sb.bill_no)) = LOWER(TRIM($${bind.length}))`);
+        }
+        if (args?.supplierName) {
+            bind.push(`%${String(args.supplierName).trim()}%`);
+            conds.push(`sm.supplier_name ILIKE $${bind.length}`);
+        }
+        const [rows] = await activeDb.query(`SELECT sb.*, gr.grn_no, sm.supplier_name
+       FROM supplier_bills sb
+       LEFT JOIN goods_receipts gr ON gr.id = sb.grn_id
+       LEFT JOIN supplier_master sm ON sm.id = sb.supplier_id
+       WHERE ${conds.join(' AND ')} ORDER BY sb.id DESC LIMIT 1`, { bind });
+        bill = rows?.[0];
+    }
+    if (!bill) {
+        const [unpaid] = await activeDb.query(`SELECT sb.id AS bill_id, sm.supplier_name, gr.grn_no, sb.bill_no, sb.bill_date, sb.bill_amount, sb.paid_amount, (sb.bill_amount - sb.paid_amount) AS balance, sb.status
+       FROM supplier_bills sb
+       LEFT JOIN goods_receipts gr ON gr.id = sb.grn_id
+       LEFT JOIN supplier_master sm ON sm.id = sb.supplier_id
+       WHERE sb.outlet_id = $1 AND sb.status IN ('UNPAID', 'PARTIAL')
+       ORDER BY sb.id DESC LIMIT 15`, { bind: [outletId] }).catch(() => [[]]);
+        return {
+            status: 'NEEDS_INPUT',
+            missingField: 'billId_or_grnNo_or_billNo',
+            unpaidBills: unpaid || [],
+            message: 'Please specify which vendor bill to pay (billId, grnNo, or billNo).',
+        };
+    }
+    const balance = Number((Number(bill.bill_amount || 0) - Number(bill.paid_amount || 0)).toFixed(2));
+    if (balance <= 0.009) {
+        throw new Error(`Bill ${bill.bill_no} (${bill.grn_no || ''}) is already fully PAID.`);
+    }
+    const payAmount = args?.payAmount !== undefined ? Number(args.payAmount) : balance;
+    const creditAdjusted = Number(args?.creditAdjusted || 0);
+    const roundOff = Number(args?.roundOff || 0);
+    if (payAmount < 0 || creditAdjusted < 0 || (payAmount === 0 && creditAdjusted === 0)) {
+        return { status: 'NEEDS_INPUT', missingField: 'payAmount', balance, message: `Please provide a valid payAmount (outstanding balance: ₹${balance}).` };
+    }
+    const paymentMode = String(args?.paymentMode || 'CASH').trim().toUpperCase();
+    const [pmRows] = await activeDb.query(`SELECT name FROM payment_methods WHERE is_active = TRUE AND UPPER(TRIM(name)) = $1 LIMIT 1`, { bind: [paymentMode] });
+    if (!pmRows?.[0]) {
+        const [activePms] = await activeDb.query(`SELECT name FROM payment_methods WHERE is_active = TRUE ORDER BY id ASC`);
+        throw new Error(`Payment mode "${paymentMode}" is not active. Active modes: ${(activePms || []).map((p) => p.name).join(', ')}`);
+    }
+    const spCtrl = require('../controllers/supplier/supplierPayment.controller');
+    const result = await invokeMutationController(spCtrl.paySupplierBill, activeDb, scope, outletId, {
+        body: {
+            bill_id: bill.id,
+            amount: payAmount,
+            credit_adjusted: creditAdjusted,
+            round_off: roundOff,
+            payment_mode: paymentMode,
+            payment_date: args?.paymentDate || new Date().toISOString().slice(0, 10),
+            reference_no: args?.referenceNo || null,
+            note: args?.note || null,
+        },
+    });
+    return {
+        status: 'PAID',
+        bill: { id: bill.id, bill_no: bill.bill_no, grn_no: bill.grn_no, supplier_name: bill.supplier_name },
+        payment: result?.data || result,
+        message: `Payment of ₹${payAmount.toFixed(2)} via ${paymentMode} recorded for bill ${bill.bill_no}.`,
+    };
 }

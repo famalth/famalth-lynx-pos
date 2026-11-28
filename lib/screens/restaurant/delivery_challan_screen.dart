@@ -991,7 +991,20 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                               ],
                             ),
                           ),
-                          DataCell(Text(d['phone'] ?? 'N/A')),
+                          DataCell(
+                            Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(d['phone'] ?? 'N/A'),
+                                if ((d['email'] ?? '').toString().trim().isNotEmpty)
+                                  Text(
+                                    d['email'].toString(),
+                                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                                  ),
+                              ],
+                            ),
+                          ),
                           DataCell(Text(d['license_number'] ?? 'Standard DL')),
                           DataCell(
                             Container(

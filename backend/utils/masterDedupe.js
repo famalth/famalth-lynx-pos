@@ -3,7 +3,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.MASTER_NATURAL_KEYS = void 0;
 exports.findExistingMasterByNaturalKey = findExistingMasterByNaturalKey;
 const sequelize_1 = require("sequelize");
-
+/**
+ * Candidate natural keys (in priority order) for master tables to prevent
+ * duplicate records during backup restore or local<->cloud migration when
+ * primary key IDs differ from auto-created records in the target database.
+ */
 exports.MASTER_NATURAL_KEYS = {
     hr_offices: [['outlet_id', 'office_code'], ['outlet_id', 'office_name']],
     hr_departments: [['outlet_id', 'department_name']],
@@ -46,7 +50,10 @@ exports.MASTER_NATURAL_KEYS = {
     transport_vehicles: [['outlet_id', 'vehicle_number']],
     transport_drivers: [['outlet_id', 'phone']],
 };
-
+/**
+ * Checks if a master row already exists in the target table by natural key.
+ * Returns the existing row's `id` if found, or `null` if no duplicate exists.
+ */
 async function findExistingMasterByNaturalKey(db, tableName, row, validCols, transaction) {
     const keySets = exports.MASTER_NATURAL_KEYS[tableName];
     if (!keySets || !row || typeof row !== 'object')
@@ -97,7 +104,7 @@ async function findExistingMasterByNaturalKey(db, tableName, row, validCols, tra
         }
         catch (_) {
             if (transaction) {
-                await db.query('ROLLBACK TO SAVEPOINT sp_nk', { transaction }).catch(() => {});
+                await db.query('ROLLBACK TO SAVEPOINT sp_nk', { transaction }).catch(() => { });
             }
         }
     }

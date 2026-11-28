@@ -93,7 +93,7 @@ async function resolveEmployee(req: any, models: any) {
   // 5. Active employee in current outlet
   if (!employee && outlet_id) {
     employee = await hr_employees.findOne({
-      where: { outlet_id, status: 'Active' },
+      where: { outlet_id, status: { [Op.iLike]: 'Active' } },
       include: includes,
       order: [['id', 'ASC']]
     });
@@ -153,7 +153,7 @@ exports.getOffices = async (req, res) => {
     const result = await Promise.all(uniqueOffices.map(async (off: any) => {
       const plain = off.toJSON ? off.toJSON() : off;
       const empCount = await hr_employees.count({
-        where: { office_id: off.id, status: 'Active', outlet_id }
+        where: { office_id: off.id, status: { [Op.iLike]: 'Active' }, outlet_id }
       });
       return {
         ...plain,
@@ -252,7 +252,7 @@ exports.deleteOffice = async (req, res) => {
     }
 
     const assignedCount = await hr_employees.count({
-      where: { office_id: office.id, status: 'Active', outlet_id }
+      where: { office_id: office.id, status: { [Op.iLike]: 'Active' }, outlet_id }
     });
 
     if (assignedCount > 0) {
@@ -295,7 +295,7 @@ exports.employeeLogin = async (req: any, res: any) => {
           { employee_code: { [Op.iLike]: cleanUsername } },
           { contact_email: { [Op.iLike]: cleanUsername } }
         ],
-        status: 'Active'
+        status: { [Op.iLike]: 'Active' }
       },
       include: [
         { model: hr_offices, as: 'office' },
@@ -411,7 +411,7 @@ exports.employeeRequestResetOtp = async (req: any, res: any) => {
           { employee_code: { [Op.iLike]: cleanInput } },
           { contact_email: { [Op.iLike]: cleanInput } }
         ],
-        status: 'Active'
+        status: { [Op.iLike]: 'Active' }
       },
       include: [
         { model: hr_offices, as: 'office' },
@@ -528,7 +528,7 @@ exports.employeeResetPassword = async (req: any, res: any) => {
           { employee_code: { [Op.iLike]: cleanInput } },
           { contact_email: { [Op.iLike]: cleanInput } }
         ],
-        status: 'Active'
+        status: { [Op.iLike]: 'Active' }
       },
       order: [['id', 'DESC']]
     });
@@ -665,7 +665,7 @@ exports.employeeGeotaggedPunch = async (req: any, res: any) => {
           bound_device_id: deviceId,
           id: { [Op.ne]: employee.id },
           outlet_id: employee.outlet_id,
-          status: 'Active'
+          status: { [Op.iLike]: 'Active' }
         }
       });
 

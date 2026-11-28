@@ -43,6 +43,7 @@ exports.RETENTION_TABLES = [
     { table: 'request_headers', module: 'INVENTORY', dateColumn: 'created_at' },
     { table: 'delivery_challan_items', module: 'INVENTORY', isChild: true, parentTable: 'delivery_challan_headers', parentFk: 'challan_id' },
     { table: 'delivery_challan_headers', module: 'INVENTORY', dateColumn: 'created_at' },
+    { table: 'transport_driver_locations', module: 'INVENTORY', dateColumn: 'created_at' },
     // 6. Milk Subscriptions
     { table: 'milk_subscription_consumptions', module: 'SALES', isChild: true, parentTable: 'milk_subscriptions', parentFk: 'subscription_id' },
     { table: 'milk_subscription_items', module: 'SALES', isChild: true, parentTable: 'milk_subscriptions', parentFk: 'subscription_id' },
@@ -117,6 +118,8 @@ exports.RETENTION_TABLES = [
     { table: 'taxes_master', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
     { table: 'tax_profiles', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
     { table: 'stock_locations', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
+    { table: 'transport_drivers', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
+    { table: 'transport_vehicles', module: 'RETAIL_MASTERS', dateColumn: 'created_at' },
     // Clinic Masters
     { table: 'clinic_doctors', module: 'CLINIC_MASTERS', dateColumn: 'created_at' },
     { table: 'clinic_services', module: 'CLINIC_MASTERS', dateColumn: 'created_at' },
@@ -367,7 +370,7 @@ class DataRetentionService {
                     await activeDb.query('RELEASE SAVEPOINT sp_fk', { transaction: t });
                 }
                 catch (_) {
-                    await activeDb.query('ROLLBACK TO SAVEPOINT sp_fk', { transaction: t }).catch(() => {});
+                    await activeDb.query('ROLLBACK TO SAVEPOINT sp_fk', { transaction: t }).catch(() => { });
                 }
             }
             // Child tables first, parents last
@@ -405,12 +408,12 @@ class DataRetentionService {
                                 await activeDb.query('RELEASE SAVEPOINT sp_user_unlink', { transaction: t });
                             }
                             catch (_) {
-                                await activeDb.query('ROLLBACK TO SAVEPOINT sp_user_unlink', { transaction: t }).catch(() => {});
+                                await activeDb.query('ROLLBACK TO SAVEPOINT sp_user_unlink', { transaction: t }).catch(() => { });
                             }
                         }
                     }
                     catch (_) {
-                        await activeDb.query('ROLLBACK TO SAVEPOINT sp_user_fk', { transaction: t }).catch(() => {});
+                        await activeDb.query('ROLLBACK TO SAVEPOINT sp_user_fk', { transaction: t }).catch(() => { });
                     }
                 }
                 // Before deleting from "stock_ledger", snapshot monthly closings & roll purged net qty into item_master.opening_balance
@@ -421,7 +424,7 @@ class DataRetentionService {
                         await activeDb.query('SAVEPOINT sp_stock_protect', { transaction: t });
                         if (!isAllOutlets) {
                             const { closeCompletedMonthsForOutlet } = require('../jobs/monthlyStockClosingJob');
-                            await closeCompletedMonthsForOutlet(activeDb, outletId, t).catch(() => {});
+                            await closeCompletedMonthsForOutlet(activeDb, outletId, t).catch(() => { });
                         }
                         await activeDb.query(`UPDATE "item_master" im
                SET opening_balance = COALESCE(im.opening_balance, 0) + agg.net_qty
@@ -436,7 +439,7 @@ class DataRetentionService {
                         await activeDb.query('RELEASE SAVEPOINT sp_stock_protect', { transaction: t });
                     }
                     catch (stockProtErr) {
-                        await activeDb.query('ROLLBACK TO SAVEPOINT sp_stock_protect', { transaction: t }).catch(() => {});
+                        await activeDb.query('ROLLBACK TO SAVEPOINT sp_stock_protect', { transaction: t }).catch(() => { });
                         console.warn('⚠️ [RETENTION] Stock opening balance roll-forward warning:', stockProtErr?.message);
                     }
                 }
@@ -455,7 +458,7 @@ class DataRetentionService {
                     }
                 }
                 catch (delErr) {
-                    await activeDb.query('ROLLBACK TO SAVEPOINT sp_purge', { transaction: t }).catch(() => {});
+                    await activeDb.query('ROLLBACK TO SAVEPOINT sp_purge', { transaction: t }).catch(() => { });
                     console.warn(`[RETENTION] Warning deleting from ${def.table}: ${delErr.message}`);
                 }
             }
@@ -468,7 +471,7 @@ class DataRetentionService {
                     await activeDb.query('RELEASE SAVEPOINT sp_bank', { transaction: t });
                 }
                 catch (_) {
-                    await activeDb.query('ROLLBACK TO SAVEPOINT sp_bank', { transaction: t }).catch(() => {});
+                    await activeDb.query('ROLLBACK TO SAVEPOINT sp_bank', { transaction: t }).catch(() => { });
                 }
             }
             // Optional: Reset sequences & outlet operational settings to default (preserves property_info, outlets, admin_<outletCode>, Gmail/SMTP & WhatsApp config)
@@ -491,7 +494,7 @@ class DataRetentionService {
                         await activeDb.query('RELEASE SAVEPOINT sp_reset', { transaction: t });
                     }
                     catch (_) {
-                        await activeDb.query('ROLLBACK TO SAVEPOINT sp_reset', { transaction: t }).catch(() => {});
+                        await activeDb.query('ROLLBACK TO SAVEPOINT sp_reset', { transaction: t }).catch(() => { });
                     }
                 }
             }

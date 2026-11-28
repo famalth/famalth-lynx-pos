@@ -23,33 +23,7 @@ exports.getChatGptOpenApiSpec = getChatGptOpenApiSpec;
 exports.getGeminiToolsSpec = getGeminiToolsSpec;
 exports.getClaudeConfigSnippet = getClaudeConfigSnippet;
 const defaultDb = require('../db/models');
-const {
-    MCP_ERP_TOOL_DEFINITIONS,
-    toolGetOutletProfile,
-    toolGetAccountingReports,
-    toolCreatePurchaseOrder,
-    toolApprovePurchaseOrder,
-    toolCreateTableOrder,
-    toolCreateSupplier,
-    toolCreateCustomer,
-    toolGetAttendance,
-    toolCreateEmployee,
-    toolCreateMasterRecord,
-    toolListMasterRecords,
-    toolUpdateMasterRecord,
-    toolManageLoyaltyProgram,
-    toolManagePaymentMethods,
-    toolManageLuckyDrawCampaign,
-    toolManageBankAndCapital,
-    toolRecordFinanceEntry,
-    toolGetPartyLedgers,
-    toolManagePricingAndPromos,
-    toolCreateTaxGroup,
-    toolCreateOutletBackup,
-    toolManagePlugins,
-    toolCreateSubscription,
-    toolManageSalesSchemes
-} = require('./mcpErpTools.service');
+const { MCP_ERP_TOOL_DEFINITIONS, toolGetOutletProfile, toolGetAccountingReports, toolCreatePurchaseOrder, toolApprovePurchaseOrder, toolCreateTableOrder, toolCreateSupplier, toolCreateCustomer, toolGetAttendance, toolCreateEmployee, toolCreateMasterRecord, toolListMasterRecords, toolUpdateMasterRecord, toolManageLoyaltyProgram, toolManagePaymentMethods, toolManageLuckyDrawCampaign, toolManageBankAndCapital, toolRecordFinanceEntry, toolGetPartyLedgers, toolManagePricingAndPromos, toolCreateTaxGroup, toolCreateOutletBackup, toolManagePlugins, toolCreateSubscription, toolManageSalesSchemes, toolCreateReceiving, toolCreateStockDispatch, toolCreateMaterialRequisition, toolCreateDepartmentReturn, toolCreateDamageEntry, toolCreateVendorReturn, toolListSupplierBills, toolPaySupplierBill } = require('./mcpErpTools.service');
 function normalizeOutletScope(ctxOrId) {
     if (ctxOrId && typeof ctxOrId === 'object' && Array.isArray(ctxOrId.allowedOutletIds)) {
         const pId = Number(ctxOrId.primaryOutletId) || 1;
@@ -1046,6 +1020,22 @@ async function executeTool(db, outletContext = 1, toolName, args = {}) {
             return await toolCreateSubscription(db, normalizeOutletScope(outletContext), args);
         case 'manage_sales_schemes':
             return await toolManageSalesSchemes(db, normalizeOutletScope(outletContext), args);
+        case 'create_receiving':
+            return await toolCreateReceiving(db, normalizeOutletScope(outletContext), args);
+        case 'create_stock_dispatch':
+            return await toolCreateStockDispatch(db, normalizeOutletScope(outletContext), args);
+        case 'create_material_requisition':
+            return await toolCreateMaterialRequisition(db, normalizeOutletScope(outletContext), args);
+        case 'create_department_return':
+            return await toolCreateDepartmentReturn(db, normalizeOutletScope(outletContext), args);
+        case 'create_damage_entry':
+            return await toolCreateDamageEntry(db, normalizeOutletScope(outletContext), args);
+        case 'create_vendor_return':
+            return await toolCreateVendorReturn(db, normalizeOutletScope(outletContext), args);
+        case 'list_supplier_bills':
+            return await toolListSupplierBills(db, normalizeOutletScope(outletContext), args);
+        case 'pay_supplier_bill':
+            return await toolPaySupplierBill(db, normalizeOutletScope(outletContext), args);
         default:
             throw new Error(`Unknown MCP Tool: '${toolName}'. Available tools: ${exports.MCP_TOOLS.map(t => t.name).join(', ')}`);
     }
